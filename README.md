@@ -1,36 +1,99 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+![OpenVibeCode Banner](https://raw.githubusercontent.com/AWKohler/open-vibe-code/refs/heads/main/public/brand/openvibecode.svg)
 
-## Getting Started
+# OpenVibeCode
 
-First, run the development server:
+OpenVibeCode is an open source AI-powered web IDE for creating, editing, and shipping projects from a browser workspace.
+
+## What It Includes
+
+- Next.js App Router frontend and API routes
+- Clerk authentication
+- Project/workspace flows with cloud-backed services
+- GitHub integration hooks
+- Drizzle database tooling
+
+## Prerequisites
+
+- Node.js 20+
+- [pnpm](https://pnpm.io/installation)
+
+## Quick Start (pnpm)
+
+1. Install dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Create your environment file:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+cp .env.local.example .env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+If `.env.local.example` does not exist yet, create `.env.local` manually with the template below.
 
-## Learn More
+3. Add all required environment variables to `.env.local`:
 
-To learn more about Next.js, take a look at the following resources:
+```env
+# Required: PostgreSQL / Neon
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/DB?sslmode=require&channel_binding=require"
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# Required: Clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY="pk_test_or_pk_live_xxx"
+CLERK_SECRET_KEY="sk_test_or_sk_live_xxx"
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# Required: App behavior
+NEXT_PUBLIC_DEBUG_PREVIEW="1"
 
-## Deploy on Vercel
+# Required: Convex
+CONVEX_TEAM_ID="your_convex_team_id"
+CONVEX_TEAM_TOKEN="your_convex_team_token"
+CONVEX_TEAM_TOKEN_NAME="your_convex_team_token_name"
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# Required: Worker
+FLY_WORKER_URL="https://your-worker-url.fly.dev"
+WORKER_AUTH_TOKEN="your_worker_auth_token"
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Required: GitHub OAuth
+GITHUB_CLIENT_ID="your_github_client_id"
+GITHUB_CLIENT_SECRET="your_github_client_secret"
+
+# Required: Public app URL
+NEXT_PUBLIC_APP_URL="https://your-app-domain.example"
+
+# Required: Cloudflare
+CLOUDFLARE_API_TOKEN="your_cloudflare_api_token"
+CLOUDFLARE_ACCOUNT_ID="your_cloudflare_account_id"
+```
+
+All variables above are required for this project configuration.
+
+4. Start the dev server:
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+## Database Commands
+
+```bash
+pnpm db:generate
+pnpm db:migrate
+pnpm db:push
+```
+
+## Scripts
+
+```bash
+pnpm dev
+pnpm build
+pnpm start
+pnpm lint
+```
+
+## Security Note
+
+Never commit `.env.local` or share real credentials in issues, screenshots, or docs.

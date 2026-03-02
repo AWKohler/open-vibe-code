@@ -33,6 +33,7 @@ import {
   Tablet,
   Smartphone,
   AppWindow,
+  Frame,
   Github,
   Download,
 } from "lucide-react";
@@ -72,7 +73,7 @@ export function Workspace({
   // Preview UI state lifted to combine headers
   const [previewPath, setPreviewPath] = useState<string>("/");
   const [previewDevice, setPreviewDevice] = useState<
-    "desktop" | "tablet" | "mobile" | "responsive"
+    "desktop" | "tablet" | "mobile" | "responsive" | "figma"
   >("desktop");
   const [previewLandscape] = useState(false);
   const [previewReloadKey, setPreviewReloadKey] = useState(0);
@@ -1509,7 +1510,9 @@ export default function RootLayout() {
                             ? "mobile"
                             : prev === "mobile"
                               ? "responsive"
-                              : "desktop",
+                              : prev === "responsive"
+                                ? "figma"
+                                : "desktop",
                       )
                     }
                     className="text-muted hover:text-fg"
@@ -1519,6 +1522,7 @@ export default function RootLayout() {
                     {previewDevice === "tablet" && <Tablet size={16} />}
                     {previewDevice === "mobile" && <Smartphone size={16} />}
                     {previewDevice === "responsive" && <AppWindow size={16} />}
+                    {previewDevice === "figma" && <Frame size={16} />}
                   </button>
                   <span className="text-muted text-sm select-none">/</span>
                   <input

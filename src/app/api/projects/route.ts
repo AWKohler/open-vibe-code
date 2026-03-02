@@ -26,12 +26,13 @@ export async function POST(request: NextRequest) {
       name?: string;
       platform?: 'web' | 'mobile';
       model?:
-        | 'gpt-5.2'
+        | 'gpt-5.3-codex'
         | 'claude-sonnet-4.6'
         | 'claude-haiku-4.5'
         | 'claude-opus-4.6'
         | 'kimi-k2-thinking-turbo'
-        | 'fireworks-minimax-m2p5';
+        | 'fireworks-minimax-m2p5'
+        | 'fireworks-glm-5';
     };
 
     if (!name) {
@@ -56,7 +57,9 @@ export async function POST(request: NextRequest) {
             ? 'kimi-k2-thinking-turbo'
             : model === 'fireworks-minimax-m2p5'
             ? 'fireworks-minimax-m2p5'
-            : 'gpt-5.2',
+            : model === 'fireworks-glm-5'
+            ? 'fireworks-glm-5'
+            : 'gpt-5.3-codex',
       })
       .returning();
 

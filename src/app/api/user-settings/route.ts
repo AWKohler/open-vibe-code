@@ -19,6 +19,7 @@ export async function GET() {
       hasMoonshotKey: Boolean(row?.moonshotApiKey),
       hasFireworksKey: Boolean(row?.fireworksApiKey),
       hasClaudeOAuth: Boolean(row?.claudeOAuthAccessToken),
+      hasCodexOAuth: Boolean(row?.codexOAuthAccessToken),
     });
   } catch (e) {
     console.error('GET /api/user-settings failed:', e);

@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils";
 import { ArrowUp, Plus, Smartphone, Laptop, Cog } from "lucide-react";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { useToast } from "@/components/ui/toast";
+import { ModelSelector } from "@/components/ui/ModelSelector";
+import type { ModelId } from "@/lib/agent/models";
 import Dither from "@/components/landing/Dither";
 
 export default function Home() {
@@ -20,19 +22,13 @@ export default function Home() {
   const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState("");
   const [platform, setPlatform] = useState<"web" | "mobile">("web");
-  const [model, setModel] = useState<
-    | "gpt-5.2"
-    | "claude-sonnet-4.6"
-    | "claude-haiku-4.5"
-    | "claude-opus-4.6"
-    | "kimi-k2-thinking-turbo"
-    | "fireworks-minimax-m2p5"
-  >("gpt-5.2");
+  const [model, setModel] = useState<ModelId>("gpt-5.3-codex");
   const { toast } = useToast();
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
   const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState<boolean | null>(null);
   const [hasMoonshotKey, setHasMoonshotKey] = useState<boolean | null>(null);
+  const [hasCodexOAuth, setHasCodexOAuth] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
@@ -44,12 +40,14 @@ export default function Home() {
   const PENDING_PARAMS_KEY = "huggable_pending_start_params";
   const PENDING_NAME_KEY = "huggable_pending_project_name";
   const allowedModels = new Set([
-    "gpt-5.2",
+    "gpt-5.3-codex",
+    "gpt-5.2", // legacy compat
     "claude-sonnet-4.6",
     "claude-haiku-4.5",
     "claude-opus-4.6",
     "kimi-k2-thinking-turbo",
     "fireworks-minimax-m2p5",
+    "fireworks-glm-5",
   ]);
   const landingSignInModalAppearance = {
     elements: {
@@ -63,10 +61,18 @@ export default function Home() {
 
   const canSend = useMemo(() => prompt.trim().length > 0, [prompt]);
 
+  const providerAccess = useMemo(() => ({
+    openai: hasCodexOAuth || hasOpenAIKey,
+    anthropic: hasClaudeOAuth || hasAnthropicKey,
+    moonshot: hasMoonshotKey,
+    fireworks: hasFireworksKey,
+  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasMoonshotKey, hasFireworksKey]);
+
   const ensureModelKeyPresent = () => {
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
-    const keyChecks = {
-      "gpt-5.2": { hasKey: hasOpenAIKey, provider: "OpenAI" },
+    const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
+    const keyChecks: Record<ModelId, { hasKey: boolean | null; provider: string }> = {
+      "gpt-5.3-codex": { hasKey: hasOpenAICreds, provider: "OpenAI" },
       "claude-sonnet-4.6": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
       "claude-haiku-4.5": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
       "claude-opus-4.6": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
@@ -78,7 +84,11 @@ export default function Home() {
         hasKey: hasFireworksKey,
         provider: "Fireworks AI",
       },
-    } as const;
+      "fireworks-glm-5": {
+        hasKey: hasFireworksKey,
+        provider: "Fireworks AI",
+      },
+    };
     const check = keyChecks[model];
     if (check.hasKey === false) {
       toast({
@@ -171,6 +181,7 @@ export default function Home() {
           setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
           setHasAnthropicKey(Boolean(data?.hasAnthropicKey));
           setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
+          setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
         }
@@ -188,7 +199,9 @@ export default function Home() {
         const storedModel = storedParamsObj.get("model");
         const storedPlatform = storedParamsObj.get("platform");
         if (storedModel && allowedModels.has(storedModel)) {
-          setModel(storedModel as typeof model);
+          // Map legacy model IDs
+          const resolved = storedModel === 'gpt-5.2' ? 'gpt-5.3-codex' : storedModel;
+          setModel(resolved as ModelId);
         }
         if (storedPlatform === "mobile" || storedPlatform === "web") {
           setPlatform(storedPlatform);
@@ -369,35 +382,12 @@ export default function Home() {
                     </button>
 
                     {/* Model Selector */}
-                    <select
-                      className="pointer-events-auto inline-flex items-center rounded-full border border-border bg-elevated px-3 py-1.5 text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition"
+                    <ModelSelector
                       value={model}
-                      onChange={(e) =>
-                        setModel(
-                          e.target.value as
-                            | "gpt-5.2"
-                            | "claude-sonnet-4.6"
-                            | "claude-haiku-4.5"
-                            | "claude-opus-4.6"
-                            | "kimi-k2-thinking-turbo"
-                            | "fireworks-minimax-m2p5",
-                        )
-                      }
-                      title="Select model"
-                    >
-                      <option value="gpt-5.2">GPT-5.2</option>
-                      <option value="claude-sonnet-4.6">
-                        Claude Sonnet 4.6
-                      </option>
-                      <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
-                      <option value="claude-opus-4.6">Claude Opus 4.6</option>
-                      <option value="kimi-k2-thinking-turbo">
-                        Kimi K2 Thinking Turbo
-                      </option>
-                      <option value="fireworks-minimax-m2p5">
-                        Fireworks MiniMax-M2.5
-                      </option>
-                    </select>
+                      onChange={setModel}
+                      providerAccess={providerAccess}
+                      size="md"
+                    />
                   </div>
 
                   {/* Send button */}

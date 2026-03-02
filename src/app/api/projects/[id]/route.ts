@@ -36,7 +36,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     };
     if (
       model &&
-      model !== 'gpt-5.2' &&
+      model !== 'gpt-5.3-codex' &&
+      model !== 'gpt-5.2' && // backwards compat
       model !== 'gpt-4.1' && // backwards compat
       model !== 'claude-sonnet-4.6' &&
       model !== 'claude-sonnet-4.5' && // backwards compat
@@ -44,7 +45,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       model !== 'claude-opus-4.6' &&
       model !== 'claude-opus-4.5' && // backwards compat
       model !== 'kimi-k2-thinking-turbo' &&
-      model !== 'fireworks-minimax-m2p5'
+      model !== 'fireworks-minimax-m2p5' &&
+      model !== 'fireworks-glm-5'
     ) {
       return NextResponse.json({ error: 'Invalid model' }, { status: 400 });
     }

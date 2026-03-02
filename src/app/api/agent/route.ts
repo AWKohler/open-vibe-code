@@ -319,6 +319,49 @@ async function refreshAnthropicOAuthToken(
   }
 }
 
+async function refreshCodexOAuthToken(
+  settings: { codexOAuthRefreshToken?: string | null },
+  userId: string
+): Promise<string | null> {
+  if (!settings.codexOAuthRefreshToken) return null;
+
+  try {
+    const refreshRes = await fetch('https://auth.openai.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: settings.codexOAuthRefreshToken,
+        client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
+      }).toString(),
+    });
+
+    if (!refreshRes.ok) return null;
+
+    const refreshed = await refreshRes.json() as {
+      access_token: string;
+      refresh_token?: string;
+      expires_in?: number;
+    };
+
+    const newExpiresAt = refreshed.expires_in
+      ? Date.now() + refreshed.expires_in * 1000 - 5 * 60 * 1000
+      : null;
+
+    const db = getDb();
+    await db.update(userSettings).set({
+      codexOAuthAccessToken: refreshed.access_token,
+      codexOAuthRefreshToken: refreshed.refresh_token ?? settings.codexOAuthRefreshToken,
+      codexOAuthExpiresAt: newExpiresAt,
+      updatedAt: new Date(),
+    }).where(eq(userSettings.userId, userId));
+
+    return refreshed.access_token;
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================================
 // Main POST handler
 // ============================================================================
@@ -347,7 +390,7 @@ export async function POST(req: Request) {
     const db = getDb();
 
     // Determine selected model for project and ensure ownership
-    let selectedModel: ModelId = "gpt-5.2";
+    let selectedModel: ModelId = "gpt-5.3-codex";
     if (projectId) {
       const [proj] = await db
         .select()
@@ -409,11 +452,78 @@ export async function POST(req: Request) {
 
     // --- Build the model provider and stream ---
     const streamCall = async () => {
-      if (selectedModel === "gpt-5.2") {
+      if (selectedModel === "gpt-5.3-codex") {
+        // Path A: Codex OAuth (priority)
+        if (settings?.codexOAuthAccessToken) {
+          let accessToken = settings.codexOAuthAccessToken;
+          const expiresAt = settings.codexOAuthExpiresAt;
+          const isExpired = expiresAt !== null && expiresAt !== undefined && Date.now() >= expiresAt;
+
+          if (isExpired) {
+            accessToken = await refreshCodexOAuthToken(settings, userId) ?? "";
+          }
+
+          if (accessToken) {
+            const accountId = settings.codexOAuthAccountId;
+            const openai = createOpenAI({
+              apiKey: "codex-oauth-placeholder",
+              fetch: async (requestInput: RequestInfo | URL, init?: RequestInit) => {
+                const requestHeaders = new Headers();
+                if (init?.headers) {
+                  if (init.headers instanceof Headers) {
+                    init.headers.forEach((value, key) => requestHeaders.set(key, value));
+                  } else if (Array.isArray(init.headers)) {
+                    for (const [key, value] of init.headers) {
+                      if (value !== undefined) requestHeaders.set(key, String(value));
+                    }
+                  } else {
+                    for (const [key, value] of Object.entries(init.headers)) {
+                      if (value !== undefined) requestHeaders.set(key, String(value));
+                    }
+                  }
+                }
+
+                // Override authorization
+                requestHeaders.set("authorization", `Bearer ${accessToken}`);
+                if (accountId) {
+                  requestHeaders.set("ChatGPT-Account-Id", accountId);
+                }
+
+                // Rewrite URL to Codex endpoint
+                let finalInput: RequestInfo | URL = requestInput;
+                try {
+                  const url = requestInput instanceof URL
+                    ? new URL(requestInput.toString())
+                    : new URL(typeof requestInput === "string" ? requestInput : (requestInput as Request).url);
+                  if (url.pathname.includes("/v1/responses") || url.pathname.includes("/chat/completions")) {
+                    finalInput = "https://chatgpt.com/backend-api/codex/responses";
+                  }
+                } catch {
+                  // ignore URL parse errors
+                }
+
+                return fetch(finalInput, {
+                  ...init,
+                  headers: requestHeaders,
+                });
+              },
+            });
+
+            const result = streamText({
+              model: openai.responses(modelConfig.apiModelId),
+              system: systemPrompt,
+              messages: resolvedMessages,
+              tools,
+            });
+            return result.toUIMessageStreamResponse({ headers: responseHeaders });
+          }
+        }
+
+        // Path B: OpenAI API key fallback
         const apiKey = settings?.openaiApiKey;
         if (!apiKey) {
           return new Response(
-            JSON.stringify({ error: "Missing OpenAI API key", errorType: "auth" }),
+            JSON.stringify({ error: "Missing OpenAI credentials. Connect ChatGPT Codex or add an OpenAI API key in Settings.", errorType: "auth" }),
             { status: 400, headers: { "Content-Type": "application/json" } },
           );
         }
@@ -448,7 +558,7 @@ export async function POST(req: Request) {
         return result.toUIMessageStreamResponse({ headers: responseHeaders });
       }
 
-      if (selectedModel === "fireworks-minimax-m2p5") {
+      if (selectedModel === "fireworks-minimax-m2p5" || selectedModel === "fireworks-glm-5") {
         const apiKey = settings?.fireworksApiKey;
         if (!apiKey) {
           return new Response(
@@ -458,7 +568,7 @@ export async function POST(req: Request) {
         }
         const fireworks = createFireworks({ apiKey });
         const result = streamText({
-          model: fireworks("accounts/fireworks/models/minimax-m2p5"),
+          model: fireworks(modelConfig.apiModelId),
           system: systemPrompt,
           messages: resolvedMessages,
           tools,

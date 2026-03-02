@@ -37,6 +37,14 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     openai: false, anthropic: false, moonshot: false, fireworks: false,
   });
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState(false);
+  const [hasCodexOAuth, setHasCodexOAuth] = useState(false);
+
+  // Codex OAuth device flow state
+  const [codexOAuthStep, setCodexOAuthStep] = useState<'idle' | 'polling' | 'success'>('idle');
+  const [codexUserCode, setCodexUserCode] = useState('');
+  const [codexVerificationUrl, setCodexVerificationUrl] = useState('');
+  const [codexDeviceAuthId, setCodexDeviceAuthId] = useState('');
+  const [codexPollInterval, setCodexPollInterval] = useState(5);
 
   // OAuth flow state
   const [oauthStep, setOauthStep] = useState<OAuthStep>('idle');
@@ -56,6 +64,10 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     setOauthCode('');
     setPkceVerifier('');
     setOauthError('');
+    setCodexOAuthStep('idle');
+    setCodexUserCode('');
+    setCodexVerificationUrl('');
+    setCodexDeviceAuthId('');
     (async () => {
       try {
         const res = await fetch('/api/user-settings');
@@ -69,6 +81,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               fireworks: Boolean(data?.hasFireworksKey),
             });
             setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
+            setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
           }
         }
       } catch {
@@ -88,6 +101,33 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [open, onClose]);
+
+  // Codex device auth polling
+  useEffect(() => {
+    if (codexOAuthStep !== 'polling' || !codexDeviceAuthId || !codexUserCode) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('/api/oauth/codex/poll', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_auth_id: codexDeviceAuthId, user_code: codexUserCode }),
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+          setCodexOAuthStep('success');
+          setHasCodexOAuth(true);
+          toast({ title: 'ChatGPT Codex connected', description: 'OAuth token saved. GPT-5.3 Codex will use it automatically.' });
+        } else if (data.status === 'failed') {
+          setCodexOAuthStep('idle');
+          toast({ title: 'Auth failed', description: 'Device authorization failed. Please try again.' });
+        }
+        // 'pending' — keep polling
+      } catch {
+        // ignore network errors, keep polling
+      }
+    }, codexPollInterval * 1000);
+    return () => clearInterval(interval);
+  }, [codexOAuthStep, codexDeviceAuthId, codexUserCode, codexPollInterval, toast]);
 
   const saveKey = async (provider: Provider) => {
     const config = PROVIDERS.find(p => p.provider === provider)!;
@@ -211,6 +251,38 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   };
 
+  // ── ChatGPT Codex OAuth (device flow) ──────────────────────────────────
+
+  const startCodexOAuth = async () => {
+    try {
+      const res = await fetch('/api/oauth/codex/start', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to start device auth');
+      const data = await res.json();
+      setCodexUserCode(data.user_code);
+      setCodexVerificationUrl(data.verification_url);
+      setCodexDeviceAuthId(data.device_auth_id);
+      setCodexPollInterval(data.interval || 5);
+      setCodexOAuthStep('polling');
+      window.open(data.verification_url, '_blank', 'noopener,noreferrer');
+    } catch (e) {
+      toast({ title: 'Error', description: e instanceof Error ? e.message : 'Failed to start Codex auth' });
+    }
+  };
+
+  const disconnectCodexOAuth = async () => {
+    try {
+      await fetch('/api/oauth/codex/disconnect', { method: 'POST' });
+      setHasCodexOAuth(false);
+      setCodexOAuthStep('idle');
+      toast({ title: 'Disconnected', description: 'ChatGPT Codex OAuth removed.' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to disconnect.' });
+    }
+  };
+
+  // Poll effect for Codex device auth
+  // (We use a self-invoking pattern in the JSX via useEffect below instead)
+
   if (!open) return null;
 
   return (
@@ -251,6 +323,108 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               <div className="py-8 text-center text-sm text-neutral-500">Loading…</div>
             ) : (
               <div className="space-y-8">
+
+                {/* ── ChatGPT Codex OAuth section ── */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-800">ChatGPT Codex</h3>
+                      <p className="text-xs text-neutral-500 mt-0.5">
+                        Use your ChatGPT subscription for GPT-5.3 Codex.
+                        Takes priority over the OpenAI API key below.
+                      </p>
+                    </div>
+                    {hasCodexOAuth && codexOAuthStep === 'idle' ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 border border-green-200 whitespace-nowrap">
+                        <CheckCircle2 className="h-3 w-3" /> Connected
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {/* Idle — not connected */}
+                  {!hasCodexOAuth && codexOAuthStep === 'idle' && (
+                    <button
+                      onClick={startCodexOAuth}
+                      className="inline-flex items-center gap-2 rounded-lg border border-black/10 bg-white px-3.5 py-2 text-sm font-medium text-neutral-800 shadow-sm hover:bg-neutral-50 transition"
+                    >
+                      Sign in with ChatGPT Codex
+                    </button>
+                  )}
+
+                  {/* Already connected */}
+                  {hasCodexOAuth && codexOAuthStep === 'idle' && (
+                    <button
+                      onClick={disconnectCodexOAuth}
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3.5 py-2 text-sm font-medium text-red-700 hover:bg-red-100 transition"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+
+                  {/* Success state */}
+                  {codexOAuthStep === 'success' && (
+                    <div className="flex items-center gap-2 text-sm text-green-700">
+                      <CheckCircle2 className="h-4 w-4" />
+                      Connected successfully!
+                      <button
+                        onClick={() => setCodexOAuthStep('idle')}
+                        className="ml-auto text-neutral-500 hover:text-neutral-700 text-xs underline"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Polling step — device code flow */}
+                  {codexOAuthStep === 'polling' && (
+                    <div className="rounded-xl border border-black/10 bg-neutral-50 p-4 space-y-3">
+                      <p className="text-sm text-neutral-700">
+                        Go to{' '}
+                        <a
+                          href={codexVerificationUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-medium underline text-neutral-900"
+                        >
+                          {codexVerificationUrl}
+                        </a>{' '}
+                        and enter this code:
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <code className="rounded-lg bg-white border border-black/10 px-4 py-2 text-lg font-mono font-bold tracking-widest text-neutral-900 select-all">
+                          {codexUserCode}
+                        </code>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(codexUserCode);
+                            toast({ title: 'Copied', description: 'Code copied to clipboard.' });
+                          }}
+                          className="text-xs text-neutral-500 hover:text-neutral-700 underline"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-neutral-500">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Waiting for authorization...
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => window.open(codexVerificationUrl, '_blank', 'noopener,noreferrer')}
+                          className="text-xs text-neutral-500 underline"
+                        >
+                          Re-open verification page
+                        </button>
+                        <button
+                          onClick={() => { setCodexOAuthStep('idle'); setCodexUserCode(''); setCodexDeviceAuthId(''); }}
+                          className="text-xs text-neutral-500 underline"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* ── Claude Code OAuth section ── */}
                 <div>
@@ -416,6 +590,11 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                   <h3 className="text-sm font-semibold text-neutral-800 mb-1">API Keys</h3>
                   <p className="text-xs text-neutral-500 mb-4">
                     Bring your own keys. Each key is saved independently — adding one won&apos;t affect the others.
+                    {hasCodexOAuth && (
+                      <span className="ml-1 text-green-700 font-medium">
+                        Codex OAuth is active — OpenAI API key is used as fallback only.
+                      </span>
+                    )}
                     {hasClaudeOAuth && (
                       <span className="ml-1 text-green-700 font-medium">
                         Claude Code OAuth is active — Anthropic API key is used as fallback only.
@@ -430,6 +609,11 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                           {hasKey[provider] && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 border border-green-200">
                               Saved
+                            </span>
+                          )}
+                          {provider === 'openai' && hasCodexOAuth && (
+                            <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-500">
+                              fallback
                             </span>
                           )}
                           {provider === 'anthropic' && hasClaudeOAuth && (

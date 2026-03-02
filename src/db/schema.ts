@@ -5,8 +5,8 @@ export const projects = pgTable('projects', {
   name: text('name').notNull(),
   userId: text('user_id').notNull(), // Clerk user id
   platform: text('platform').notNull().default('web'), // 'web' | 'mobile'
-  // Preferred model for this project: 'gpt-5.2' | 'claude-sonnet-4.6' | 'claude-haiku-4.5' | 'claude-opus-4.6' | 'kimi-k2-thinking-turbo' | 'fireworks-minimax-m2p5'
-  model: text('model').notNull().default('gpt-5.2'),
+  // Preferred model for this project: 'gpt-5.3-codex' | 'claude-sonnet-4.6' | 'claude-haiku-4.5' | 'claude-opus-4.6' | 'kimi-k2-thinking-turbo' | 'fireworks-minimax-m2p5'
+  model: text('model').notNull().default('gpt-5.3-codex'),
   // Snapshot URLs for project thumbnails and HTML captures
   thumbnailUrl: text('thumbnail_url'),
   htmlSnapshotUrl: text('html_snapshot_url'),
@@ -75,6 +75,11 @@ export const userSettings = pgTable('user_settings', {
   claudeOAuthAccessToken: text('claude_oauth_access_token'),
   claudeOAuthRefreshToken: text('claude_oauth_refresh_token'),
   claudeOAuthExpiresAt: bigint('claude_oauth_expires_at', { mode: 'number' }), // Unix ms
+  // ChatGPT Codex OAuth
+  codexOAuthAccessToken: text('codex_oauth_access_token'),
+  codexOAuthRefreshToken: text('codex_oauth_refresh_token'),
+  codexOAuthExpiresAt: bigint('codex_oauth_expires_at', { mode: 'number' }),
+  codexOAuthAccountId: text('codex_oauth_account_id'),
   // GitHub OAuth
   githubAccessToken: text('github_access_token'),
   githubUsername: text('github_username'),

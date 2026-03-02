@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import type { ToolCallData } from '@/lib/agent/ui-types';
 import { diffLineStats } from '@/lib/agent/diff-stats';
 import { MODEL_CONFIGS, type ModelId } from '@/lib/agent/models';
+import { ModelSelector } from '@/components/ui/ModelSelector';
 import type { AgentErrorType } from '@/lib/agent/errors';
 
 type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: 'web' | 'mobile' };
@@ -90,10 +91,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [initialized, setInitialized] = useState(false);
   const [actions, setActions] = useState<ToolCallData[]>([]);
   const lastAssistantSavedRef = useRef<{ id: string; hash: string } | null>(null);
-  const [model, setModel] = useState<ModelId>('gpt-5.2');
+  const [model, setModel] = useState<ModelId>('gpt-5.3-codex');
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
   const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState<boolean | null>(null);
+  const [hasCodexOAuth, setHasCodexOAuth] = useState<boolean | null>(null);
   const [hasMoonshotKey, setHasMoonshotKey] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -110,6 +112,14 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   // --- endTurn detection ---
   const [endTurnCalled, setEndTurnCalled] = useState(false);
   const [showCompletionWarning, setShowCompletionWarning] = useState(false);
+
+  // --- Provider access for ModelSelector ---
+  const providerAccess = useMemo(() => ({
+    openai: hasCodexOAuth || hasOpenAIKey,
+    anthropic: hasClaudeOAuth || hasAnthropicKey,
+    moonshot: hasMoonshotKey,
+    fireworks: hasFireworksKey,
+  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasMoonshotKey, hasFireworksKey]);
 
   // --- Token tracking ---
   const [tokenEstimate, setTokenEstimate] = useState(0);
@@ -603,6 +613,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         if (res.ok) {
           const proj = await res.json();
           if (
+            proj?.model === 'gpt-5.3-codex' ||
             proj?.model === 'gpt-5.2' ||
             proj?.model === 'gpt-4.1' || // legacy migration
             proj?.model === 'claude-sonnet-4.6' ||
@@ -611,13 +622,15 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             proj?.model === 'claude-opus-4.6' ||
             proj?.model === 'claude-opus-4.5' ||
             proj?.model === 'kimi-k2-thinking-turbo' ||
-            proj?.model === 'fireworks-minimax-m2p5'
+            proj?.model === 'fireworks-minimax-m2p5' ||
+            proj?.model === 'fireworks-glm-5'
           ) {
-            const m = proj.model === 'gpt-4.1' ? 'gpt-5.2'
+            const m = proj.model === 'gpt-4.1' ? 'gpt-5.3-codex'
+              : proj.model === 'gpt-5.2' ? 'gpt-5.3-codex'
               : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4.6'
               : proj.model === 'claude-opus-4.5' ? 'claude-opus-4.6'
               : proj.model;
-            setModel(m);
+            setModel(m as ModelId);
           }
         }
       } catch {}
@@ -628,6 +641,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
           setHasAnthropicKey(Boolean(data?.hasAnthropicKey));
           setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
+          setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
         }
@@ -684,8 +698,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
     const usingAnthropic = model === 'claude-sonnet-4.6' || model === 'claude-haiku-4.5' || model === 'claude-opus-4.6';
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
-    if ((model === 'gpt-5.2' && hasOpenAIKey === false) || (usingAnthropic && hasAnthropicCreds === false)) {
-      toast({ title: 'Missing API key', description: `Please add your ${model === 'gpt-5.2' ? 'OpenAI' : 'Anthropic'} API key in Settings.` });
+    const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
+    if ((model === 'gpt-5.3-codex' && hasOpenAICreds === false) || (usingAnthropic && hasAnthropicCreds === false)) {
+      toast({ title: 'Missing API key', description: `Please add your ${model === 'gpt-5.3-codex' ? 'OpenAI' : 'Anthropic'} API key in Settings.` });
       return;
     }
 
@@ -706,7 +721,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     sendMessage({ text: input.trim() });
     setInput('');
     removePromptFromUrl();
-  }, [model, hasOpenAIKey, hasAnthropicKey, hasClaudeOAuth, isAgentWorking, input, messageQueue.length, sendMessage, removePromptFromUrl, toast]);
+  }, [model, hasOpenAIKey, hasAnthropicKey, hasClaudeOAuth, hasCodexOAuth, isAgentWorking, input, messageQueue.length, sendMessage, removePromptFromUrl, toast]);
 
   // --- Re-prompt for lazy completion ---
   const handleReprompt = useCallback(() => {
@@ -830,26 +845,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           <Cog size={16} />
         </button>
         <div className="flex items-center gap-2">
-          <select
-            className="bg-elevated border border-border rounded-md px-2 py-1 text-xs text-muted"
+          <ModelSelector
             value={model}
-            onChange={async (e) => {
-              const next = e.target.value as ModelId;
-              const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
-              const keyChecks: Record<ModelId, { hasKey: boolean | null; provider: string }> = {
-                'gpt-5.2': { hasKey: hasOpenAIKey, provider: 'OpenAI' },
-                'claude-sonnet-4.6': { hasKey: hasAnthropicCreds, provider: 'Anthropic' },
-                'claude-haiku-4.5': { hasKey: hasAnthropicCreds, provider: 'Anthropic' },
-                'claude-opus-4.6': { hasKey: hasAnthropicCreds, provider: 'Anthropic' },
-                'kimi-k2-thinking-turbo': { hasKey: hasMoonshotKey, provider: 'Moonshot' },
-                'fireworks-minimax-m2p5': { hasKey: hasFireworksKey, provider: 'Fireworks AI' },
-              };
-              const check = keyChecks[next];
-              if (check.hasKey === false) {
-                toast({ title: 'Missing API key', description: `Please add your ${check.provider} API key in Settings.` });
-                e.target.value = model;
-                return;
-              }
+            onChange={async (next) => {
               try {
                 const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
                   method: 'PATCH',
@@ -862,15 +860,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                 toast({ title: 'Failed to change model' });
               }
             }}
-            title="Model"
-          >
-            <option value="gpt-5.2">GPT-5.2</option>
-            <option value="claude-sonnet-4.6">Claude Sonnet 4.6</option>
-            <option value="claude-haiku-4.5">Claude Haiku 4.5</option>
-            <option value="claude-opus-4.6">Claude Opus 4.6</option>
-            <option value="kimi-k2-thinking-turbo">Kimi K2 Thinking Turbo</option>
-            <option value="fireworks-minimax-m2p5">Fireworks MiniMax-M2.5</option>
-          </select>
+            providerAccess={providerAccess}
+            size="sm"
+          />
           <Button
             type="button"
             size="sm"

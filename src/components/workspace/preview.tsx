@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import html2canvas from "html2canvas";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
@@ -209,25 +208,15 @@ function ResponsiveCanvas({ iframeUrl }: { iframeUrl: string }) {
 }
 
 /* ──────────────────────────────────────────
-   Figma Canvas – Static full-page capture view
-   Captures the full page as images (no live iframes) using html2canvas.
-   The page is fetched, rendered in a hidden same-origin srcdoc iframe
-   at the correct viewport dimensions, then captured to a canvas image.
-   html2canvas's windowHeight keeps `100vh` correct during capture.
+   Figma Canvas – Static multi-viewport view
+   Each viewport renders at its natural dimensions (correct vh/media-queries).
+   Iframes are loaded once and only reload on explicit refresh.
    ────────────────────────────────────────── */
 const FIGMA_VIEWPORTS = [
   { key: "desktop", label: "Desktop", width: 1440, height: 900 },
   { key: "tablet", label: "Tablet", width: 768, height: 1024 },
   { key: "mobile", label: "Mobile", width: 375, height: 812 },
 ] as const;
-
-interface CapturedFrame {
-  key: string;
-  label: string;
-  width: number;
-  height: number;
-  dataUrl: string;
-}
 
 function FigmaCanvas({
   previewUrl,
@@ -240,10 +229,12 @@ function FigmaCanvas({
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
-  const [frames, setFrames] = useState<CapturedFrame[]>([]);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const captureId = useRef(0);
+  // Snapshot the URL so iframes only change on explicit reload
+  const [snapshotUrl, setSnapshotUrl] = useState(previewUrl);
+
+  useEffect(() => {
+    setSnapshotUrl(previewUrl);
+  }, [previewUrl, reloadKey]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -277,126 +268,6 @@ function FigmaCanvas({
   const handleMouseUp = useCallback(() => {
     isPanning.current = false;
   }, []);
-
-  /* Capture a single viewport */
-  const captureViewport = useCallback(
-    (
-      html: string,
-      vp: (typeof FIGMA_VIEWPORTS)[number],
-      thisCapture: number,
-    ): Promise<CapturedFrame | null> =>
-      new Promise((resolve) => {
-        if (captureId.current !== thisCapture) return resolve(null);
-
-        const iframe = document.createElement("iframe");
-        iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${vp.width}px;height:${vp.height}px;border:none;visibility:hidden;`;
-        iframe.setAttribute(
-          "sandbox",
-          "allow-same-origin allow-scripts",
-        );
-        document.body.appendChild(iframe);
-        iframe.srcdoc = html;
-
-        iframe.onload = async () => {
-          try {
-            // Wait for JS rendering
-            await new Promise((r) => setTimeout(r, 1200));
-            if (captureId.current !== thisCapture) {
-              document.body.removeChild(iframe);
-              return resolve(null);
-            }
-
-            const doc = iframe.contentDocument;
-            if (!doc) throw new Error("No contentDocument");
-
-            const scrollH = doc.documentElement.scrollHeight;
-
-            // windowWidth/windowHeight are valid html2canvas options
-            // that control the CSS viewport for vh/vw units, but
-            // aren't exposed in the public TypeScript types.
-            const canvas = await html2canvas(
-              doc.documentElement,
-              {
-                width: vp.width,
-                height: scrollH,
-                useCORS: true,
-                logging: false,
-                imageTimeout: 5000,
-                windowWidth: vp.width,
-                windowHeight: vp.height,
-              } as Parameters<typeof html2canvas>[1],
-            );
-
-            const dataUrl = canvas.toDataURL("image/png");
-            document.body.removeChild(iframe);
-
-            resolve({
-              key: vp.key,
-              label: vp.label,
-              width: vp.width,
-              height: scrollH,
-              dataUrl,
-            });
-          } catch (err) {
-            console.error(`Figma capture ${vp.label}:`, err);
-            document.body.removeChild(iframe);
-            resolve(null);
-          }
-        };
-      }),
-    [],
-  );
-
-  /* Capture all viewports */
-  const captureAll = useCallback(async () => {
-    if (!previewUrl) return;
-    const thisCapture = ++captureId.current;
-    setIsCapturing(true);
-    setError(null);
-
-    try {
-      const res = await fetch(previewUrl);
-      let html = await res.text();
-
-      // Inject <base> so relative URLs resolve to the preview server
-      const baseTag = `<base href="${previewUrl}">`;
-      if (html.includes("<head>")) {
-        html = html.replace("<head>", `<head>${baseTag}`);
-      } else {
-        html = `<head>${baseTag}</head>` + html;
-      }
-
-      // Disable animations for a clean static capture
-      html = html.replace(
-        "</head>",
-        `<style>*,*::before,*::after{animation-duration:0s!important;transition-duration:0s!important;scroll-behavior:auto!important;}</style></head>`,
-      );
-
-      const results: CapturedFrame[] = [];
-      for (const vp of FIGMA_VIEWPORTS) {
-        const frame = await captureViewport(html, vp, thisCapture);
-        if (frame) results.push(frame);
-      }
-
-      if (captureId.current === thisCapture) {
-        setFrames(results);
-      }
-    } catch (err) {
-      console.error("Figma capture failed:", err);
-      if (captureId.current === thisCapture) {
-        setError("Could not fetch preview. Make sure the dev server is running.");
-      }
-    } finally {
-      if (captureId.current === thisCapture) {
-        setIsCapturing(false);
-      }
-    }
-  }, [previewUrl, captureViewport]);
-
-  // Capture on mount and when reloadKey changes
-  useEffect(() => {
-    captureAll();
-  }, [captureAll, reloadKey]);
 
   const GAP = 60;
 
@@ -442,48 +313,7 @@ function FigmaCanvas({
         >
           Reset
         </button>
-        <div className="w-px h-3 bg-border" />
-        <button
-          onClick={captureAll}
-          disabled={isCapturing}
-          className="text-xs text-muted hover:text-fg disabled:opacity-50"
-        >
-          {isCapturing ? "Capturing…" : "Recapture"}
-        </button>
       </div>
-
-      {/* Loading overlay */}
-      {isCapturing && frames.length === 0 && (
-        <div
-          className="absolute inset-0 z-10 flex items-center justify-center"
-          data-canvas="bg"
-        >
-          <div className="flex flex-col items-center gap-3 bg-elevated/95 backdrop-blur-sm border border-border rounded-xl px-6 py-4 shadow-lg">
-            <span className="inline-flex h-6 w-6 rounded-full border-2 border-accent border-t-transparent animate-spin" />
-            <span className="text-sm text-muted">
-              Capturing viewports…
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Error state */}
-      {error && !isCapturing && (
-        <div
-          className="absolute inset-0 z-10 flex items-center justify-center"
-          data-canvas="bg"
-        >
-          <div className="flex flex-col items-center gap-3 bg-elevated/95 backdrop-blur-sm border border-border rounded-xl px-6 py-4 shadow-lg max-w-sm text-center">
-            <span className="text-sm text-muted">{error}</span>
-            <button
-              onClick={captureAll}
-              className="text-xs text-accent hover:underline"
-            >
-              Retry
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Pannable & zoomable surface */}
       <div
@@ -494,10 +324,10 @@ function FigmaCanvas({
         className="flex items-start"
         data-canvas="bg"
       >
-        {frames.map((frame, i) => (
+        {FIGMA_VIEWPORTS.map((vp, i) => (
           <div
-            key={frame.key}
-            style={{ marginLeft: i === 0 ? 0 : GAP, width: frame.width }}
+            key={vp.key}
+            style={{ marginLeft: i === 0 ? 0 : GAP, width: vp.width }}
             className="flex-shrink-0"
           >
             {/* Top bar */}
@@ -511,27 +341,35 @@ function FigmaCanvas({
               }}
             >
               <span className="text-accent-foreground text-sm font-semibold">
-                {frame.label}
+                {vp.label}
               </span>
               <span className="text-accent-foreground/70 text-xs tabular-nums">
-                {frame.width} x {frame.height}
+                {vp.width} x {vp.height}
               </span>
             </div>
 
-            {/* Captured image */}
+            {/* Iframe at natural viewport dimensions */}
             <div
+              className="overflow-hidden bg-white"
               style={{
-                width: frame.width,
+                width: vp.width,
+                height: vp.height,
                 borderLeft: "2px solid var(--color-accent)",
                 borderRight: "2px solid var(--color-accent)",
                 borderBottom: "2px solid var(--color-accent)",
               }}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={frame.dataUrl}
-                alt={`${frame.label} – ${frame.width}×${frame.height}`}
-                style={{ width: frame.width, display: "block" }}
+              <iframe
+                src={snapshotUrl || undefined}
+                style={{
+                  width: vp.width,
+                  height: vp.height,
+                  border: "none",
+                  display: "block",
+                }}
+                title={`${vp.label} Preview`}
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation"
+                allow="cross-origin-isolated"
               />
             </div>
           </div>

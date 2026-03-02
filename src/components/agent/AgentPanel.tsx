@@ -5,7 +5,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, type UIMessage } from 'ai';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/ui/markdown';
-import { ChevronDown, ChevronRight, Wrench, ArrowUp, X as IconX, Cog, AlertCircle, RotateCcw, Loader2, ListPlus } from 'lucide-react';
+import { ChevronDown, ChevronRight, ArrowUp, X as IconX, Cog, AlertCircle, RotateCcw, Loader2, ListPlus, Check } from 'lucide-react';
 import { SettingsModal } from '@/components/settings/SettingsModal';
 import { WebContainerAgent, type GrepResult } from '@/lib/agent/webcontainer-agent';
 import { cn } from '@/lib/utils';
@@ -43,19 +43,32 @@ function parseError(raw: string): StructuredError {
 // ============================================================================
 // ToolCard subcomponent
 // ============================================================================
-function ToolCard({ title, meta, content, defaultOpen = false }: { title: string; meta?: string; content: React.ReactNode; defaultOpen?: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
+function ToolStep({ toolName, state, content }: { toolName: string; state: string; content: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const isDone = state === 'output-available';
+  const isRunning = state === 'input-available' || state === 'partial-call';
+
   return (
-    <div className="border border-border rounded-lg bg-soft">
-      <div className="flex items-center justify-between px-3 py-2 cursor-pointer" onClick={() => setOpen(!open)}>
-        <div className="flex items-center gap-2 text-sm">
-          <Wrench size={14} className="text-accent" />
-          <span className="font-medium text-fg">{title}</span>
-          {meta && <span className="text-muted">{meta}</span>}
+    <div>
+      {/* Flex row — fixed height, circle is first item so line position is exact */}
+      <div className="flex items-center gap-2.5 h-7">
+        {/* Circle — 14px wide, opaque bg-surface hides the line behind it */}
+        <div className="shrink-0 z-10 size-[14px] rounded-full border-[1.5px] border-border bg-surface flex items-center justify-center">
+          {isDone && <Check size={8} className="text-muted" />}
+          {isRunning && <Loader2 size={8} className="animate-spin text-muted" />}
         </div>
-        {open ? <ChevronDown size={14} className="text-muted" /> : <ChevronRight size={14} className="text-muted" />}
+        {/* Clickable label */}
+        <button
+          type="button"
+          className="flex items-center gap-1 p-0 text-sm text-muted hover:text-fg transition-colors"
+          onClick={() => setOpen(v => !v)}
+        >
+          <span className="font-medium">{toolName}</span>
+          {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        </button>
       </div>
-      {open && <div className="px-3 pb-3">{content}</div>}
+      {/* Expanded content */}
+      {open && <div className="pl-[26px] pb-1.5">{content}</div>}
     </div>
   );
 }
@@ -884,45 +897,120 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
       {/* Messages — v6 parts-based rendering */}
       <div ref={scrollRef} className="flex-1 overflow-auto space-y-3 p-3 modern-scrollbar">
-        {messages.map((m) => (
-          <div key={m.id} className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight', m.role === 'user' ? 'bg-elevated' : '')}>
-            {m.parts.map((part, i) => {
-              if (part.type === 'text') {
-                return <Markdown key={i} content={part.text} />;
-              }
-              if (isToolUIPart(part)) {
-                const toolName = getToolName(part);
-                // Don't show endTurn tool calls in the UI
-                if (toolName === 'endTurn') return null;
+        {messages.map((m) => {
+          const filteredParts = m.parts.filter(part => {
+            if (isToolUIPart(part) && getToolName(part) === 'endTurn') return false;
+            // Skip whitespace-only text parts — they would break up consecutive tool groups
+            if (part.type === 'text' && !part.text.trim()) return false;
+            return true;
+          });
+          const hasTools = filteredParts.some(p => isToolUIPart(p));
 
-                const state = part.state;
-                const stateLabel = state === 'output-available' ? 'done' : state === 'input-available' ? 'running' : state;
+          // User messages or assistant messages with no tools — no timeline
+          if (m.role === 'user' || !hasTools) {
+            return (
+              <div key={m.id} className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight', m.role === 'user' ? 'bg-elevated' : '')}>
+                {filteredParts.map((part, i) => {
+                  if (part.type === 'text') return <Markdown key={i} content={part.text} />;
+                  if (part.type === 'reasoning') {
+                    return (
+                      <div key={i} className="text-xs text-muted italic border-l-2 border-accent/30 pl-2 my-1">
+                        {part.text}
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
+              </div>
+            );
+          }
 
-                return (
-                  <ToolCard
-                    key={i}
-                    title="Tool Call"
-                    meta={`\u2022 ${toolName} (${stateLabel})`}
-                    content={
-                      <pre className="text-xs overflow-auto bg-surface p-2 rounded border border-border">
-                        {JSON.stringify('input' in part ? part.input : part, null, 2)}
-                      </pre>
-                    }
-                  />
-                );
-              }
+          // Assistant message with tools — grouped timeline segments
+          // Group consecutive tool calls vs content
+          const partGroups: Array<{ type: 'tools' | 'content'; items: Array<{ part: (typeof filteredParts)[number]; idx: number }> }> = [];
+          for (let pi = 0; pi < filteredParts.length; pi++) {
+            const part = filteredParts[pi];
+            const gType = isToolUIPart(part) ? 'tools' as const : 'content' as const;
+            const last = partGroups[partGroups.length - 1];
+            if (last?.type === gType) last.items.push({ part, idx: pi });
+            else partGroups.push({ type: gType, items: [{ part, idx: pi }] });
+          }
+
+          // Compute the timeline span: from first tool group to last tool group
+          // Everything between them (including content) is connected by a single line
+          const firstToolIdx = partGroups.findIndex(g => g.type === 'tools');
+          let lastToolIdx = 0;
+          for (let gi = partGroups.length - 1; gi >= 0; gi--) {
+            if (partGroups[gi].type === 'tools') { lastToolIdx = gi; break; }
+          }
+          const preTimeline  = partGroups.slice(0, firstToolIdx);
+          const timeline     = partGroups.slice(firstToolIdx, lastToolIdx + 1);
+          const postTimeline = partGroups.slice(lastToolIdx + 1);
+
+          const renderContentGroup = (group: typeof partGroups[number], key: string) =>
+            group.items.map(({ part, idx }) => {
+              if (part.type === 'text') return <Markdown key={`${key}-${idx}`} content={part.text} />;
               if (part.type === 'reasoning') {
                 return (
-                  <div key={i} className="text-xs text-muted italic border-l-2 border-accent/30 pl-2 my-1">
+                  <div key={`${key}-${idx}`} className="text-xs text-muted italic border-l-2 border-accent/30 pl-2 my-1">
                     {part.text}
                   </div>
                 );
               }
-              // Fallback for other part types
               return null;
-            })}
-          </div>
-        ))}
+            });
+
+          return (
+            <div key={m.id} className="rounded-xl px-2 py-3 text-[1.1rem] tracking tight">
+              {/* Content before the first tool call */}
+              {preTimeline.map((group, gi) => (
+                <div key={`pre-${gi}`}>{renderContentGroup(group, `pre-${gi}`)}</div>
+              ))}
+
+              {/* Single continuous timeline from first → last tool call */}
+              <div className="relative">
+                {/* One line spanning the full timeline height */}
+                <div className="absolute left-[6px] top-[14px] bottom-0 w-px bg-border" />
+
+                {timeline.map((group, ti) => {
+                  const isLastInTimeline = ti === timeline.length - 1;
+                  if (group.type === 'tools') {
+                    return (
+                      <div key={`tl-${ti}`} className={isLastInTimeline ? 'pb-2' : ''}>
+                        {group.items.map(({ part, idx }) => {
+                          if (!isToolUIPart(part)) return null;
+                          return (
+                            <ToolStep
+                              key={idx}
+                              toolName={getToolName(part)}
+                              state={part.state}
+                              content={
+                                <pre className="text-xs overflow-auto bg-surface p-2 rounded border border-border">
+                                  {JSON.stringify('input' in part ? part.input : part, null, 2)}
+                                </pre>
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+                  // Content between tool groups — indented to sit beside the line
+                  return (
+                    <div key={`tl-${ti}`} className="pl-6 py-1">
+                      {renderContentGroup(group, `tl-${ti}`)}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Content after the last tool call — full width, no line */}
+              {postTimeline.map((group, gi) => (
+                <div key={`post-${gi}`}>{renderContentGroup(group, `post-${gi}`)}</div>
+              ))}
+            </div>
+          );
+        })}
 
         {/* Error banner */}
         {renderError()}
@@ -958,18 +1046,26 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           </div>
         )}
 
-        <LiveActions
-          actions={actions}
-          onClear={() => setActions([])}
-        />
       </div>
 
-      {/* Input form */}
+      {/* Compound input card */}
       <form
         onSubmit={onFormSubmit}
-        className="group flex flex-col gap-2 rounded-2xl border border-border bg-elevated p-4 transition-colors duration-150 ease-in-out relative mt-2"
+        className="group flex flex-col rounded-2xl border border-border bg-elevated transition-colors duration-150 ease-in-out relative mt-2"
       >
-        <div data-state="closed" style={{ cursor: 'text' }}>
+        {/* Inset top — Live Actions */}
+        {actions.length > 0 && (
+          <div className="border-b border-border">
+            <LiveActions
+              actions={actions}
+              onClear={() => setActions([])}
+              className="border-0 bg-transparent rounded-none"
+            />
+          </div>
+        )}
+
+        {/* Textarea */}
+        <div data-state="closed" style={{ cursor: 'text' }} className="px-4 pt-3">
           <div className="relative flex flex-1 items-center">
             <textarea
               className="flex w-full ring-offset-background placeholder:text-muted focus-visible:outline-none focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-none text-[16px] leading-snug placeholder-shown:text-ellipsis placeholder-shown:whitespace-nowrap md:text-base focus-visible:ring-0 focus-visible:ring-offset-0 max-h-[200px] bg-transparent focus:bg-transparent flex-1 m-1 rounded-md p-0"
@@ -982,7 +1078,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             />
           </div>
         </div>
-        <div className="flex items-center gap-1">
+
+        {/* Buttons row */}
+        <div className="flex items-center gap-1 px-4 pb-2">
           <input id="file-upload" className="hidden" accept="image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp" multiple tabIndex={-1} type="file" style={{ border: 0, clip: 'rect(0px, 0px, 0px, 0px)', clipPath: 'inset(50%)', height: 1, margin: '0px -1px -1px 0px', overflow: 'hidden', padding: 0, position: 'absolute', width: 1, whiteSpace: 'nowrap' }} />
 
           {/* Queued message count */}
@@ -1049,25 +1147,25 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             </div>
           </div>
         </div>
-      </form>
 
-      {/* Token usage footer */}
-      {tokenEstimate > 0 && (
-        <div className="flex items-center gap-2 px-3 py-1.5 mt-1">
-          <div className="flex-1 h-1 rounded-full bg-soft overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all duration-300', tokenBarColor)}
-              style={{ width: `${Math.min(tokenRatio * 100, 100)}%` }}
-            />
+        {/* Inset bottom — Token counter */}
+        {tokenEstimate > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-border">
+            <div className="flex-1 h-1 rounded-full bg-soft overflow-hidden">
+              <div
+                className={cn('h-full rounded-full transition-all duration-300', tokenBarColor)}
+                style={{ width: `${Math.min(tokenRatio * 100, 100)}%` }}
+              />
+            </div>
+            <span className={cn(
+              'text-[10px] tabular-nums',
+              tokenRatio >= 0.9 ? 'text-red-400' : tokenRatio >= 0.7 ? 'text-yellow-400' : 'text-muted'
+            )}>
+              {formatTokenCount(tokenEstimate)} / {formatTokenCount(maxTokens)}
+            </span>
           </div>
-          <span className={cn(
-            'text-[10px] tabular-nums',
-            tokenRatio >= 0.9 ? 'text-red-400' : tokenRatio >= 0.7 ? 'text-yellow-400' : 'text-muted'
-          )}>
-            {formatTokenCount(tokenEstimate)} / {formatTokenCount(maxTokens)}
-          </span>
-        </div>
-      )}
+        )}
+      </form>
 
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
     </div>

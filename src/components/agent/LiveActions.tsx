@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { ToolCallData } from '@/lib/agent/ui-types';
-import { ChevronDown, ChevronRight, FileText, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Loader2, Check } from 'lucide-react';
 
 type Props = {
   actions: ToolCallData[];
@@ -26,103 +26,100 @@ export function LiveActions({ actions, onClear, className }: Props) {
   ), [fileActions]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Auto-scroll to bottom on new actions so latest is visible
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight; // jump to bottom
+    el.scrollTop = el.scrollHeight;
   }, [actions.length]);
 
   if (!actions.length) return null;
 
   return (
-    <div className={cn('rounded-lg border border-border bg-elevated p-2 space-y-2', className)}>
-      <div className="flex items-center justify-between text-sm">
-        <div className="font-medium">Live Actions</div>
-        {onClear && (
-          <button
-            className="text-xs text-muted hover:text-fg transition"
-            onClick={onClear}
-            type="button"
-          >
-            Clear
-          </button>
-        )}
+    <div className={cn('rounded-lg border border-border bg-elevated p-2 space-y-1', className)}>
+      <div className="flex items-center justify-between px-1">
+        <span className="text-xs font-medium text-muted">Live Actions</span>
+        <div className="flex items-center gap-2">
+          {totals.files > 0 && (
+            <span className="text-[10px] text-muted tabular-nums">
+              {totals.files} file{totals.files !== 1 ? 's' : ''}
+              <span className="text-green-500 ml-1">+{totals.additions}</span>
+              <span className="text-red-500 ml-1">-{totals.deletions}</span>
+            </span>
+          )}
+          {onClear && (
+            <button
+              className="text-[10px] text-muted hover:text-fg transition"
+              onClick={onClear}
+              type="button"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
-      <div ref={scrollRef} className="modern-scrollbar max-h-40 overflow-auto space-y-2 pr-1">
-        {actions.map((a) => (
-          <ActionRow key={a.toolCallId} action={a} />
+      <div ref={scrollRef} className="modern-scrollbar max-h-28 overflow-auto pl-1 pr-1">
+        {actions.map((a, i) => (
+          <LiveActionStep key={a.toolCallId} action={a} isLast={i === actions.length - 1} />
         ))}
       </div>
-
-      {totals.files > 0 && (
-        <div className="mt-1 flex items-center justify-between rounded-md border border-border bg-soft px-3 py-2 text-sm">
-          <div>
-            <span className="mr-2">{totals.files} files changed</span>
-            <span className="text-green-500">+{totals.additions}</span>
-            <span className="mx-1"> </span>
-            <span className="text-red-500">-{totals.deletions}</span>
-          </div>
-          <span className="text-muted text-xs">View changes above</span>
-        </div>
-      )}
     </div>
   );
 }
 
-function ActionRow({ action }: { action: ToolCallData }) {
+function LiveActionStep({ action, isLast }: { action: ToolCallData; isLast: boolean }) {
   const [open, setOpen] = useState(false);
-  const loading = action.status === 'invoked';
+  const isDone = action.status !== 'invoked';
   const isEdit = Boolean(action.fileChange);
 
   return (
-    <div className={cn('rounded-md border border-border bg-surface bolt-fade-in')}> 
-      <button
-        type="button"
-        className="w-full flex items-center justify-between px-3 py-2 text-left"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <div className="flex items-center gap-2 text-sm min-w-0">
-          {loading ? (
-            <Loader2 className="animate-spin text-muted" size={14} />
-          ) : (
-            <FileText size={14} className={cn(isEdit ? 'text-accent' : 'text-muted')} />
-          )}
-          <span className="font-medium">
-            {isEdit ? 'Edited' : action.toolName}
-          </span>
-          {isEdit && (
-            <span className="text-muted">
-              {action.fileChange!.filePath}
-            </span>
-          )}
-          {isEdit && (
-            <span className="ml-2">
-              <span className="text-green-500">+{action.fileChange!.additions}</span>
-              <span className="mx-1"> </span>
-              <span className="text-red-500">-{action.fileChange!.deletions}</span>
-            </span>
-          )}
-          {!isEdit && action.resultPreview && (
-            <span className="truncate max-w-[260px] text-muted">{action.resultPreview}</span>
-          )}
+    <div className="relative flex gap-2.5">
+      {/* Vertical connector */}
+      {!isLast && (
+        <div className="absolute left-[7px] top-[18px] bottom-0 w-px bg-border" />
+      )}
+
+      {/* Step indicator */}
+      {isDone ? (
+        <div className="relative z-10 flex shrink-0 items-center justify-center size-4 rounded-full bg-fg mt-[3px]">
+          <Check size={9} className="text-bg" />
         </div>
-        {open ? (
-          <ChevronDown size={14} className="text-muted" />
-        ) : (
-          <ChevronRight size={14} className="text-muted" />
-        )}
-      </button>
-      {open && (
-        <div className="px-3 pb-3">
-          {isEdit ? (
-            <FileChange before={action.fileChange!.before} after={action.fileChange!.after} />
-          ) : (
-            <pre className="text-xs overflow-auto bg-soft p-2 pr-4 rounded border border-border whitespace-pre-wrap break-words">{action.resultPreview ?? ''}</pre>
-          )}
+      ) : (
+        <div className="relative z-10 flex shrink-0 items-center justify-center size-4 rounded-full border-[1.5px] border-border bg-surface mt-[3px]">
+          <Loader2 size={9} className="animate-spin text-accent" />
         </div>
       )}
+
+      {/* Content */}
+      <div className="flex-1 pb-2 min-w-0">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 text-xs hover:text-accent transition-colors w-full text-left"
+          onClick={() => setOpen(v => !v)}
+        >
+          <span className={cn('font-medium truncate', isDone ? 'text-fg' : 'text-muted')}>
+            {isEdit ? action.fileChange!.filePath : action.toolName}
+          </span>
+          {isEdit && (
+            <span className="shrink-0 text-[10px] tabular-nums">
+              <span className="text-green-500">+{action.fileChange!.additions}</span>
+              <span className="text-red-500 ml-0.5">-{action.fileChange!.deletions}</span>
+            </span>
+          )}
+          {open ? <ChevronDown size={10} className="text-muted shrink-0 ml-auto" /> : <ChevronRight size={10} className="text-muted shrink-0 ml-auto" />}
+        </button>
+        {open && (
+          <div className="mt-1.5">
+            {isEdit ? (
+              <FileChange before={action.fileChange!.before} after={action.fileChange!.after} />
+            ) : (
+              <pre className="text-[10px] overflow-auto bg-soft p-1.5 rounded border border-border whitespace-pre-wrap break-words max-h-24">
+                {action.resultPreview ?? ''}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -131,12 +128,12 @@ function FileChange({ before, after }: { before: string; after: string }) {
   return (
     <div className="grid grid-cols-2 gap-2">
       <div>
-        <div className="text-xs mb-1 text-muted">Before</div>
-        <pre className="text-xs overflow-auto bg-soft p-2 pr-4 rounded border border-border whitespace-pre">{before}</pre>
+        <div className="text-[10px] mb-1 text-muted">Before</div>
+        <pre className="text-[10px] overflow-auto bg-soft p-1.5 rounded border border-border whitespace-pre max-h-24">{before}</pre>
       </div>
       <div>
-        <div className="text-xs mb-1 text-muted">After</div>
-        <pre className="text-xs overflow-auto bg-soft p-2 pr-4 rounded border border-border whitespace-pre">{after}</pre>
+        <div className="text-[10px] mb-1 text-muted">After</div>
+        <pre className="text-[10px] overflow-auto bg-soft p-1.5 rounded border border-border whitespace-pre max-h-24">{after}</pre>
       </div>
     </div>
   );

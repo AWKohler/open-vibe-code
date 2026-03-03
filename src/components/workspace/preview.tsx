@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
+import html2canvas from "html2canvas";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +36,8 @@ interface PreviewProps {
   expUrl?: string | null;
   htmlSnapshotUrl?: string | null;
   isAgentWorking?: boolean;
+  /** Fetch page HTML via WebContainer (bypasses CORS) */
+  onFetchHtml?: (url: string) => Promise<string>;
 }
 
 const DEVICE_SIZES = {
@@ -208,9 +211,12 @@ function ResponsiveCanvas({ iframeUrl }: { iframeUrl: string }) {
 }
 
 /* ──────────────────────────────────────────
-   Figma Canvas – Static multi-viewport view
-   Each viewport renders at its natural dimensions (correct vh/media-queries).
-   Iframes are loaded once and only reload on explicit refresh.
+   Figma Canvas – Static full-page capture view
+
+   1. HTML is fetched via WebContainer (bypasses CORS)
+   2. Rendered in hidden same-origin srcdoc iframes at correct viewport dims
+   3. Captured to images via html2canvas (windowHeight preserves correct vh)
+   4. Displayed as static <img> elements – no iframes, no scrollbars
    ────────────────────────────────────────── */
 const FIGMA_VIEWPORTS = [
   { key: "desktop", label: "Desktop", width: 1440, height: 900 },
@@ -218,23 +224,31 @@ const FIGMA_VIEWPORTS = [
   { key: "mobile", label: "Mobile", width: 375, height: 812 },
 ] as const;
 
+interface CapturedFrame {
+  key: string;
+  label: string;
+  width: number;
+  height: number;
+  dataUrl: string;
+}
+
 function FigmaCanvas({
   previewUrl,
   reloadKey,
+  fetchHtml,
 }: {
   previewUrl: string;
   reloadKey: number;
+  fetchHtml: (url: string) => Promise<string>;
 }) {
   const [zoom, setZoom] = useState(0.3);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const isPanning = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
-  // Snapshot the URL so iframes only change on explicit reload
-  const [snapshotUrl, setSnapshotUrl] = useState(previewUrl);
-
-  useEffect(() => {
-    setSnapshotUrl(previewUrl);
-  }, [previewUrl, reloadKey]);
+  const [frames, setFrames] = useState<CapturedFrame[]>([]);
+  const [isCapturing, setIsCapturing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const captureId = useRef(0);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -268,6 +282,124 @@ function FigmaCanvas({
   const handleMouseUp = useCallback(() => {
     isPanning.current = false;
   }, []);
+
+  /* Capture a single viewport from the fetched HTML */
+  const captureViewport = useCallback(
+    (
+      html: string,
+      vp: (typeof FIGMA_VIEWPORTS)[number],
+      thisCapture: number,
+    ): Promise<CapturedFrame | null> =>
+      new Promise((resolve) => {
+        if (captureId.current !== thisCapture) return resolve(null);
+
+        const iframe = document.createElement("iframe");
+        iframe.style.cssText = `position:fixed;left:-9999px;top:0;width:${vp.width}px;height:${vp.height}px;border:none;visibility:hidden;`;
+        iframe.setAttribute("sandbox", "allow-same-origin allow-scripts");
+        document.body.appendChild(iframe);
+        iframe.srcdoc = html;
+
+        iframe.onload = async () => {
+          try {
+            // Give JS time to hydrate / render
+            await new Promise((r) => setTimeout(r, 1500));
+            if (captureId.current !== thisCapture) {
+              document.body.removeChild(iframe);
+              return resolve(null);
+            }
+
+            const doc = iframe.contentDocument;
+            if (!doc) throw new Error("No contentDocument");
+
+            const scrollH = doc.documentElement.scrollHeight;
+
+            const canvas = await html2canvas(
+              doc.documentElement,
+              {
+                width: vp.width,
+                height: scrollH,
+                useCORS: true,
+                logging: false,
+                imageTimeout: 8000,
+                // windowHeight keeps 100vh at the real viewport height
+                // even though we capture the full scrollHeight
+                windowWidth: vp.width,
+                windowHeight: vp.height,
+              } as Parameters<typeof html2canvas>[1],
+            );
+
+            const dataUrl = canvas.toDataURL("image/png");
+            document.body.removeChild(iframe);
+
+            resolve({
+              key: vp.key,
+              label: vp.label,
+              width: vp.width,
+              height: scrollH,
+              dataUrl,
+            });
+          } catch (err) {
+            console.error(`Figma capture ${vp.label}:`, err);
+            if (iframe.parentNode) document.body.removeChild(iframe);
+            resolve(null);
+          }
+        };
+      }),
+    [],
+  );
+
+  /* Capture all viewports */
+  const captureAll = useCallback(async () => {
+    if (!previewUrl) return;
+    const thisCapture = ++captureId.current;
+    setIsCapturing(true);
+    setError(null);
+
+    try {
+      let html = await fetchHtml(previewUrl);
+
+      // Inject <base> so relative asset URLs (JS/CSS/images) resolve
+      // to the preview server origin
+      const baseTag = `<base href="${previewUrl}">`;
+      if (html.includes("<head>")) {
+        html = html.replace("<head>", `<head>${baseTag}`);
+      } else {
+        html = `<head>${baseTag}</head>` + html;
+      }
+
+      // Disable animations/transitions for a clean static capture
+      html = html.replace(
+        "</head>",
+        `<style>*,*::before,*::after{animation-duration:0s!important;transition-duration:0s!important;scroll-behavior:auto!important;}</style></head>`,
+      );
+
+      const results: CapturedFrame[] = [];
+      for (const vp of FIGMA_VIEWPORTS) {
+        const frame = await captureViewport(html, vp, thisCapture);
+        if (frame) results.push(frame);
+      }
+
+      if (captureId.current === thisCapture) {
+        setFrames(results);
+      }
+    } catch (err) {
+      console.error("Figma capture failed:", err);
+      if (captureId.current === thisCapture) {
+        setError(
+          "Could not capture preview. Make sure the dev server is running.",
+        );
+      }
+    } finally {
+      if (captureId.current === thisCapture) {
+        setIsCapturing(false);
+      }
+    }
+  }, [previewUrl, fetchHtml, captureViewport]);
+
+  // Capture on mount and when reloadKey changes
+  useEffect(() => {
+    captureAll();
+  }, [captureAll, reloadKey]);
 
   const GAP = 60;
 
@@ -313,9 +445,50 @@ function FigmaCanvas({
         >
           Reset
         </button>
+        <div className="w-px h-3 bg-border" />
+        <button
+          onClick={captureAll}
+          disabled={isCapturing}
+          className="text-xs text-muted hover:text-fg disabled:opacity-50"
+        >
+          {isCapturing ? "Capturing…" : "Recapture"}
+        </button>
       </div>
 
-      {/* Pannable & zoomable surface */}
+      {/* Loading overlay */}
+      {isCapturing && frames.length === 0 && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center"
+          data-canvas="bg"
+        >
+          <div className="flex flex-col items-center gap-3 bg-elevated/95 backdrop-blur-sm border border-border rounded-xl px-6 py-4 shadow-lg">
+            <span className="inline-flex h-6 w-6 rounded-full border-2 border-accent border-t-transparent animate-spin" />
+            <span className="text-sm text-muted">
+              Capturing viewports…
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Error state */}
+      {error && !isCapturing && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center"
+          data-canvas="bg"
+        >
+          <div className="flex flex-col items-center gap-3 bg-elevated/95 backdrop-blur-sm border border-border rounded-xl px-6 py-4 shadow-lg max-w-sm text-center">
+            <span className="text-sm text-muted">{error}</span>
+            <button
+              onClick={captureAll}
+              className="text-xs text-accent hover:underline"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pannable & zoomable surface — static images, no iframes */}
       <div
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
@@ -324,10 +497,10 @@ function FigmaCanvas({
         className="flex items-start"
         data-canvas="bg"
       >
-        {FIGMA_VIEWPORTS.map((vp, i) => (
+        {frames.map((frame, i) => (
           <div
-            key={vp.key}
-            style={{ marginLeft: i === 0 ? 0 : GAP, width: vp.width }}
+            key={frame.key}
+            style={{ marginLeft: i === 0 ? 0 : GAP, width: frame.width }}
             className="flex-shrink-0"
           >
             {/* Top bar */}
@@ -341,35 +514,27 @@ function FigmaCanvas({
               }}
             >
               <span className="text-accent-foreground text-sm font-semibold">
-                {vp.label}
+                {frame.label}
               </span>
               <span className="text-accent-foreground/70 text-xs tabular-nums">
-                {vp.width} x {vp.height}
+                {frame.width} x {frame.height}
               </span>
             </div>
 
-            {/* Iframe at natural viewport dimensions */}
+            {/* Captured image — full page, no scrollbar */}
             <div
-              className="overflow-hidden bg-white"
               style={{
-                width: vp.width,
-                height: vp.height,
+                width: frame.width,
                 borderLeft: "2px solid var(--color-accent)",
                 borderRight: "2px solid var(--color-accent)",
                 borderBottom: "2px solid var(--color-accent)",
               }}
             >
-              <iframe
-                src={snapshotUrl || undefined}
-                style={{
-                  width: vp.width,
-                  height: vp.height,
-                  border: "none",
-                  display: "block",
-                }}
-                title={`${vp.label} Preview`}
-                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation"
-                allow="cross-origin-isolated"
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={frame.dataUrl}
+                alt={`${frame.label} – ${frame.width}×${frame.height}`}
+                style={{ width: frame.width, display: "block" }}
               />
             </div>
           </div>
@@ -435,6 +600,7 @@ export function Preview({
   expUrl,
   htmlSnapshotUrl,
   isAgentWorking,
+  onFetchHtml,
 }: PreviewProps) {
   const [internalDevice, setInternalDevice] =
     useState<keyof typeof DEVICE_SIZES>("desktop");
@@ -1291,7 +1457,7 @@ export function Preview({
         <div className="flex-1 overflow-hidden relative">
           <ResponsiveCanvas iframeUrl={iframeUrl} />
         </div>
-      ) : effectiveDevice === "figma" ? (
+      ) : effectiveDevice === "figma" && onFetchHtml ? (
         <div className="flex-1 overflow-hidden relative">
           <FigmaCanvas
             previewUrl={
@@ -1299,6 +1465,7 @@ export function Preview({
               ((currentPath ?? internalPath) || "/")
             }
             reloadKey={reloadKey ?? 0}
+            fetchHtml={onFetchHtml}
           />
         </div>
       ) : (

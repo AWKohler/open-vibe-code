@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
   headers: async () => {
     return [
       {
-        source: '/(.*)',
+        source: '/workspace/:path*',
         headers: [
           {
             key: 'Cross-Origin-Embedder-Policy',

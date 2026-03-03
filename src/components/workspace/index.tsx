@@ -512,6 +512,47 @@ export function Workspace({
     }
   }, [webcontainer, isDevServerRunning, startDevServer, stopDevServer]);
 
+  /**
+   * Fetch a URL's HTML from inside the WebContainer.
+   * This bypasses CORS because the request originates within the container
+   * where the dev server is directly accessible on localhost.
+   */
+  const fetchHtmlViaWebContainer = useCallback(
+    async (url: string): Promise<string> => {
+      if (!webcontainer) throw new Error("WebContainer not ready");
+
+      // Parse the URL to get the port and path
+      const parsed = new URL(url);
+      const port = parsed.port || "3000";
+      const path = parsed.pathname + parsed.search;
+
+      const tmpFile = "/tmp/__figma_capture_" + Date.now() + ".html";
+
+      const proc = await webcontainer.spawn("node", [
+        "-e",
+        `const http = require("http");` +
+          `const fs = require("fs");` +
+          `http.get("http://localhost:${port}${path}", (res) => {` +
+          `  let d = "";` +
+          `  res.on("data", (c) => d += c);` +
+          `  res.on("end", () => { fs.writeFileSync("${tmpFile}", d); process.exit(0); });` +
+          `  res.on("error", (e) => { console.error(e); process.exit(1); });` +
+          `}).on("error", (e) => { console.error(e); process.exit(1); });`,
+      ]);
+
+      const exitCode = await proc.exit;
+      if (exitCode !== 0) {
+        throw new Error(`WebContainer fetch failed (exit ${exitCode})`);
+      }
+
+      const html = await webcontainer.fs.readFile(tmpFile, "utf-8");
+      // Clean up temp file (fire and forget)
+      webcontainer.fs.rm(tmpFile).catch(() => {});
+      return html;
+    },
+    [webcontainer],
+  );
+
   const handleDownloadProject = useCallback(async () => {
     const container = webcontainer;
     if (!container) return;
@@ -1773,6 +1814,7 @@ export default function RootLayout() {
               expUrl={expUrl}
               htmlSnapshotUrl={htmlSnapshotUrl}
               isAgentWorking={isAgentBusy}
+              onFetchHtml={fetchHtmlViaWebContainer}
             />
           </div>
         </div>

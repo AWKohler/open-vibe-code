@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   SignedIn,
@@ -10,12 +10,20 @@ import {
   useUser,
 } from "@clerk/nextjs";
 import { cn } from "@/lib/utils";
-import { ArrowUp, Plus, Smartphone, Laptop, Cog } from "lucide-react";
+import { ArrowUp, Plus, Smartphone, Laptop, Cog, ImagePlus, X as IconX } from "lucide-react";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { useToast } from "@/components/ui/toast";
 import { ModelSelector } from "@/components/ui/ModelSelector";
 import type { ModelId } from "@/lib/agent/models";
+import { modelSupportsImages } from "@/lib/agent/models";
+import { processImageForUpload } from "@/lib/image-processing";
 import Dither from "@/components/landing/Dither";
+
+interface LandingPendingImage {
+  id: string;
+  file: File;
+  localUrl: string;
+}
 
 export default function Home() {
   const router = useRouter();
@@ -33,6 +41,10 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [showNameDialog, setShowNameDialog] = useState(false);
+  const [pendingImages, setPendingImages] = useState<LandingPendingImage[]>([]);
+  const [showPlusPopover, setShowPlusPopover] = useState(false);
+  const plusButtonRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [projectName, setProjectName] = useState("");
   const [pendingParams, setPendingParams] = useState<URLSearchParams | null>(
     null,
@@ -45,7 +57,8 @@ export default function Home() {
     "claude-sonnet-4.6",
     "claude-haiku-4.5",
     "claude-opus-4.6",
-    "kimi-k2-thinking-turbo",
+    "kimi-k2.5",
+    "kimi-k2-thinking-turbo", // legacy compat
     "fireworks-minimax-m2p5",
     "fireworks-glm-5",
   ]);
@@ -59,7 +72,7 @@ export default function Home() {
     },
   } as const;
 
-  const canSend = useMemo(() => prompt.trim().length > 0, [prompt]);
+  const canSend = useMemo(() => prompt.trim().length > 0 || pendingImages.length > 0, [prompt, pendingImages.length]);
 
   const providerAccess = useMemo(() => ({
     openai: hasCodexOAuth || hasOpenAIKey,
@@ -67,6 +80,37 @@ export default function Home() {
     moonshot: hasMoonshotKey,
     fireworks: hasFireworksKey,
   }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasMoonshotKey, hasFireworksKey]);
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const newImages = await Promise.all(files.map(async (file) => {
+      const processed = await processImageForUpload(file);
+      return { id: crypto.randomUUID(), file: processed, localUrl: URL.createObjectURL(processed) };
+    }));
+    setPendingImages(prev => [...prev, ...newImages]);
+  }, []);
+
+  const handleRemoveImage = useCallback((id: string) => {
+    setPendingImages(prev => {
+      const img = prev.find(i => i.id === id);
+      if (img) URL.revokeObjectURL(img.localUrl);
+      return prev.filter(i => i.id !== id);
+    });
+  }, []);
+
+  // Close plus popover on outside click
+  useEffect(() => {
+    if (!showPlusPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (plusButtonRef.current && !plusButtonRef.current.contains(e.target as Node)) {
+        setShowPlusPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showPlusPopover]);
 
   const ensureModelKeyPresent = () => {
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
@@ -76,7 +120,7 @@ export default function Home() {
       "claude-sonnet-4.6": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
       "claude-haiku-4.5": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
       "claude-opus-4.6": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
-      "kimi-k2-thinking-turbo": {
+      "kimi-k2.5": {
         hasKey: hasMoonshotKey,
         provider: "Moonshot",
       },
@@ -130,7 +174,7 @@ export default function Home() {
     }
   };
 
-  const handleCreateProject = () => {
+  const handleCreateProject = async () => {
     if (!pendingParams) return;
     if (!ensureModelKeyPresent()) return;
     const params = new URLSearchParams(pendingParams);
@@ -143,6 +187,31 @@ export default function Home() {
     if (typeof window !== "undefined") {
       localStorage.removeItem(PENDING_PARAMS_KEY);
       localStorage.removeItem(PENDING_NAME_KEY);
+    }
+    // Serialize pending images to sessionStorage for AgentPanel to pick up
+    if (pendingImages.length > 0) {
+      try {
+        const imageParts = await Promise.all(
+          pendingImages.map((img) =>
+            new Promise<{ type: 'file'; mediaType: string; url: string; filename: string }>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve({
+                type: 'file',
+                mediaType: img.file.type || 'image/jpeg',
+                url: reader.result as string,
+                filename: img.file.name,
+              });
+              reader.onerror = reject;
+              reader.readAsDataURL(img.file);
+            })
+          )
+        );
+        sessionStorage.setItem('botflow_pending_images', JSON.stringify(imageParts));
+      } catch (err) {
+        console.error('Failed to serialize images for workspace:', err);
+      }
+      pendingImages.forEach(img => URL.revokeObjectURL(img.localUrl));
+      setPendingImages([]);
     }
     router.push(`/start?${params.toString()}`);
   };
@@ -356,10 +425,68 @@ export default function Home() {
                     onChange={(e) => setPrompt(e.target.value)}
                   />
 
+                  {/* Hidden file input */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
+
+                  {/* Thumbnail strip */}
+                  {pendingImages.length > 0 && (
+                    <div className="absolute left-3 right-16 flex gap-2 overflow-x-auto" style={{ bottom: 52 }}>
+                      {pendingImages.map(img => (
+                        <div key={img.id} className="relative group shrink-0">
+                          <div className="w-12 h-12 rounded-lg border border-border overflow-hidden">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={img.localUrl} alt={img.file.name} className="w-full h-full object-cover" />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(img.id)}
+                            className="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 rounded-full bg-elevated border border-border text-neutral-500 hover:text-neutral-900 opacity-0 group-hover:opacity-100 transition-opacity"
+                            aria-label="Remove image"
+                          >
+                            <IconX size={10} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Bottom-left controls */}
                   <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-2 sm:bottom-3 sm:left-3">
-                    <div className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-elevated shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition">
-                      <Plus className="h-4 w-4 text-[var(--sand-text)]" />
+                    {/* + button with popover */}
+                    <div ref={plusButtonRef} className="pointer-events-auto relative">
+                      <button
+                        type="button"
+                        onClick={() => setShowPlusPopover(v => !v)}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-border bg-elevated shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition"
+                        aria-label="Attach"
+                      >
+                        <Plus className="h-4 w-4 text-[var(--sand-text)]" />
+                      </button>
+                      {showPlusPopover && (
+                        <div className="absolute bottom-full mb-2 left-0 w-44 rounded-xl border border-border bg-surface shadow-lg overflow-hidden z-20">
+                          <button
+                            type="button"
+                            onClick={() => { setShowPlusPopover(false); fileInputRef.current?.click(); }}
+                            disabled={!modelSupportsImages(model)}
+                            className={cn(
+                              "flex w-full items-center gap-2.5 px-3 py-2 text-sm transition",
+                              modelSupportsImages(model)
+                                ? "text-[var(--sand-text)] hover:bg-elevated cursor-pointer"
+                                : "text-neutral-400 cursor-not-allowed"
+                            )}
+                          >
+                            <ImagePlus size={15} className="shrink-0" />
+                            <span>Attach image</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <button
                       type="button"

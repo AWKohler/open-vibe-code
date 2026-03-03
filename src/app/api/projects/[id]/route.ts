@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
-import { projects } from '@/db/schema';
+import { projects, chatImages, projectAssets } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 import { deleteConvexBackend } from '@/lib/convex-platform';
+import { UTApi } from 'uploadthing/server';
+
+const utapi = new UTApi();
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
@@ -44,7 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       model !== 'claude-haiku-4.5' &&
       model !== 'claude-opus-4.6' &&
       model !== 'claude-opus-4.5' && // backwards compat
-      model !== 'kimi-k2-thinking-turbo' &&
+      model !== 'kimi-k2.5' &&
+      model !== 'kimi-k2-thinking-turbo' && // backwards compat
       model !== 'fireworks-minimax-m2p5' &&
       model !== 'fireworks-glm-5'
     ) {
@@ -107,6 +111,36 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
       } catch (error) {
         console.error('Failed to delete Cloudflare Pages project:', error);
       }
+    }
+
+    // Delete UploadThing files: chat images
+    try {
+      const imgs = await db.select({ key: chatImages.uploadThingKey }).from(chatImages).where(eq(chatImages.projectId, resolvedParams.id));
+      if (imgs.length > 0) {
+        await utapi.deleteFiles(imgs.map(i => i.key));
+      }
+    } catch (err) {
+      console.error('Failed to delete chat images from UploadThing:', err);
+    }
+
+    // Delete UploadThing files: project assets
+    try {
+      const assets = await db.select({ key: projectAssets.uploadThingKey }).from(projectAssets).where(eq(projectAssets.projectId, resolvedParams.id));
+      if (assets.length > 0) {
+        await utapi.deleteFiles(assets.map(a => a.key));
+      }
+    } catch (err) {
+      console.error('Failed to delete project assets from UploadThing:', err);
+    }
+
+    // Delete thumbnail and html snapshot from UploadThing
+    try {
+      const keysToDelete = [proj.thumbnailKey, proj.htmlSnapshotKey].filter(Boolean) as string[];
+      if (keysToDelete.length > 0) {
+        await utapi.deleteFiles(keysToDelete);
+      }
+    } catch (err) {
+      console.error('Failed to delete snapshot files from UploadThing:', err);
     }
 
     // Delete the project (cascades to chat sessions, messages, and env vars)

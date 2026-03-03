@@ -1,7 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { getDb } from '@/db';
 import { projects } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import Link from 'next/link';
 import { Workspace } from '@/components/workspace';
 
@@ -23,9 +23,12 @@ export default async function WorkspacePage({
   }
 
   const db = getDb();
-  const [proj] = await db.select().from(projects).where(eq(projects.id, projectId));
+  const [proj] = await db
+    .select()
+    .from(projects)
+    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
 
-  if (!proj || proj.userId !== userId) {
+  if (!proj) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-elevated text-[var(--sand-text)]">
         <div className="max-w-md text-center space-y-4 p-8 rounded-2xl border border-border bg-white shadow-sm">
@@ -52,6 +55,11 @@ export default async function WorkspacePage({
       </div>
     );
   }
+
+  await db
+    .update(projects)
+    .set({ lastOpened: new Date() })
+    .where(eq(projects.id, projectId));
 
   return <Workspace projectId={projectId} initialPrompt={initialPrompt} platform={platform} />;
 }

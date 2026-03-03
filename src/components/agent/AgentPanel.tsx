@@ -5,7 +5,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, type UIMessage } from 'ai';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/ui/markdown';
-import { ChevronDown, ChevronRight, ArrowUp, X as IconX, Cog, AlertCircle, RotateCcw, Loader2, ListPlus, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, ArrowUp, X as IconX, Cog, AlertCircle, RotateCcw, Loader2, ListPlus, Check, ImagePlus } from 'lucide-react';
 import { SettingsModal } from '@/components/settings/SettingsModal';
 import { WebContainerAgent, type GrepResult } from '@/lib/agent/webcontainer-agent';
 import { cn } from '@/lib/utils';
@@ -13,11 +13,25 @@ import { LiveActions } from '@/components/agent/LiveActions';
 import { useToast } from '@/components/ui/toast';
 import type { ToolCallData } from '@/lib/agent/ui-types';
 import { diffLineStats } from '@/lib/agent/diff-stats';
-import { MODEL_CONFIGS, type ModelId } from '@/lib/agent/models';
+import { MODEL_CONFIGS, modelSupportsImages, type ModelId } from '@/lib/agent/models';
 import { ModelSelector } from '@/components/ui/ModelSelector';
 import type { AgentErrorType } from '@/lib/agent/errors';
+import { processImageForUpload } from '@/lib/image-processing';
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
 
 type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: 'web' | 'mobile' };
+
+interface PendingImage {
+  id: string;
+  file: File;
+  localUrl: string;
+  uploading: boolean;
+  uploaded: boolean;
+  error?: string;
+  dbId?: string;
+  url?: string;
+  key?: string;
+}
 
 // ============================================================================
 // Structured error from the API
@@ -105,6 +119,14 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
   // --- Input state (v6: managed externally) ---
   const [input, setInput] = useState('');
+
+  // --- Image attachment state ---
+  const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
+  const pendingUploadsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Lightbox state ---
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // --- Message queue ---
   const [messageQueue, setMessageQueue] = useState<string[]>([]);
@@ -621,7 +643,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             proj?.model === 'claude-haiku-4.5' ||
             proj?.model === 'claude-opus-4.6' ||
             proj?.model === 'claude-opus-4.5' ||
-            proj?.model === 'kimi-k2-thinking-turbo' ||
+            proj?.model === 'kimi-k2.5' ||
+            proj?.model === 'kimi-k2-thinking-turbo' || // legacy migration
             proj?.model === 'fireworks-minimax-m2p5' ||
             proj?.model === 'fireworks-glm-5'
           ) {
@@ -629,6 +652,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               : proj.model === 'gpt-5.2' ? 'gpt-5.3-codex'
               : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4.6'
               : proj.model === 'claude-opus-4.5' ? 'claude-opus-4.6'
+              : proj.model === 'kimi-k2-thinking-turbo' ? 'kimi-k2.5'
               : proj.model;
             setModel(m as ModelId);
           }
@@ -678,7 +702,16 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     if (initialized && initialPrompt && !initialPromptSentRef.current && messagesRef.current.length === 0) {
       initialPromptSentRef.current = true;
       setTimeout(() => {
-        sendMessageRef.current({ text: initialPrompt });
+        // Pick up any images attached on the landing page
+        let fileParts: Array<{ type: 'file'; mediaType: string; url: string; filename?: string }> | undefined;
+        try {
+          const raw = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('botflow_pending_images') : null;
+          if (raw) {
+            sessionStorage.removeItem('botflow_pending_images');
+            fileParts = JSON.parse(raw) as typeof fileParts;
+          }
+        } catch {}
+        sendMessageRef.current({ text: initialPrompt, files: fileParts ?? undefined });
         removePromptFromUrl();
       }, 0);
     }
@@ -692,9 +725,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   }, [messages.length, actions.length]);
 
   // --- Submit handler ---
-  const onFormSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+  const onFormSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!input.trim()) return;
+    const hasText = input.trim().length > 0;
+    const hasImages = pendingImages.length > 0;
+    if (!hasText && !hasImages) return;
 
     const usingAnthropic = model === 'claude-sonnet-4.6' || model === 'claude-haiku-4.5' || model === 'claude-opus-4.6';
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
@@ -702,6 +737,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     if ((model === 'gpt-5.3-codex' && hasOpenAICreds === false) || (usingAnthropic && hasAnthropicCreds === false)) {
       toast({ title: 'Missing API key', description: `Please add your ${model === 'gpt-5.3-codex' ? 'OpenAI' : 'Anthropic'} API key in Settings.` });
       return;
+    }
+
+    // Warn if model doesn't support images but images are attached
+    if (hasImages && !modelSupportsImages(model)) {
+      toast({ title: `${MODEL_CONFIGS[model].displayName} doesn't support images — images will be ignored` });
     }
 
     // --- Message queueing: if agent is working, queue the message ---
@@ -712,16 +752,36 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       return;
     }
 
+    // Wait for any in-flight uploads to complete
+    if (pendingUploadsRef.current.size > 0) {
+      await Promise.allSettled(Array.from(pendingUploadsRef.current.values()));
+    }
+
+    // Build file parts from successfully uploaded images
+    const currentImages = pendingImages;
+    const fileParts = currentImages
+      .filter(img => img.uploaded && img.url)
+      .map(img => ({
+        type: 'file' as const,
+        mediaType: (img.file.type || 'image/jpeg') as `image/${string}`,
+        url: img.url!,
+        filename: img.file.name,
+      }));
+
+    // Clean up pending images
+    currentImages.forEach(img => URL.revokeObjectURL(img.localUrl));
+    setPendingImages([]);
+
     setAgentError(null);
     setRetryCountdown(null);
     setEndTurnCalled(false);
     setShowCompletionWarning(false);
     setIsBusy(true);
     toolAbortRef.current = new AbortController();
-    sendMessage({ text: input.trim() });
+    sendMessage({ text: input.trim(), files: fileParts.length > 0 ? fileParts : undefined });
     setInput('');
     removePromptFromUrl();
-  }, [model, hasOpenAIKey, hasAnthropicKey, hasClaudeOAuth, hasCodexOAuth, isAgentWorking, input, messageQueue.length, sendMessage, removePromptFromUrl, toast]);
+  }, [model, hasOpenAIKey, hasAnthropicKey, hasClaudeOAuth, hasCodexOAuth, isAgentWorking, input, pendingImages, messageQueue.length, sendMessage, removePromptFromUrl, toast]);
 
   // --- Re-prompt for lazy completion ---
   const handleReprompt = useCallback(() => {
@@ -741,6 +801,78 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   // --- Handle input change ---
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
+  }, []);
+
+  // --- Handle file selection for image attachments ---
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    // Reset input so the same file can be selected again
+    e.target.value = '';
+
+    for (const file of files) {
+      const pendingId = crypto.randomUUID();
+      const localUrl = URL.createObjectURL(file);
+
+      setPendingImages(prev => [...prev, {
+        id: pendingId,
+        file,
+        localUrl,
+        uploading: true,
+        uploaded: false,
+      }]);
+
+      const uploadPromise = (async () => {
+        try {
+          const processed = await processImageForUpload(file);
+          const formData = new FormData();
+          formData.append('file', processed);
+          formData.append('projectId', projectId);
+
+          const res = await fetch('/api/chat-images/upload', { method: 'POST', body: formData });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({})) as { error?: string };
+            throw new Error((data as { error?: string }).error ?? 'Upload failed');
+          }
+          const { id: dbId, url, key } = await res.json() as { id: string; url: string; key: string };
+
+          setPendingImages(prev => prev.map(img =>
+            img.id === pendingId
+              ? { ...img, uploading: false, uploaded: true, dbId, url, key }
+              : img
+          ));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Upload failed';
+          setPendingImages(prev => prev.map(img =>
+            img.id === pendingId
+              ? { ...img, uploading: false, uploaded: false, error: msg }
+              : img
+          ));
+        } finally {
+          pendingUploadsRef.current.delete(pendingId);
+        }
+      })();
+
+      pendingUploadsRef.current.set(pendingId, uploadPromise);
+    }
+  }, [projectId]);
+
+  // --- Remove a pending image ---
+  const handleRemoveImage = useCallback((pendingId: string) => {
+    setPendingImages(prev => {
+      const img = prev.find(i => i.id === pendingId);
+      if (img) {
+        URL.revokeObjectURL(img.localUrl);
+        if (img.dbId) {
+          fetch('/api/chat-images/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: img.dbId }),
+          }).catch(() => {});
+        }
+      }
+      return prev.filter(i => i.id !== pendingId);
+    });
   }, []);
 
   // --- Error display component ---
@@ -781,6 +913,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                   lastAssistantSavedRef.current = null;
                   setMessages([]);
                   setAgentError(null);
+                  setPendingImages(prev => { prev.forEach(img => URL.revokeObjectURL(img.localUrl)); return []; });
                 } catch {}
               }}
               className="underline hover:text-red-300"
@@ -877,6 +1010,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                 setMessages([]);
                 setHasAgentResponded(false);
                 setTokenEstimate(0);
+                // Clean up any pending image attachments
+                setPendingImages(prev => {
+                  prev.forEach(img => URL.revokeObjectURL(img.localUrl));
+                  return [];
+                });
               } catch (err) {
                 console.error('Failed to reset chat:', err);
               }
@@ -909,6 +1047,19 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                       <div key={i} className="text-xs text-muted italic border-l-2 border-accent/30 pl-2 my-1">
                         {part.text}
                       </div>
+                    );
+                  }
+                  if (part.type === 'file' && 'mediaType' in part && typeof part.mediaType === 'string' && part.mediaType.startsWith('image/') && 'url' in part && typeof part.url === 'string') {
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setLightboxSrc(part.url as string)}
+                        className="inline-block rounded-lg overflow-hidden border border-border mt-1 hover:opacity-90 transition-opacity"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={part.url as string} alt={'filename' in part && typeof part.filename === 'string' ? part.filename : ''} className="w-16 h-16 object-cover" />
+                      </button>
                     );
                   }
                   return null;
@@ -1042,7 +1193,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
       {/* Compound input card */}
       <form
-        onSubmit={onFormSubmit}
+        onSubmit={(e) => { void onFormSubmit(e); }}
         className="group flex flex-col rounded-2xl border border-border bg-elevated transition-colors duration-150 ease-in-out relative mt-2"
       >
         {/* Inset top — Live Actions */}
@@ -1071,9 +1222,71 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           </div>
         </div>
 
+        {/* Image thumbnail strip */}
+        {pendingImages.length > 0 && (
+          <div className="flex overflow-x-auto px-4 pb-1 gap-2 modern-scrollbar">
+            {pendingImages.map(img => (
+              <div key={img.id} className="relative group shrink-0">
+                <div className="w-12 h-12 rounded-lg border border-border overflow-hidden bg-soft flex items-center justify-center">
+                  {img.uploading ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img.localUrl} alt="" className="w-full h-full object-cover opacity-50" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <Loader2 size={16} className="animate-spin text-accent" />
+                      </div>
+                    </>
+                  ) : img.error ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={img.localUrl} alt="" className="w-full h-full object-cover opacity-30" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <AlertCircle size={16} className="text-red-400" />
+                      </div>
+                    </>
+                  ) : (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={img.localUrl} alt={img.file.name} className="w-full h-full object-cover" />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveImage(img.id)}
+                  className="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 rounded-full bg-surface border border-border text-muted hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Remove image"
+                >
+                  <IconX size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Buttons row */}
         <div className="flex items-center gap-1 px-4 pb-2">
-          <input id="file-upload" className="hidden" accept="image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp" multiple tabIndex={-1} type="file" style={{ border: 0, clip: 'rect(0px, 0px, 0px, 0px)', clipPath: 'inset(50%)', height: 1, margin: '0px -1px -1px 0px', overflow: 'hidden', padding: 0, position: 'absolute', width: 1, whiteSpace: 'nowrap' }} />
+          <input
+            ref={fileInputRef}
+            id="file-upload"
+            className="hidden"
+            accept="image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp"
+            multiple
+            tabIndex={-1}
+            type="file"
+            onChange={handleFileSelect}
+          />
+
+          {/* Attach image button */}
+          {modelSupportsImages(model) && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center justify-center size-6 rounded-full text-muted hover:text-foreground transition-colors"
+              title="Attach image"
+              aria-label="Attach image"
+            >
+              <ImagePlus size={16} />
+            </button>
+          )}
 
           {/* Queued message count */}
           {messageQueue.length > 0 && (
@@ -1127,9 +1340,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                   type="submit"
                   className={cn(
                     'flex size-6 items-center justify-center rounded-full bg-accent text-accent-foreground transition-opacity duration-150 ease-out',
-                    !input.trim() ? 'disabled:cursor-not-allowed disabled:opacity-50 opacity-50' : ''
+                    !input.trim() && pendingImages.length === 0 ? 'disabled:cursor-not-allowed disabled:opacity-50 opacity-50' : ''
                   )}
-                  disabled={!input.trim()}
+                  disabled={!input.trim() && pendingImages.length === 0}
                   title="Send"
                   aria-label="Send"
                 >
@@ -1160,6 +1373,10 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       </form>
 
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+
+      {lightboxSrc && (
+        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      )}
     </div>
   );
 }

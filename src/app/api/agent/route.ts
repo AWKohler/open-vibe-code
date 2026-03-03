@@ -436,6 +436,16 @@ export async function POST(req: Request) {
       resolvedMessages = compacted;
     }
 
+    // Strip file/image parts for models that don't support vision
+    if (!modelConfig.supportsImages) {
+      for (const msg of resolvedMessages) {
+        if (Array.isArray(msg.content)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (msg as any).content = (msg.content as Array<{ type: string }>).filter(part => part.type !== 'file');
+        }
+      }
+    }
+
     agentLog.apiCall({
       model: selectedModel,
       tokenCount: totalEstimatedTokens,
@@ -537,7 +547,7 @@ export async function POST(req: Request) {
         return result.toUIMessageStreamResponse({ headers: responseHeaders });
       }
 
-      if (selectedModel === "kimi-k2-thinking-turbo") {
+      if (selectedModel === "kimi-k2.5") {
         const apiKey = settings?.moonshotApiKey;
         if (!apiKey) {
           return new Response(
@@ -550,7 +560,7 @@ export async function POST(req: Request) {
           baseURL: "https://api.moonshot.ai/v1",
         });
         const result = streamText({
-          model: moonshot("kimi-k2-thinking-turbo"),
+          model: moonshot("kimi-k2.5"),
           system: systemPrompt,
           messages: resolvedMessages,
           tools,

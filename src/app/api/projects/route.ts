@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
 import { projects } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 
 export async function GET() {
@@ -9,7 +9,11 @@ export async function GET() {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const db = getDb();
-    const allProjects = await db.select().from(projects).where(eq(projects.userId, userId));
+    const allProjects = await db
+      .select()
+      .from(projects)
+      .where(eq(projects.userId, userId))
+      .orderBy(desc(projects.lastOpened), desc(projects.createdAt));
     return NextResponse.json(allProjects);
   } catch (err) {
     console.error(err);
@@ -30,7 +34,7 @@ export async function POST(request: NextRequest) {
         | 'claude-sonnet-4.6'
         | 'claude-haiku-4.5'
         | 'claude-opus-4.6'
-        | 'kimi-k2-thinking-turbo'
+        | 'kimi-k2.5'
         | 'fireworks-minimax-m2p5'
         | 'fireworks-glm-5';
     };
@@ -53,8 +57,8 @@ export async function POST(request: NextRequest) {
             ? 'claude-haiku-4.5'
             : model === 'claude-opus-4.6'
             ? 'claude-opus-4.6'
-            : model === 'kimi-k2-thinking-turbo'
-            ? 'kimi-k2-thinking-turbo'
+            : model === 'kimi-k2.5'
+            ? 'kimi-k2.5'
             : model === 'fireworks-minimax-m2p5'
             ? 'fireworks-minimax-m2p5'
             : model === 'fireworks-glm-5'

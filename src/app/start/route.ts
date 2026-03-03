@@ -21,11 +21,12 @@ export async function GET(request: Request) {
     modelParam === 'claude-haiku-4.5' ? 'claude-haiku-4.5' :
     modelParam === 'claude-opus-4.6' ? 'claude-opus-4.6' :
     modelParam === 'claude-opus-4.5' ? 'claude-opus-4.6' : // migrate legacy
-    modelParam === 'kimi-k2-thinking-turbo' ? 'kimi-k2-thinking-turbo' :
+    modelParam === 'kimi-k2.5' ? 'kimi-k2.5' :
+    modelParam === 'kimi-k2-thinking-turbo' ? 'kimi-k2.5' : // migrate legacy
     modelParam === 'fireworks-minimax-m2p5' ? 'fireworks-minimax-m2p5' :
     modelParam === 'fireworks-glm-5' ? 'fireworks-glm-5' :
     'gpt-5.3-codex'
-  ) as 'gpt-5.3-codex' | 'claude-sonnet-4.6' | 'claude-haiku-4.5' | 'claude-opus-4.6' | 'kimi-k2-thinking-turbo' | 'fireworks-minimax-m2p5' | 'fireworks-glm-5';
+  ) as 'gpt-5.3-codex' | 'claude-sonnet-4.6' | 'claude-haiku-4.5' | 'claude-opus-4.6' | 'kimi-k2.5' | 'fireworks-minimax-m2p5' | 'fireworks-glm-5';
 
   if (!userId) {
     return redirectToSignIn({ returnBackUrl: request.url });

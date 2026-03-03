@@ -32,7 +32,7 @@ const MODEL_ORDER: ModelId[] = [
   'claude-sonnet-4.6',
   'claude-haiku-4.5',
   'claude-opus-4.6',
-  'kimi-k2-thinking-turbo',
+  'kimi-k2.5',
   'fireworks-minimax-m2p5',
   'fireworks-glm-5',
 ];

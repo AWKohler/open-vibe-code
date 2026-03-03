@@ -26,6 +26,7 @@ export const projects = pgTable('projects', {
   // Cloudflare Pages deployment
   cloudflareProjectName: text('cloudflare_project_name'),
   cloudflareDeploymentUrl: text('cloudflare_deployment_url'),
+  lastOpened: timestamp('last_opened').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
@@ -181,3 +182,20 @@ export const pendingGitCommits = pgTable('pending_git_commits', {
 
 export type PendingGitCommit = typeof pendingGitCommits.$inferSelect;
 export type NewPendingGitCommit = typeof pendingGitCommits.$inferInsert;
+
+// Chat images: files attached to chat messages, stored in UploadThing
+export const chatImages = pgTable('chat_images', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  uploadThingUrl: text('upload_thing_url').notNull(),
+  uploadThingKey: text('upload_thing_key').notNull(),
+  filename: text('filename'),
+  size: integer('size'),
+  mediaType: text('media_type'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => ({
+  projectIdIdx: index('chat_images_project_id_idx').on(t.projectId),
+}));
+
+export type ChatImage = typeof chatImages.$inferSelect;
+export type NewChatImage = typeof chatImages.$inferInsert;

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, type UIMessage } from 'ai';
 import { Button } from '@/components/ui/button';
@@ -1058,7 +1059,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                         className="inline-block rounded-lg overflow-hidden border border-border mt-1 hover:opacity-90 transition-opacity"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={part.url as string} alt={'filename' in part && typeof part.filename === 'string' ? part.filename : ''} className="w-16 h-16 object-cover" />
+                        <img src={part.url as string} alt={'filename' in part && typeof part.filename === 'string' ? part.filename : ''} className="w-16 h-16 object-cover" crossOrigin="anonymous" />
                       </button>
                     );
                   }
@@ -1372,10 +1373,14 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         )}
       </form>
 
-      <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
+      {createPortal(
+        <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />,
+        document.body
+      )}
 
-      {lightboxSrc && (
-        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      {lightboxSrc && createPortal(
+        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />,
+        document.body
       )}
     </div>
   );

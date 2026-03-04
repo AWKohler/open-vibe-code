@@ -36,6 +36,7 @@ export function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
         src={src}
         alt={alt ?? ''}
         className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg"
+        crossOrigin="anonymous"
         onClick={(e) => e.stopPropagation()}
       />
     </div>

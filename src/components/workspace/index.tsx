@@ -1519,88 +1519,22 @@ export default function RootLayout() {
                 Open in new tab
               </button>
             )}
-            {currentView === "code" ? (
-              <></>
-            ) : currentView === "preview" ? (
-              <>
-                {previews.length > 1 && (
-                  <select
-                    className="text-sm bg-elevated border border-border rounded-md px-2 py-1 text-muted"
-                    value={activePreviewIndex}
-                    onChange={(e) =>
-                      setActivePreviewIndex(Number(e.target.value))
-                    }
-                    title="Select preview port"
-                  >
-                    {previews.map((p, i) => (
-                      <option key={p.port} value={i}>
-                        Port {p.port}
-                      </option>
-                    ))}
-                  </select>
-                )}
-
-                <div className="flex items-center gap-2 border border-border rounded-full px-3 py-1 min-w-[220px]">
-                  {/* Device toggle: cycles desktop → tablet → mobile */}
-                  <button
-                    onClick={() =>
-                      setPreviewDevice((prev) =>
-                        prev === "desktop"
-                          ? "tablet"
-                          : prev === "tablet"
-                            ? "mobile"
-                            : prev === "mobile"
-                              ? "responsive"
-                              : prev === "responsive"
-                                ? "figma"
-                                : "desktop",
-                      )
-                    }
-                    className="text-muted hover:text-fg"
-                    title={`Device: ${previewDevice}`}
-                  >
-                    {previewDevice === "desktop" && <Monitor size={16} />}
-                    {previewDevice === "tablet" && <Tablet size={16} />}
-                    {previewDevice === "mobile" && <Smartphone size={16} />}
-                    {previewDevice === "responsive" && <AppWindow size={16} />}
-                    {previewDevice === "figma" && <Frame size={16} />}
-                  </button>
-                  <span className="text-muted text-sm select-none">/</span>
-                  <input
-                    type="text"
-                    value={previewPath.replace(/^\//, "")}
-                    onChange={(e) =>
-                      setPreviewPath("/" + e.target.value.replace(/^\//, ""))
-                    }
-                    placeholder=""
-                    className="flex-1 bg-transparent text-sm outline-none"
-                  />
-                  <button
-                    onClick={() => {
-                      const p = previews[activePreviewIndex];
-                      if (p) {
-                        const previewUrl = p.baseUrl + (previewPath || "/");
-                        window.open(
-                          `/preview-popup?url=${encodeURIComponent(previewUrl)}`,
-                          "_blank"
-                        );
-                      }
-                    }}
-                    className="text-muted hover:text-fg"
-                    title="Open in new tab"
-                  >
-                    <ArrowUpRight size={16} />
-                  </button>
-                  <button
-                    onClick={() => setPreviewReloadKey((k) => k + 1)}
-                    className="text-muted hover:text-fg"
-                    title="Reload preview"
-                  >
-                    <RefreshCw size={16} />
-                  </button>
-                </div>
-              </>
-            ) : null}
+            {currentView === "preview" && previews.length > 1 && (
+              <select
+                className="text-sm bg-elevated border border-border rounded-md px-2 py-1 text-muted"
+                value={activePreviewIndex}
+                onChange={(e) =>
+                  setActivePreviewIndex(Number(e.target.value))
+                }
+                title="Select preview port"
+              >
+                {previews.map((p, i) => (
+                  <option key={p.port} value={i}>
+                    Port {p.port}
+                  </option>
+                ))}
+              </select>
+            )}
 
             {/* Cloud Sync Status Indicator */}
             <div className="text-xs text-muted flex items-center gap-1.5 px-2 py-1 rounded-md bg-elevated">
@@ -1616,6 +1550,68 @@ export default function RootLayout() {
                 </>
               ) : null}
             </div>
+
+            {currentView === "preview" && (
+              <div className="flex items-center gap-2 border border-border rounded-full px-3 py-1 min-w-[220px]">
+                {/* Device toggle: cycles desktop → tablet → mobile */}
+                <button
+                  onClick={() =>
+                    setPreviewDevice((prev) =>
+                      prev === "desktop"
+                        ? "tablet"
+                        : prev === "tablet"
+                          ? "mobile"
+                          : prev === "mobile"
+                            ? "responsive"
+                            : prev === "responsive"
+                              ? "figma"
+                              : "desktop",
+                    )
+                  }
+                  className="text-muted hover:text-fg"
+                  title={`Device: ${previewDevice}`}
+                >
+                  {previewDevice === "desktop" && <Monitor size={16} />}
+                  {previewDevice === "tablet" && <Tablet size={16} />}
+                  {previewDevice === "mobile" && <Smartphone size={16} />}
+                  {previewDevice === "responsive" && <AppWindow size={16} />}
+                  {previewDevice === "figma" && <Frame size={16} />}
+                </button>
+                <span className="text-muted text-sm select-none">/</span>
+                <input
+                  type="text"
+                  value={previewPath.replace(/^\//, "")}
+                  onChange={(e) =>
+                    setPreviewPath("/" + e.target.value.replace(/^\//, ""))
+                  }
+                  placeholder=""
+                  className="flex-1 bg-transparent text-sm outline-none"
+                />
+                <button
+                  onClick={() => {
+                    const p = previews[activePreviewIndex];
+                    if (p) {
+                      const previewUrl = p.baseUrl + (previewPath || "/");
+                      window.open(
+                        `/preview-popup?url=${encodeURIComponent(previewUrl)}`,
+                        "_blank"
+                      );
+                    }
+                  }}
+                  className="text-muted hover:text-fg"
+                  title="Open in new tab"
+                >
+                  <ArrowUpRight size={16} />
+                </button>
+                <button
+                  onClick={() => setPreviewReloadKey((k) => k + 1)}
+                  className="text-muted hover:text-fg"
+                  title="Reload preview"
+                >
+                  <RefreshCw size={16} />
+                </button>
+              </div>
+            )}
 
             <UserButton
               afterSignOutUrl="/"

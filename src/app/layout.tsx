@@ -75,11 +75,6 @@ export default function RootLayout({
           // input: "!bg-[var(--color-elevated)] !text-[var(--sand-text)]",
           // formFieldInput: "!bg-[var(--color-elevated)] !text-[var(--sand-text)]",
 
-          pricingTableCardFee: "text-3xl",
-          CardNumberInput: "!bg-red-500",
-          input: "!bg-red-500",
-          formFieldInput: "!bg-red-500",
-
           alertText: "text-accent",
           alertIcon: "!text-accent",
         },

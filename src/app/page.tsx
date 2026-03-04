@@ -55,12 +55,18 @@ export default function Home() {
     "gpt-5.3-codex",
     "gpt-5.2", // legacy compat
     "claude-sonnet-4.6",
-    "claude-haiku-4.5",
     "claude-opus-4.6",
-    "kimi-k2.5",
     "kimi-k2-thinking-turbo", // legacy compat
     "fireworks-minimax-m2p5",
     "fireworks-glm-5",
+  ]);
+
+  // Models served via platform keys — don't require BYOK at project start
+  const serverKeyModels = new Set([
+    "fireworks-minimax-m2p5",
+    "fireworks-glm-5",
+    "claude-sonnet-4.6",
+    "claude-opus-4.6",
   ]);
   const landingSignInModalAppearance = {
     elements: {
@@ -113,28 +119,16 @@ export default function Home() {
   }, [showPlusPopover]);
 
   const ensureModelKeyPresent = () => {
+    // Server-key models don't require BYOK — platform provides them
+    if (serverKeyModels.has(model)) return true;
+
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
     const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
-    const keyChecks: Record<ModelId, { hasKey: boolean | null; provider: string }> = {
+    const keyChecks: Record<string, { hasKey: boolean | null; provider: string }> = {
       "gpt-5.3-codex": { hasKey: hasOpenAICreds, provider: "OpenAI" },
-      "claude-sonnet-4.6": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
-      "claude-haiku-4.5": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
-      "claude-opus-4.6": { hasKey: hasAnthropicCreds, provider: "Anthropic" },
-      "kimi-k2.5": {
-        hasKey: hasMoonshotKey,
-        provider: "Moonshot",
-      },
-      "fireworks-minimax-m2p5": {
-        hasKey: hasFireworksKey,
-        provider: "Fireworks AI",
-      },
-      "fireworks-glm-5": {
-        hasKey: hasFireworksKey,
-        provider: "Fireworks AI",
-      },
     };
     const check = keyChecks[model];
-    if (check.hasKey === false) {
+    if (check?.hasKey === false) {
       toast({
         title: "Missing API key",
         description: `Please add your ${check.provider} API key in Settings.`,

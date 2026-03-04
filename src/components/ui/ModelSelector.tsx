@@ -27,15 +27,24 @@ const PROVIDER_LABELS: Record<string, string> = {
 };
 
 /** Minimum tier required to use a model on server-side keys */
-const MODEL_SERVER_TIER: Record<ModelId, 'free' | 'pro' | 'max'> = {
+const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
   'gpt-5.3-codex': 'free',
   'fireworks-minimax-m2p5': 'free',
-  'kimi-k2.5': 'free',
-  'claude-haiku-4.5': 'pro',
   'fireworks-glm-5': 'pro',
   'claude-sonnet-4.6': 'max',
   'claude-opus-4.6': 'max',
 };
+
+/**
+ * Models served via platform server keys — BYOK not required.
+ * Selecting these skips the "missing API key" BYOK check.
+ */
+const SERVER_KEY_MODELS = new Set<ModelId>([
+  'fireworks-minimax-m2p5',
+  'fireworks-glm-5',
+  'claude-sonnet-4.6',
+  'claude-opus-4.6',
+]);
 
 const TIER_RANK: Record<string, number> = { free: 0, pro: 1, max: 2 };
 const TIER_LABELS: Record<string, string> = { pro: 'Pro', max: 'Max' };
@@ -49,9 +58,7 @@ function formatContextSize(tokens: number): string {
 const MODEL_ORDER: ModelId[] = [
   'gpt-5.3-codex',
   'claude-sonnet-4.6',
-  'claude-haiku-4.5',
   'claude-opus-4.6',
-  'kimi-k2.5',
   'fireworks-minimax-m2p5',
   'fireworks-glm-5',
 ];
@@ -88,8 +95,8 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
       return;
     }
 
-    // BYOK credential check
-    if (providerAccess[config.provider] === false) {
+    // BYOK credential check — skip for models served via platform keys
+    if (!SERVER_KEY_MODELS.has(modelId) && providerAccess[config.provider] === false) {
       toast({
         title: 'Missing API key',
         description: `Please add your ${PROVIDER_LABELS[config.provider]} credentials in Settings.`,
@@ -196,7 +203,7 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
                     {formatContextSize(config.maxContextTokens)} context
                   </div>
                 </div>
-                {(isCredentialMissing && !isTierLocked) && (
+                {(isCredentialMissing && !isTierLocked && !SERVER_KEY_MODELS.has(modelId)) && (
                   <div className="flex items-center gap-1 text-muted">
                     <Lock className="h-3 w-3" />
                     <span className="text-[10px]">no key</span>

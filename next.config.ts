@@ -14,7 +14,9 @@ const nextConfig: NextConfig = {
   headers: async () => {
     return [
       {
-        source: '/workspace/:path*',
+        // SharedArrayBuffer (required by WebContainer) needs cross-origin isolation
+        // Applied globally so it works regardless of which route hosts the workspace
+        source: '/(.*)',
         headers: [
           {
             key: 'Cross-Origin-Embedder-Policy',

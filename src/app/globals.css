@@ -99,6 +99,17 @@ body {
     gap: 0.5rem; /* Tailwind gap-2 */
 }
 
+/* Clerk billing drawer — render above custom modals (z-[200]) */
+.cl-drawerRoot,
+.cl-drawerContent {
+    z-index: 9999 !important;
+}
+
+/* Billing frequency switch — accent color only when toggled on */
+[class*="cl-pricingTable"] [role="switch"][data-state="checked"] {
+    background-color: var(--sand-accent) !important;
+}
+
 /* Custom scrollbar styles */
 .modern-scrollbar {
     scrollbar-width: thin;

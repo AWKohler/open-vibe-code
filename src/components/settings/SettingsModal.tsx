@@ -1,15 +1,18 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { SignedIn, SignedOut, SignInButton } from '@clerk/nextjs';
+import { SignedIn, SignedOut, SignInButton, PricingTable } from '@clerk/nextjs';
 import { useToast } from '@/components/ui/toast';
 import { X, ExternalLink, AlertTriangle, CheckCircle2, Loader2, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
+  defaultTab?: Tab;
 }
 
+type Tab = 'connections' | 'subscription';
 type Provider = 'openai' | 'anthropic' | 'moonshot' | 'fireworks';
 type OAuthStep = 'idle' | 'tos' | 'connecting' | 'exchanging' | 'success';
 
@@ -25,8 +28,9 @@ const PROVIDERS: Array<{
   { provider: 'fireworks', label: 'Fireworks AI API Key', field: 'fireworksApiKey', placeholder: 'fw-...' },
 ];
 
-export function SettingsModal({ open, onClose }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, defaultTab = 'connections' }: SettingsModalProps) {
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<Provider | null>(null);
   const [removingKey, setRemovingKey] = useState<Provider | null>(null);
@@ -53,6 +57,11 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [authUrl, setAuthUrl] = useState('');
   const [pkceVerifier, setPkceVerifier] = useState('');
   const [oauthError, setOauthError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setActiveTab(defaultTab);
+  }, [open, defaultTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -201,7 +210,6 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   };
 
-  // Extract auth code from either a raw code string or a full callback URL
   function extractCode(input: string): string {
     const trimmed = input.trim();
     try {
@@ -280,23 +288,55 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     }
   };
 
-  // Poll effect for Codex device auth
-  // (We use a self-invoking pattern in the JSX via useEffect below instead)
-
   if (!open) return null;
 
+  const isSubscriptionTab = activeTab === 'subscription';
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-[200] flex items-center justify-center px-4">
+      {/* Blur backdrop as a sibling — NOT an ancestor of the modal content.
+          This prevents backdrop-filter from creating a containing block that
+          traps Clerk's checkout panel (position:fixed) inside our modal. */}
       <div
-        className="w-full max-w-lg rounded-2xl border border-border bg-bg shadow-xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div
+        className={cn(
+          'relative w-full rounded-2xl border border-border bg-bg shadow-xl max-h-[90vh] flex flex-col overflow-hidden transition-all duration-200',
+          isSubscriptionTab ? 'max-w-5xl' : 'max-w-lg'
+        )}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
-          <h2 className="text-lg font-semibold text-fg">Settings</h2>
+          <div className="flex items-center gap-6">
+            <h2 className="text-lg font-semibold text-fg">Settings</h2>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveTab('connections')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-sm font-medium transition',
+                  activeTab === 'connections'
+                    ? 'bg-elevated text-fg'
+                    : 'text-muted hover:text-fg'
+                )}
+              >
+                Connections
+              </button>
+              <button
+                onClick={() => setActiveTab('subscription')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-sm font-medium transition',
+                  activeTab === 'subscription'
+                    ? 'bg-elevated text-fg'
+                    : 'text-muted hover:text-fg'
+                )}
+              >
+                Subscription
+              </button>
+            </div>
+          </div>
           <button
             onClick={onClose}
             className="inline-flex items-center justify-center h-8 w-8 rounded-full hover:bg-elevated transition"
@@ -319,344 +359,354 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
           </SignedOut>
 
           <SignedIn>
-            {loading ? (
-              <div className="py-8 text-center text-sm text-muted">Loading…</div>
-            ) : (
-              <div className="space-y-8">
+            {/* ── Subscription tab ── */}
+            {activeTab === 'subscription' && (
+              <div>
+                <p className="text-xs text-muted mb-5">
+                  Free is the default plan — no action needed to get started.
+                  Upgrade anytime to unlock more capabilities.
+                </p>
+                <PricingTable
+                  newSubscriptionRedirectUrl="/projects"
+                  ctaPosition="bottom"
+                />
+              </div>
+            )}
 
-                {/* ── ChatGPT Codex OAuth section ── */}
-                <div>
-                  <div className="flex items-center justify-between mb-3">
+            {/* ── Connections tab ── */}
+            {activeTab === 'connections' && (
+              <>
+                {loading ? (
+                  <div className="py-8 text-center text-sm text-muted">Loading…</div>
+                ) : (
+                  <div className="space-y-8">
+
+                    {/* ── ChatGPT Codex OAuth section ── */}
                     <div>
-                      <h3 className="text-sm font-semibold text-fg">ChatGPT Codex</h3>
-                      <p className="text-xs text-muted mt-0.5">
-                        Use your ChatGPT subscription for GPT-5.3 Codex.
-                        Takes priority over the OpenAI API key below.
-                      </p>
-                    </div>
-                    {hasCodexOAuth && codexOAuthStep === 'idle' ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-600 border border-green-500/30 whitespace-nowrap">
-                        <CheckCircle2 className="h-3 w-3" /> Connected
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {/* Idle — not connected */}
-                  {!hasCodexOAuth && codexOAuthStep === 'idle' && (
-                    <button
-                      onClick={startCodexOAuth}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-bg px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-surface transition"
-                    >
-                      Sign in with ChatGPT Codex
-                    </button>
-                  )}
-
-                  {/* Already connected */}
-                  {hasCodexOAuth && codexOAuthStep === 'idle' && (
-                    <button
-                      onClick={disconnectCodexOAuth}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/15 px-3.5 py-2 text-sm font-medium text-red-500 hover:bg-red-500/25 transition"
-                    >
-                      Disconnect
-                    </button>
-                  )}
-
-                  {/* Success state */}
-                  {codexOAuthStep === 'success' && (
-                    <div className="flex items-center gap-2 text-sm text-green-700">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Connected successfully!
-                      <button
-                        onClick={() => setCodexOAuthStep('idle')}
-                        className="ml-auto text-muted hover:text-fg text-xs underline"
-                      >
-                        Done
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Polling step — device code flow */}
-                  {codexOAuthStep === 'polling' && (
-                    <div className="rounded-xl border border-border bg-surface p-4 space-y-3">
-                      <p className="text-sm text-fg">
-                        Go to{' '}
-                        <a
-                          href={codexVerificationUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="font-medium underline text-fg"
-                        >
-                          {codexVerificationUrl}
-                        </a>{' '}
-                        and enter this code:
-                      </p>
-                      <div className="flex items-center gap-3">
-                        <code className="rounded-lg bg-bg border border-border px-4 py-2 text-lg font-mono font-bold tracking-widest text-fg select-all">
-                          {codexUserCode}
-                        </code>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(codexUserCode);
-                            toast({ title: 'Copied', description: 'Code copied to clipboard.' });
-                          }}
-                          className="text-xs text-muted hover:text-fg underline"
-                        >
-                          Copy
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs text-muted">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Waiting for authorization...
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => window.open(codexVerificationUrl, '_blank', 'noopener,noreferrer')}
-                          className="text-xs text-muted underline"
-                        >
-                          Re-open verification page
-                        </button>
-                        <button
-                          onClick={() => { setCodexOAuthStep('idle'); setCodexUserCode(''); setCodexDeviceAuthId(''); }}
-                          className="text-xs text-muted underline"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* ── Claude Code OAuth section ── */}
-                <div>
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h3 className="text-sm font-semibold text-fg">Claude Code OAuth</h3>
-                      <p className="text-xs text-muted mt-0.5">
-                        Use your Claude Pro/Max subscription instead of an API key.
-                        Takes priority over the Anthropic API key below.
-                      </p>
-                    </div>
-                    {hasClaudeOAuth && oauthStep !== 'idle' && oauthStep !== 'success' ? null : hasClaudeOAuth ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-600 border border-green-500/30 whitespace-nowrap">
-                        <CheckCircle2 className="h-3 w-3" /> Connected
-                      </span>
-                    ) : null}
-                  </div>
-
-                  {/* Idle — not connected */}
-                  {!hasClaudeOAuth && oauthStep === 'idle' && (
-                    <button
-                      onClick={() => setOauthStep('tos')}
-                      className="inline-flex items-center gap-2 rounded-lg border border-border bg-bg px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-surface transition"
-                    >
-                      Connect with Claude Code
-                    </button>
-                  )}
-
-                  {/* Already connected */}
-                  {hasClaudeOAuth && oauthStep === 'idle' && (
-                    <button
-                      onClick={disconnectOAuth}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/15 px-3.5 py-2 text-sm font-medium text-red-500 hover:bg-red-500/25 transition"
-                    >
-                      Disconnect
-                    </button>
-                  )}
-
-                  {/* Success state */}
-                  {oauthStep === 'success' && (
-                    <div className="flex items-center gap-2 text-sm text-green-700">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Connected successfully!
-                      <button
-                        onClick={() => setOauthStep('idle')}
-                        className="ml-auto text-muted hover:text-fg text-xs underline"
-                      >
-                        Done
-                      </button>
-                    </div>
-                  )}
-
-                  {/* TOS step */}
-                  {oauthStep === 'tos' && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
-                      <div className="flex items-start gap-2">
-                        <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                      <div className="flex items-center justify-between mb-3">
                         <div>
-                          <p className="text-sm font-semibold text-amber-800">Non-commercial use only</p>
-                          <p className="text-xs text-amber-700 mt-1">
-                            Per Anthropic&apos;s Terms of Service, using your Claude Pro/Max
-                            subscription via OAuth is permitted for <strong>personal, non-commercial
-                            use only</strong>. Do not use this feature to power commercial products
-                            or services.
+                          <h3 className="text-sm font-semibold text-fg">ChatGPT Codex</h3>
+                          <p className="text-xs text-muted mt-0.5">
+                            Use your ChatGPT subscription for GPT-5.3 Codex.
+                            Takes priority over the OpenAI API key below.
                           </p>
-                          <a
-                            href="https://www.anthropic.com/legal/consumer-terms"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-amber-700 underline mt-1"
-                          >
-                            Anthropic Consumer Terms <ExternalLink className="h-3 w-3" />
-                          </a>
                         </div>
+                        {hasCodexOAuth && codexOAuthStep === 'idle' ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-600 border border-green-500/30 whitespace-nowrap">
+                            <CheckCircle2 className="h-3 w-3" /> Connected
+                          </span>
+                        ) : null}
                       </div>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={tosChecked}
-                          onChange={e => setTosChecked(e.target.checked)}
-                          className="h-4 w-4 rounded border-amber-300 accent-amber-600"
-                        />
-                        <span className="text-xs text-amber-800">
-                          I understand this is for non-commercial use only
-                        </span>
-                      </label>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={startOAuthFlow}
-                          disabled={!tosChecked}
-                          className="inline-flex items-center gap-2 rounded-lg bg-fg px-3.5 py-2 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-40 transition"
-                        >
-                          Authorize with Claude
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => { setOauthStep('idle'); setTosChecked(false); }}
-                          className="inline-flex items-center rounded-lg border border-border px-3.5 py-2 text-sm text-muted hover:bg-surface transition"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
-                  {/* Connecting step — paste code */}
-                  {(oauthStep === 'connecting' || oauthStep === 'exchanging') && (
-                    <div className="rounded-xl border border-border bg-surface p-4 space-y-3">
-                      <ol className="text-xs text-muted space-y-1 list-decimal list-inside">
-                        <li>Complete authorization in the tab that opened.</li>
-                        <li>After redirecting, copy the full URL from your browser&apos;s address bar.</li>
-                        <li>Paste it below and click&nbsp;<strong>Connect</strong>.</li>
-                      </ol>
-                      <p className="text-xs text-muted">
-                        You can paste the full URL or just the <code className="bg-soft px-1 rounded">code</code> value:{' '}
-                        <code className="bg-soft px-1 rounded text-muted">
-                          …/callback?code=<strong>THIS PART</strong>&amp;state=…
-                        </code>
-                      </p>
-                      {oauthError && (
-                        <p className="text-xs text-red-600 font-medium">{oauthError}</p>
+                      {!hasCodexOAuth && codexOAuthStep === 'idle' && (
+                        <button
+                          onClick={startCodexOAuth}
+                          className="inline-flex items-center gap-2 rounded-lg border border-border bg-bg px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-surface transition"
+                        >
+                          Sign in with ChatGPT Codex
+                        </button>
                       )}
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Paste full callback URL or just the code…"
-                          value={oauthCode}
-                          onChange={e => setOauthCode(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') exchangeCode(); }}
-                          className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg outline-none focus:ring-2 focus:ring-border"
-                          disabled={oauthStep === 'exchanging'}
-                        />
-                        <button
-                          onClick={exchangeCode}
-                          disabled={!oauthCode.trim() || oauthStep === 'exchanging'}
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-fg px-3.5 py-2 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-40 transition"
-                        >
-                          {oauthStep === 'exchanging' ? (
-                            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Connecting…</>
-                          ) : 'Connect'}
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}
-                          className="text-xs text-muted underline"
-                        >
-                          Re-open authorization page
-                        </button>
-                        <button
-                          onClick={() => { setOauthStep('idle'); setOauthCode(''); setPkceVerifier(''); setOauthError(''); }}
-                          className="text-xs text-muted underline"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                {/* ── BYOK API Keys ── */}
-                <div>
-                  <h3 className="text-sm font-semibold text-fg mb-1">API Keys</h3>
-                  <p className="text-xs text-muted mb-4">
-                    Bring your own keys. Each key is saved independently — adding one won&apos;t affect the others.
-                    {hasCodexOAuth && (
-                      <span className="ml-1 text-green-700 font-medium">
-                        Codex OAuth is active — OpenAI API key is used as fallback only.
-                      </span>
-                    )}
-                    {hasClaudeOAuth && (
-                      <span className="ml-1 text-green-700 font-medium">
-                        Claude Code OAuth is active — Anthropic API key is used as fallback only.
-                      </span>
-                    )}
-                  </p>
-                  <div className="space-y-4">
-                    {PROVIDERS.map(({ provider, label, placeholder }) => (
-                      <div key={provider}>
-                        <label className="flex items-center gap-2 text-sm font-medium text-fg mb-1.5">
-                          {label}
-                          {hasKey[provider] && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-600 border border-green-500/30">
-                              Saved
-                            </span>
-                          )}
-                          {provider === 'openai' && hasCodexOAuth && (
-                            <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
-                              fallback
-                            </span>
-                          )}
-                          {provider === 'anthropic' && hasClaudeOAuth && (
-                            <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
-                              fallback
-                            </span>
-                          )}
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="password"
-                            placeholder={hasKey[provider] ? '●●●●●●●● (type to replace)' : placeholder}
-                            value={keys[provider]}
-                            onChange={e => setKeys(prev => ({ ...prev, [provider]: e.target.value }))}
-                            onKeyDown={e => { if (e.key === 'Enter') saveKey(provider); }}
-                            className="flex-1 rounded-lg border border-border bg-bg text-fg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-border"
-                          />
-                          {hasKey[provider] && (
-                            <button
-                              onClick={() => removeKey(provider)}
-                              disabled={removingKey === provider || savingKey === provider}
-                              title="Remove key"
-                              className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-red-500/30 bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40 transition"
-                            >
-                              {removingKey === provider
-                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                : <Trash2 className="h-3.5 w-3.5" />}
-                            </button>
-                          )}
+                      {hasCodexOAuth && codexOAuthStep === 'idle' && (
+                        <button
+                          onClick={disconnectCodexOAuth}
+                          className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/15 px-3.5 py-2 text-sm font-medium text-red-500 hover:bg-red-500/25 transition"
+                        >
+                          Disconnect
+                        </button>
+                      )}
+
+                      {codexOAuthStep === 'success' && (
+                        <div className="flex items-center gap-2 text-sm text-green-700">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Connected successfully!
                           <button
-                            onClick={() => saveKey(provider)}
-                            disabled={!keys[provider].trim() || savingKey === provider || removingKey === provider}
-                            className="inline-flex items-center rounded-lg bg-fg px-3.5 py-2 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-40 transition"
+                            onClick={() => setCodexOAuthStep('idle')}
+                            className="ml-auto text-muted hover:text-fg text-xs underline"
                           >
-                            {savingKey === provider ? 'Saving…' : 'Save'}
+                            Done
                           </button>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                      )}
 
-              </div>
+                      {codexOAuthStep === 'polling' && (
+                        <div className="rounded-xl border border-border bg-surface p-4 space-y-3">
+                          <p className="text-sm text-fg">
+                            Go to{' '}
+                            <a
+                              href={codexVerificationUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-medium underline text-fg"
+                            >
+                              {codexVerificationUrl}
+                            </a>{' '}
+                            and enter this code:
+                          </p>
+                          <div className="flex items-center gap-3">
+                            <code className="rounded-lg bg-bg border border-border px-4 py-2 text-lg font-mono font-bold tracking-widest text-fg select-all">
+                              {codexUserCode}
+                            </code>
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(codexUserCode);
+                                toast({ title: 'Copied', description: 'Code copied to clipboard.' });
+                              }}
+                              className="text-xs text-muted hover:text-fg underline"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2 text-xs text-muted">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Waiting for authorization...
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => window.open(codexVerificationUrl, '_blank', 'noopener,noreferrer')}
+                              className="text-xs text-muted underline"
+                            >
+                              Re-open verification page
+                            </button>
+                            <button
+                              onClick={() => { setCodexOAuthStep('idle'); setCodexUserCode(''); setCodexDeviceAuthId(''); }}
+                              className="text-xs text-muted underline"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── Claude Code OAuth section ── */}
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-fg">Claude Code OAuth</h3>
+                          <p className="text-xs text-muted mt-0.5">
+                            Use your Claude Pro/Max subscription instead of an API key.
+                            Takes priority over the Anthropic API key below.
+                          </p>
+                        </div>
+                        {hasClaudeOAuth && oauthStep !== 'idle' && oauthStep !== 'success' ? null : hasClaudeOAuth ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-600 border border-green-500/30 whitespace-nowrap">
+                            <CheckCircle2 className="h-3 w-3" /> Connected
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {!hasClaudeOAuth && oauthStep === 'idle' && (
+                        <button
+                          onClick={() => setOauthStep('tos')}
+                          className="inline-flex items-center gap-2 rounded-lg border border-border bg-bg px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-surface transition"
+                        >
+                          Connect with Claude Code
+                        </button>
+                      )}
+
+                      {hasClaudeOAuth && oauthStep === 'idle' && (
+                        <button
+                          onClick={disconnectOAuth}
+                          className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/15 px-3.5 py-2 text-sm font-medium text-red-500 hover:bg-red-500/25 transition"
+                        >
+                          Disconnect
+                        </button>
+                      )}
+
+                      {oauthStep === 'success' && (
+                        <div className="flex items-center gap-2 text-sm text-green-700">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Connected successfully!
+                          <button
+                            onClick={() => setOauthStep('idle')}
+                            className="ml-auto text-muted hover:text-fg text-xs underline"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      )}
+
+                      {oauthStep === 'tos' && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                          <div className="flex items-start gap-2">
+                            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                            <div>
+                              <p className="text-sm font-semibold text-amber-800">Non-commercial use only</p>
+                              <p className="text-xs text-amber-700 mt-1">
+                                Per Anthropic&apos;s Terms of Service, using your Claude Pro/Max
+                                subscription via OAuth is permitted for <strong>personal, non-commercial
+                                use only</strong>. Do not use this feature to power commercial products
+                                or services.
+                              </p>
+                              <a
+                                href="https://www.anthropic.com/legal/consumer-terms"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-amber-700 underline mt-1"
+                              >
+                                Anthropic Consumer Terms <ExternalLink className="h-3 w-3" />
+                              </a>
+                            </div>
+                          </div>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={tosChecked}
+                              onChange={e => setTosChecked(e.target.checked)}
+                              className="h-4 w-4 rounded border-amber-300 accent-amber-600"
+                            />
+                            <span className="text-xs text-amber-800">
+                              I understand this is for non-commercial use only
+                            </span>
+                          </label>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={startOAuthFlow}
+                              disabled={!tosChecked}
+                              className="inline-flex items-center gap-2 rounded-lg bg-fg px-3.5 py-2 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-40 transition"
+                            >
+                              Authorize with Claude
+                              <ExternalLink className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => { setOauthStep('idle'); setTosChecked(false); }}
+                              className="inline-flex items-center rounded-lg border border-border px-3.5 py-2 text-sm text-muted hover:bg-surface transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {(oauthStep === 'connecting' || oauthStep === 'exchanging') && (
+                        <div className="rounded-xl border border-border bg-surface p-4 space-y-3">
+                          <ol className="text-xs text-muted space-y-1 list-decimal list-inside">
+                            <li>Complete authorization in the tab that opened.</li>
+                            <li>After redirecting, copy the full URL from your browser&apos;s address bar.</li>
+                            <li>Paste it below and click&nbsp;<strong>Connect</strong>.</li>
+                          </ol>
+                          <p className="text-xs text-muted">
+                            You can paste the full URL or just the <code className="bg-soft px-1 rounded">code</code> value:{' '}
+                            <code className="bg-soft px-1 rounded text-muted">
+                              …/callback?code=<strong>THIS PART</strong>&amp;state=…
+                            </code>
+                          </p>
+                          {oauthError && (
+                            <p className="text-xs text-red-600 font-medium">{oauthError}</p>
+                          )}
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="Paste full callback URL or just the code…"
+                              value={oauthCode}
+                              onChange={e => setOauthCode(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') exchangeCode(); }}
+                              className="flex-1 rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg outline-none focus:ring-2 focus:ring-border"
+                              disabled={oauthStep === 'exchanging'}
+                            />
+                            <button
+                              onClick={exchangeCode}
+                              disabled={!oauthCode.trim() || oauthStep === 'exchanging'}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-fg px-3.5 py-2 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-40 transition"
+                            >
+                              {oauthStep === 'exchanging' ? (
+                                <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Connecting…</>
+                              ) : 'Connect'}
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <button
+                              onClick={() => window.open(authUrl, '_blank', 'noopener,noreferrer')}
+                              className="text-xs text-muted underline"
+                            >
+                              Re-open authorization page
+                            </button>
+                            <button
+                              onClick={() => { setOauthStep('idle'); setOauthCode(''); setPkceVerifier(''); setOauthError(''); }}
+                              className="text-xs text-muted underline"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* ── BYOK API Keys ── */}
+                    <div>
+                      <h3 className="text-sm font-semibold text-fg mb-1">API Keys</h3>
+                      <p className="text-xs text-muted mb-4">
+                        Bring your own keys. Each key is saved independently — adding one won&apos;t affect the others.
+                        {hasCodexOAuth && (
+                          <span className="ml-1 text-green-700 font-medium">
+                            Codex OAuth is active — OpenAI API key is used as fallback only.
+                          </span>
+                        )}
+                        {hasClaudeOAuth && (
+                          <span className="ml-1 text-green-700 font-medium">
+                            Claude Code OAuth is active — Anthropic API key is used as fallback only.
+                          </span>
+                        )}
+                      </p>
+                      <div className="space-y-4">
+                        {PROVIDERS.map(({ provider, label, placeholder }) => (
+                          <div key={provider}>
+                            <label className="flex items-center gap-2 text-sm font-medium text-fg mb-1.5">
+                              {label}
+                              {hasKey[provider] && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-600 border border-green-500/30">
+                                  Saved
+                                </span>
+                              )}
+                              {provider === 'openai' && hasCodexOAuth && (
+                                <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
+                                  fallback
+                                </span>
+                              )}
+                              {provider === 'anthropic' && hasClaudeOAuth && (
+                                <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
+                                  fallback
+                                </span>
+                              )}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="password"
+                                placeholder={hasKey[provider] ? '●●●●●●●● (type to replace)' : placeholder}
+                                value={keys[provider]}
+                                onChange={e => setKeys(prev => ({ ...prev, [provider]: e.target.value }))}
+                                onKeyDown={e => { if (e.key === 'Enter') saveKey(provider); }}
+                                className="flex-1 rounded-lg border border-border bg-bg text-fg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-border"
+                              />
+                              {hasKey[provider] && (
+                                <button
+                                  onClick={() => removeKey(provider)}
+                                  disabled={removingKey === provider || savingKey === provider}
+                                  title="Remove key"
+                                  className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-red-500/30 bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40 transition"
+                                >
+                                  {removingKey === provider
+                                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    : <Trash2 className="h-3.5 w-3.5" />}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => saveKey(provider)}
+                                disabled={!keys[provider].trim() || savingKey === provider || removingKey === provider}
+                                className="inline-flex items-center rounded-lg bg-fg px-3.5 py-2 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-40 transition"
+                              >
+                                {savingKey === provider ? 'Saving…' : 'Save'}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+              </>
             )}
           </SignedIn>
         </div>

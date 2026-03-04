@@ -337,7 +337,7 @@ export default function Home() {
                   </a>
                   <a
                     className="font-semibold hover:text-[var(--sand-text)] transition"
-                    href="#"
+                    href="/pricing"
                   >
                     Pricing
                   </a>

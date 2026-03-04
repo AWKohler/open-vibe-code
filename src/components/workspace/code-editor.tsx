@@ -1,6 +1,6 @@
 'use client';
 
-import { Editor, BeforeMount } from '@monaco-editor/react';
+import { Editor, BeforeMount, OnMount } from '@monaco-editor/react';
 import { useEffect, useState } from 'react';
 
 interface CodeEditorProps {
@@ -10,6 +10,30 @@ interface CodeEditorProps {
   filename: string | null;
   disabled?: boolean;
 }
+
+// Sand design token values (mirrored from globals.css)
+const DARK = {
+  bg:       '#1d1a16',
+  surface:  '#23201b',
+  elevated: '#2b2722',
+  border:   '#3a342e',
+  text:     '#ede6db',
+  muted:    '#b8ada1',
+  subtle:   '#6b6259',
+  accent:   '#d89b6a',
+  accentDim:'#c07a4c',
+};
+const LIGHT = {
+  bg:       '#fefefe',
+  surface:  '#fcfbf8',
+  elevated: '#f8f4ed',
+  border:   '#eceae4',
+  text:     '#2f2f31',
+  muted:    '#3f3f46',
+  subtle:   '#b0a898',
+  accent:   '#1d52f1',
+  accentDim:'#1740c8',
+};
 
 export function CodeEditor({ value, onChange, language, filename, disabled = false }: CodeEditorProps) {
   const [themeName, setThemeName] = useState<'sand-light' | 'sand-dark'>('sand-light');
@@ -23,35 +47,202 @@ export function CodeEditor({ value, onChange, language, filename, disabled = fal
   }, []);
 
   const beforeMount: BeforeMount = (monaco) => {
-    const common = {
-      base: 'vs-dark' as const,
+    // ── Dark theme ──────────────────────────────────────────────────────────
+    monaco.editor.defineTheme('sand-dark', {
+      base: 'vs-dark',
       inherit: true,
       colors: {
-        'editor.background': getComputedStyle(document.documentElement).getPropertyValue('--sand-elevated').trim() || '#2b2722',
-        'editor.foreground': getComputedStyle(document.documentElement).getPropertyValue('--sand-text').trim() || '#ede6db',
-        'editorCursor.foreground': '#c07a4c',
-        'editorLineNumber.foreground': '#9b8f84',
-        'editor.selectionBackground': '#c07a4c33',
-        'editor.lineHighlightBackground': '#00000010',
-        'editorWidget.background': '#00000010',
-        'editorHoverWidget.background': '#00000010',
-        'dropdown.background': '#00000010',
-        'list.hoverBackground': '#00000010',
-        'input.background': '#00000010',
-        'focusBorder': '#c07a4c55',
+        // Core
+        'editor.background':                    DARK.elevated,
+        'editor.foreground':                    DARK.text,
+        'editorCursor.foreground':              DARK.accent,
+        'editorLineNumber.foreground':          DARK.subtle,
+        'editorLineNumber.activeForeground':    DARK.muted,
+        'editor.selectionBackground':           DARK.accent + '30',
+        'editor.inactiveSelectionBackground':   DARK.accent + '18',
+        'editor.lineHighlightBackground':       '#ffffff08',
+        'editor.lineHighlightBorder':           '#00000000',
+        // Hover / diagnostic tooltips
+        'editorWidget.background':              DARK.surface,
+        'editorWidget.border':                  DARK.border,
+        'editorWidget.foreground':              DARK.text,
+        'editorHoverWidget.background':         DARK.surface,
+        'editorHoverWidget.border':             DARK.border,
+        'editorHoverWidget.foreground':         DARK.text,
+        'editorHoverWidget.statusBarBackground':DARK.bg,
+        // Suggest / autocomplete
+        'editorSuggestWidget.background':       DARK.surface,
+        'editorSuggestWidget.border':           DARK.border,
+        'editorSuggestWidget.foreground':       DARK.text,
+        'editorSuggestWidget.selectedBackground': DARK.accent + '28',
+        'editorSuggestWidget.selectedForeground': DARK.text,
+        'editorSuggestWidget.highlightForeground': DARK.accent,
+        'editorSuggestWidget.focusHighlightForeground': DARK.accent,
+        // Context menu (right-click)
+        'menu.background':          DARK.surface,
+        'menu.foreground':          DARK.text,
+        'menu.selectionBackground': DARK.accent + '28',
+        'menu.selectionForeground': DARK.text,
+        'menu.separatorBackground': DARK.border,
+        'menu.border':              DARK.border,
+        // Dropdowns & inputs (find bar, etc.)
+        'dropdown.background':       DARK.surface,
+        'dropdown.border':           DARK.border,
+        'dropdown.foreground':       DARK.text,
+        'input.background':          DARK.bg,
+        'input.border':              DARK.border,
+        'input.foreground':          DARK.text,
+        'input.placeholderForeground': DARK.subtle,
+        // List / tree
+        'list.hoverBackground':            DARK.accent + '15',
+        'list.activeSelectionBackground':  DARK.accent + '28',
+        'list.activeSelectionForeground':  DARK.text,
+        'list.focusBackground':            DARK.accent + '28',
+        // Scrollbar
+        'scrollbarSlider.background':      DARK.subtle + '44',
+        'scrollbarSlider.hoverBackground': DARK.subtle + '66',
+        'scrollbarSlider.activeBackground':DARK.subtle + '88',
+        // Bracket match
+        'editorBracketMatch.background':   DARK.accent + '28',
+        'editorBracketMatch.border':       DARK.accent + '66',
+        // Squiggles
+        'editorError.foreground':   '#f28b82',
+        'editorWarning.foreground': '#f9c74f',
+        'editorInfo.foreground':    '#90c8f8',
+        // Focus ring
+        'focusBorder': DARK.accent + '55',
       },
       rules: [
-        { token: 'comment', foreground: '9b8f84' },
-        { token: 'string', foreground: 'd89b6a' },
-        { token: 'number', foreground: 'c07a4c' },
-        { token: 'keyword', foreground: 'c07a4c' },
-        { token: 'type', foreground: 'e3b48e' },
-        { token: 'delimiter', foreground: 'b8ada1' },
+        { token: 'comment',    foreground: '6b6259', fontStyle: 'italic' },
+        { token: 'string',     foreground: 'd89b6a' },
+        { token: 'number',     foreground: 'c07a4c' },
+        { token: 'keyword',    foreground: 'c07a4c' },
+        { token: 'type',       foreground: 'e3b48e' },
+        { token: 'class',      foreground: 'e3b48e' },
+        { token: 'function',   foreground: 'f0c89a' },
+        { token: 'variable',   foreground: 'ede6db' },
+        { token: 'identifier', foreground: 'ede6db' },
+        { token: 'delimiter',  foreground: 'b8ada1' },
+        { token: 'operator',   foreground: 'b8ada1' },
+      ],
+    });
+
+    // ── Light theme ─────────────────────────────────────────────────────────
+    monaco.editor.defineTheme('sand-light', {
+      base: 'vs',
+      inherit: true,
+      colors: {
+        'editor.background':                     LIGHT.elevated,
+        'editor.foreground':                     LIGHT.text,
+        'editorCursor.foreground':               LIGHT.accent,
+        'editorLineNumber.foreground':           LIGHT.subtle,
+        'editorLineNumber.activeForeground':     LIGHT.muted,
+        'editor.selectionBackground':            LIGHT.accent + '28',
+        'editor.inactiveSelectionBackground':    LIGHT.accent + '15',
+        'editor.lineHighlightBackground':        '#00000008',
+        'editor.lineHighlightBorder':            '#00000000',
+        'editorWidget.background':               LIGHT.surface,
+        'editorWidget.border':                   LIGHT.border,
+        'editorWidget.foreground':               LIGHT.text,
+        'editorHoverWidget.background':          LIGHT.surface,
+        'editorHoverWidget.border':              LIGHT.border,
+        'editorHoverWidget.foreground':          LIGHT.text,
+        'editorHoverWidget.statusBarBackground': LIGHT.elevated,
+        'editorSuggestWidget.background':        LIGHT.surface,
+        'editorSuggestWidget.border':            LIGHT.border,
+        'editorSuggestWidget.foreground':        LIGHT.text,
+        'editorSuggestWidget.selectedBackground': LIGHT.accent + '18',
+        'editorSuggestWidget.selectedForeground': LIGHT.text,
+        'editorSuggestWidget.highlightForeground': LIGHT.accent,
+        'editorSuggestWidget.focusHighlightForeground': LIGHT.accent,
+        'menu.background':          LIGHT.surface,
+        'menu.foreground':          LIGHT.text,
+        'menu.selectionBackground': LIGHT.accent + '18',
+        'menu.selectionForeground': LIGHT.text,
+        'menu.separatorBackground': LIGHT.border,
+        'menu.border':              LIGHT.border,
+        'dropdown.background':       LIGHT.surface,
+        'dropdown.border':           LIGHT.border,
+        'dropdown.foreground':       LIGHT.text,
+        'input.background':          LIGHT.bg,
+        'input.border':              LIGHT.border,
+        'input.foreground':          LIGHT.text,
+        'input.placeholderForeground': LIGHT.subtle,
+        'list.hoverBackground':            LIGHT.accent + '12',
+        'list.activeSelectionBackground':  LIGHT.accent + '18',
+        'list.activeSelectionForeground':  LIGHT.text,
+        'list.focusBackground':            LIGHT.accent + '18',
+        'scrollbarSlider.background':      LIGHT.subtle + '44',
+        'scrollbarSlider.hoverBackground': LIGHT.subtle + '66',
+        'scrollbarSlider.activeBackground':LIGHT.subtle + '88',
+        'editorBracketMatch.background':   LIGHT.accent + '18',
+        'editorBracketMatch.border':       LIGHT.accent + '55',
+        'editorError.foreground':   '#d93025',
+        'editorWarning.foreground': '#e67700',
+        'editorInfo.foreground':    LIGHT.accent,
+        'focusBorder': LIGHT.accent + '55',
+      },
+      rules: [
+        { token: 'comment',    foreground: 'a0968a', fontStyle: 'italic' },
+        { token: 'string',     foreground: '7b4f1e' },
+        { token: 'number',     foreground: 'a0522d' },
+        { token: 'keyword',    foreground: '1d52f1' },
+        { token: 'type',       foreground: '5a3e8a' },
+        { token: 'class',      foreground: '5a3e8a' },
+        { token: 'function',   foreground: '1740c8' },
+        { token: 'variable',   foreground: '2f2f31' },
+        { token: 'identifier', foreground: '2f2f31' },
+        { token: 'delimiter',  foreground: '5a5450' },
+        { token: 'operator',   foreground: '5a5450' },
+      ],
+    });
+  };
+
+  const onMount: OnMount = (_editor, monaco) => {
+    // ── Tailwind: suppress false-positive CSS diagnostics ──────────────────
+    // @tailwind, @apply, @layer, @screen are all unknown to the CSS spec parser
+    const tailwindLintOptions = {
+      validate: true,
+      lint: {
+        unknownAtRules: 'ignore' as const,
+        // @apply writes utility class names as property-like values
+        unknownProperties: 'ignore' as const,
+      },
+    };
+    monaco.languages.css.cssDefaults.setOptions(tailwindLintOptions);
+    monaco.languages.css.scssDefaults.setOptions(tailwindLintOptions);
+    monaco.languages.css.lessDefaults.setOptions(tailwindLintOptions);
+
+    // ── TypeScript: path aliases + Next.js JSX, suppress non-actionable errors ──
+    const sharedDiagnostics = {
+      noSemanticValidation: false,
+      noSyntaxValidation: false,
+      diagnosticCodesToIgnore: [
+        2307, // Cannot find module '@/...' (path alias not resolved in-browser)
+        7016, // Could not find declaration file for module
+        2305, // Module has no exported member (stale type cache)
       ],
     };
-    monaco.editor.defineTheme('sand-dark', common);
-    monaco.editor.defineTheme('sand-light', { ...common, base: 'vs' });
+    monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions(sharedDiagnostics);
+    monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions(sharedDiagnostics);
+
+    const sharedCompilerOptions = {
+      jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+      moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+      target: monaco.languages.typescript.ScriptTarget.ESNext,
+      module: monaco.languages.typescript.ModuleKind.ESNext,
+      allowSyntheticDefaultImports: true,
+      esModuleInterop: true,
+      allowJs: true,
+      skipLibCheck: true,
+      strict: false,
+      baseUrl: '.',
+      paths: { '@/*': ['./src/*'] },
+    };
+    monaco.languages.typescript.typescriptDefaults.setCompilerOptions(sharedCompilerOptions);
+    monaco.languages.typescript.javascriptDefaults.setCompilerOptions(sharedCompilerOptions);
   };
+
   const handleChange = (value: string | undefined) => {
     onChange(value || '');
   };
@@ -78,6 +269,7 @@ export function CodeEditor({ value, onChange, language, filename, disabled = fal
       onChange={disabled ? undefined : handleChange}
       theme={themeName}
       beforeMount={beforeMount}
+      onMount={onMount}
       options={{
         minimap: { enabled: false },
         fontSize: 14,
@@ -96,7 +288,6 @@ export function CodeEditor({ value, onChange, language, filename, disabled = fal
           highlightActiveBracketPair: true,
           indentation: true,
         },
-        // Autocomplete is enabled by default in Monaco
         quickSuggestions: disabled ? false : {
           other: true,
           comments: true,

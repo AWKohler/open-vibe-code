@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getDb } from '@/db';
-import { userSettings } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { clearUserCredentials } from '@/lib/user-credentials';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -12,16 +10,11 @@ export async function POST() {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const db = getDb();
-    await db
-      .update(userSettings)
-      .set({
-        claudeOAuthAccessToken: null,
-        claudeOAuthRefreshToken: null,
-        claudeOAuthExpiresAt: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(userSettings.userId, userId));
+    await clearUserCredentials(userId, [
+      'claudeOAuthAccessToken',
+      'claudeOAuthRefreshToken',
+      'claudeOAuthExpiresAt',
+    ]);
 
     return NextResponse.json({ ok: true });
   } catch (e) {

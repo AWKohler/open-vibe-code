@@ -29,6 +29,8 @@ export const projects = pgTable('projects', {
   lastOpened: timestamp('last_opened').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  // Soft delete — null means active. Set for Pro/Max users on delete; Free = immediate hard delete.
+  deletedAt: timestamp('deleted_at'),
 });
 
 export type Project = typeof projects.$inferSelect;
@@ -199,3 +201,26 @@ export const chatImages = pgTable('chat_images', {
 
 export type ChatImage = typeof chatImages.$inferSelect;
 export type NewChatImage = typeof chatImages.$inferInsert;
+
+// Usage tracking for subscription tier enforcement
+// One row per (userId, period, model) — upserted on every agent call completion
+export const usageRecords = pgTable('usage_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  // Billing period in YYYY-MM format, e.g. "2026-03"
+  period: text('period').notNull(),
+  // Model id as used in MODEL_CONFIGS, e.g. "claude-haiku-4.5"
+  model: text('model').notNull(),
+  tokensIn: bigint('tokens_in', { mode: 'number' }).notNull().default(0),
+  tokensOut: bigint('tokens_out', { mode: 'number' }).notNull().default(0),
+  // Cumulative agent turns in this period (all models combined tracked separately)
+  agentTurns: integer('agent_turns').notNull().default(0),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  userPeriodModelUnique: uniqueIndex('usage_records_user_period_model_unique').on(t.userId, t.period, t.model),
+  userIdIdx: index('usage_records_user_id_idx').on(t.userId),
+  periodIdx: index('usage_records_period_idx').on(t.period),
+}));
+
+export type UsageRecord = typeof usageRecords.$inferSelect;
+export type NewUsageRecord = typeof usageRecords.$inferInsert;

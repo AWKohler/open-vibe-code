@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
 import { projects } from '@/db/schema';
-import { desc, eq } from 'drizzle-orm';
+import { desc, eq, isNull, and } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
+import { getUserTierAndLimits } from '@/lib/tier';
+import { countUserProjects } from '@/lib/usage';
+import { limitReachedResponse } from '@/lib/plan-response';
 
 export async function GET() {
   try {
@@ -12,7 +15,7 @@ export async function GET() {
     const allProjects = await db
       .select()
       .from(projects)
-      .where(eq(projects.userId, userId))
+      .where(and(eq(projects.userId, userId), isNull(projects.deletedAt)))
       .orderBy(desc(projects.lastOpened), desc(projects.createdAt));
     return NextResponse.json(allProjects);
   } catch (err) {
@@ -41,6 +44,21 @@ export async function POST(request: NextRequest) {
 
     if (!name) {
       return NextResponse.json({ error: 'Project name is required' }, { status: 400 });
+    }
+
+    // Enforce project count limit
+    const [limits, currentCount] = await Promise.all([
+      getUserTierAndLimits(userId),
+      countUserProjects(userId),
+    ]);
+
+    if (currentCount >= limits.maxProjects) {
+      return limitReachedResponse({
+        limitType: 'project_count',
+        current: currentCount,
+        limit: limits.maxProjects,
+        tier: limits.tier,
+      });
     }
 
     const db = getDb();

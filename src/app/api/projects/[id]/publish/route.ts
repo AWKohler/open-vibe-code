@@ -5,6 +5,9 @@ import { projects } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { extname, basename } from 'path';
+import { getUserTierAndLimits } from '@/lib/tier';
+import { countUserCfPagesDeployments } from '@/lib/usage';
+import { limitReachedResponse } from '@/lib/plan-response';
 
 function getCfConfig() {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -69,6 +72,28 @@ export async function POST(
 
     const cf = getCfConfig();
     const projectName = project.cloudflareProjectName ?? `bf-${projectId.slice(0, 8)}`;
+
+    // Enforce CF Pages deployment limit (only check on first publish for this project)
+    if (!project.cloudflareProjectName) {
+      const [limits, currentDeployments] = await Promise.all([
+        getUserTierAndLimits(userId),
+        countUserCfPagesDeployments(userId),
+      ]);
+      if (currentDeployments >= limits.maxCfPagesDeployments) {
+        return limitReachedResponse({
+          limitType: 'cf_pages_count',
+          current: currentDeployments,
+          limit: limits.maxCfPagesDeployments,
+          tier: limits.tier,
+        });
+      }
+
+      // Custom domain gating
+      if (!limits.customDomain && process.env.CLOUDFLARE_BRANDED_DOMAIN) {
+        // Free users get .pages.dev only — skip branded domain attachment
+        // (handled below by checking limits.customDomain before the domain attach call)
+      }
+    }
 
     // Create Pages project if first publish
     if (!project.cloudflareProjectName) {
@@ -230,8 +255,9 @@ export async function POST(
       );
     }
 
-    // Step 5: Optionally attach branded custom domain
-    const brandedDomain = process.env.CLOUDFLARE_BRANDED_DOMAIN; // e.g. "botflow-site.app"
+    // Step 5: Optionally attach branded custom domain (Pro/Max only)
+    const tierLimits = await getUserTierAndLimits(userId);
+    const brandedDomain = tierLimits.customDomain ? process.env.CLOUDFLARE_BRANDED_DOMAIN : null;
     let deploymentUrl = `https://${projectName}.pages.dev`;
 
     if (brandedDomain) {

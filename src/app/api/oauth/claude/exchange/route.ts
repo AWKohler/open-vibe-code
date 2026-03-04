@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getDb } from '@/db';
-import { userSettings } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { setUserCredentials } from '@/lib/user-credentials';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -53,24 +51,11 @@ export async function POST(req: NextRequest) {
       ? Date.now() + tokens.expires_in * 1000 - 5 * 60 * 1000 // 5-min buffer
       : null;
 
-    const db = getDb();
-    const [existing] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-
-    if (existing) {
-      await db.update(userSettings).set({
-        claudeOAuthAccessToken: tokens.access_token,
-        claudeOAuthRefreshToken: tokens.refresh_token ?? null,
-        claudeOAuthExpiresAt: expiresAt,
-        updatedAt: new Date(),
-      }).where(eq(userSettings.userId, userId));
-    } else {
-      await db.insert(userSettings).values({
-        userId,
-        claudeOAuthAccessToken: tokens.access_token,
-        claudeOAuthRefreshToken: tokens.refresh_token ?? null,
-        claudeOAuthExpiresAt: expiresAt,
-      });
-    }
+    await setUserCredentials(userId, {
+      claudeOAuthAccessToken: tokens.access_token,
+      claudeOAuthRefreshToken: tokens.refresh_token ?? null,
+      claudeOAuthExpiresAt: expiresAt,
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {

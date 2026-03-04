@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getDb } from '@/db';
-import { projects, userSettings } from '@/db/schema';
+import { projects } from '@/db/schema';
+import { getUserCredentials } from '@/lib/user-credentials';
 import { eq } from 'drizzle-orm';
 
 export const dynamic = 'force-dynamic';
@@ -18,8 +19,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const [proj] = await db.select().from(projects).where(eq(projects.id, id));
     if (!proj || proj.userId !== userId) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    if (!settings?.githubAccessToken) {
+    const creds = await getUserCredentials(userId);
+    if (!creds.githubAccessToken) {
       return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 });
     }
 

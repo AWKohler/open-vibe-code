@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getDb } from '@/db';
-import { projects, userSettings, pendingGitCommits } from '@/db/schema';
+import { projects, pendingGitCommits } from '@/db/schema';
+import { getUserCredentials } from '@/lib/user-credentials';
 import { eq, asc } from 'drizzle-orm';
 import crypto from 'crypto';
 
@@ -32,8 +33,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'No GitHub repo connected' }, { status: 400 });
     }
 
-    const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-    if (!settings?.githubAccessToken) {
+    const creds = await getUserCredentials(userId);
+    if (!creds.githubAccessToken) {
       return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 });
     }
 
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         `https://api.github.com/repos/${proj.githubRepoOwner}/${proj.githubRepoName}/git/trees/${proj.githubLastPushedSha}?recursive=1`,
         {
           headers: {
-            Authorization: `Bearer ${settings.githubAccessToken}`,
+            Authorization: `Bearer ${creds.githubAccessToken}`,
             Accept: 'application/vnd.github.v3+json',
           },
         }

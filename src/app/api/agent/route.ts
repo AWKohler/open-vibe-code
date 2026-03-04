@@ -4,7 +4,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFireworks } from "@ai-sdk/fireworks";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { projects, userSettings } from "@/db/schema";
+import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 
@@ -19,6 +19,15 @@ import {
   needsCompaction,
   compactMessages,
 } from "@/lib/agent/compaction";
+import { getUserCredentials, setUserCredentials } from "@/lib/user-credentials";
+import { getUserTierAndLimits, MODEL_TIER_REQUIREMENT, tierMeetsRequirement } from "@/lib/tier";
+import {
+  getDailyAgentTurns,
+  incrementDailyAgentTurns,
+  getMonthlyTokenUsage,
+  recordTokenUsage,
+} from "@/lib/usage";
+import { limitReachedResponse } from "@/lib/plan-response";
 
 // Allow long-running streamed responses on Vercel
 export const maxDuration = 300;
@@ -180,11 +189,9 @@ function createAnthropicOAuthProvider(oauthToken: string) {
         }
       }
 
-      // Set OAuth auth headers
       requestHeaders.set("authorization", `Bearer ${oauthToken}`);
       requestHeaders.delete("x-api-key");
 
-      // Merge required anthropic-beta flags
       const existingBeta = requestHeaders.get("anthropic-beta") || "";
       const betaList = existingBeta.split(",").map(b => b.trim()).filter(Boolean);
       const requiredBetas = ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"];
@@ -192,7 +199,6 @@ function createAnthropicOAuthProvider(oauthToken: string) {
       requestHeaders.set("anthropic-beta", mergedBetas);
       requestHeaders.set("user-agent", "claude-cli/2.1.2 (external, cli)");
 
-      // Prefix tool names with mcp_ in request body
       let body = init?.body;
       if (body && typeof body === "string") {
         try {
@@ -222,7 +228,6 @@ function createAnthropicOAuthProvider(oauthToken: string) {
         }
       }
 
-      // Add ?beta=true to /v1/messages endpoint URL
       let finalInput: RequestInfo | URL = requestInput;
       try {
         const url = requestInput instanceof URL
@@ -244,7 +249,6 @@ function createAnthropicOAuthProvider(oauthToken: string) {
         headers: requestHeaders,
       });
 
-      // Strip mcp_ prefix from tool names in the streaming response
       if (response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -276,10 +280,10 @@ function createAnthropicOAuthProvider(oauthToken: string) {
 }
 
 async function refreshAnthropicOAuthToken(
-  settings: { claudeOAuthRefreshToken?: string | null },
+  creds: { claudeOAuthRefreshToken?: string | null },
   userId: string
 ): Promise<string | null> {
-  if (!settings.claudeOAuthRefreshToken) return null;
+  if (!creds.claudeOAuthRefreshToken) return null;
 
   try {
     const refreshRes = await fetch('https://console.anthropic.com/v1/oauth/token', {
@@ -288,7 +292,7 @@ async function refreshAnthropicOAuthToken(
       body: JSON.stringify({
         grant_type: 'refresh_token',
         client_id: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
-        refresh_token: settings.claudeOAuthRefreshToken,
+        refresh_token: creds.claudeOAuthRefreshToken,
       }),
     });
 
@@ -304,14 +308,11 @@ async function refreshAnthropicOAuthToken(
       ? Date.now() + refreshed.expires_in * 1000 - 5 * 60 * 1000
       : null;
 
-    // Update stored tokens
-    const db = getDb();
-    await db.update(userSettings).set({
+    await setUserCredentials(userId, {
       claudeOAuthAccessToken: refreshed.access_token,
-      claudeOAuthRefreshToken: refreshed.refresh_token ?? settings.claudeOAuthRefreshToken,
+      claudeOAuthRefreshToken: refreshed.refresh_token ?? creds.claudeOAuthRefreshToken,
       claudeOAuthExpiresAt: newExpiresAt,
-      updatedAt: new Date(),
-    }).where(eq(userSettings.userId, userId));
+    });
 
     return refreshed.access_token;
   } catch {
@@ -320,10 +321,10 @@ async function refreshAnthropicOAuthToken(
 }
 
 async function refreshCodexOAuthToken(
-  settings: { codexOAuthRefreshToken?: string | null },
+  creds: { codexOAuthRefreshToken?: string | null },
   userId: string
 ): Promise<string | null> {
-  if (!settings.codexOAuthRefreshToken) return null;
+  if (!creds.codexOAuthRefreshToken) return null;
 
   try {
     const refreshRes = await fetch('https://auth.openai.com/oauth/token', {
@@ -331,7 +332,7 @@ async function refreshCodexOAuthToken(
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
-        refresh_token: settings.codexOAuthRefreshToken,
+        refresh_token: creds.codexOAuthRefreshToken,
         client_id: 'app_EMoamEEZ73f0CkXaXp7hrann',
       }).toString(),
     });
@@ -348,18 +349,33 @@ async function refreshCodexOAuthToken(
       ? Date.now() + refreshed.expires_in * 1000 - 5 * 60 * 1000
       : null;
 
-    const db = getDb();
-    await db.update(userSettings).set({
+    await setUserCredentials(userId, {
       codexOAuthAccessToken: refreshed.access_token,
-      codexOAuthRefreshToken: refreshed.refresh_token ?? settings.codexOAuthRefreshToken,
+      codexOAuthRefreshToken: refreshed.refresh_token ?? creds.codexOAuthRefreshToken,
       codexOAuthExpiresAt: newExpiresAt,
-      updatedAt: new Date(),
-    }).where(eq(userSettings.userId, userId));
+    });
 
     return refreshed.access_token;
   } catch {
     return null;
   }
+}
+
+// ============================================================================
+// Determine if this request is using a server-side key (paid tier) vs BYOK/OAuth
+// ============================================================================
+
+/** Server key models: models the app pays for on behalf of paid users */
+const SERVER_KEY_MODELS = new Set<ModelId>([
+  'fireworks-minimax-m2p5', // free tier
+  'claude-haiku-4.5',        // pro
+  'fireworks-glm-5',         // pro
+  'claude-sonnet-4.6',       // max
+  'claude-opus-4.6',         // max
+]);
+
+function isServerKeyModel(model: ModelId): boolean {
+  return SERVER_KEY_MODELS.has(model);
 }
 
 // ============================================================================
@@ -405,18 +421,64 @@ export async function POST(req: Request) {
       selectedModel = resolveModelId(proj.model);
     }
 
-    // Load BYOK credentials
-    const [settings] = await db
-      .select()
-      .from(userSettings)
-      .where(eq(userSettings.userId, userId));
+    // Load credentials from Clerk (Redis-cached)
+    const creds = await getUserCredentials(userId);
 
     const modelConfig = MODEL_CONFIGS[selectedModel];
     const systemPrompt = platform === "mobile" ? SYSTEM_PROMPT_MOBILE : SYSTEM_PROMPT_WEB;
     const tools = getTools();
 
-    // --- Convert UIMessages to ModelMessages for streamText ---
-    // v6: the transport sends UIMessages (with `parts`), but streamText needs ModelMessages (with `content`)
+    // ── Tier enforcement for server-key models ──────────────────────────────
+    if (isServerKeyModel(selectedModel)) {
+      const limits = await getUserTierAndLimits(userId);
+      const requiredTier = MODEL_TIER_REQUIREMENT[selectedModel] ?? 'free';
+
+      // Check if user's tier supports this model on server keys
+      if (!tierMeetsRequirement(limits.tier, requiredTier)) {
+        return limitReachedResponse({
+          limitType: 'agent_turns_daily', // reuse — signals upgrade needed
+          current: 0,
+          limit: 0,
+          tier: limits.tier,
+          model: selectedModel,
+        });
+      }
+
+      // Check daily agent turn limit
+      if (limits.maxAgentTurnsPerDay > 0) {
+        const turnsUsed = await getDailyAgentTurns(userId);
+        if (turnsUsed >= limits.maxAgentTurnsPerDay) {
+          return limitReachedResponse({
+            limitType: 'agent_turns_daily',
+            current: turnsUsed,
+            limit: limits.maxAgentTurnsPerDay,
+            tier: limits.tier,
+          });
+        }
+      }
+
+      // Check monthly token budget
+      const budget = limits.tokenBudgets[selectedModel];
+      if (budget !== undefined && budget > 0) {
+        const usage = await getMonthlyTokenUsage(userId, selectedModel);
+        if (usage.total >= budget) {
+          return limitReachedResponse({
+            limitType: 'token_budget',
+            current: usage.total,
+            limit: budget,
+            tier: limits.tier,
+            model: selectedModel,
+          });
+        }
+      }
+
+      // Increment turn counter immediately (before stream so we don't miss counts on abort)
+      if (limits.maxAgentTurnsPerDay > 0) {
+        await incrementDailyAgentTurns(userId);
+      }
+    }
+
+    // ── Convert UIMessages to ModelMessages ─────────────────────────────────
     let resolvedMessages = await convertToModelMessages(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       messages as any,
@@ -452,7 +514,7 @@ export async function POST(req: Request) {
       messageCount: resolvedMessages.length,
     });
 
-    // --- Common response headers ---
+    // ── Common response headers ──────────────────────────────────────────────
     const responseHeaders = {
       "x-request-id": requestId,
       "x-model": selectedModel,
@@ -460,21 +522,35 @@ export async function POST(req: Request) {
       "x-max-tokens": String(modelConfig.maxContextTokens),
     };
 
-    // --- Build the model provider and stream ---
+    // ── Build the model provider and stream ──────────────────────────────────
     const streamCall = async () => {
+
+      // ── onFinish: record actual token usage (ai-sdk v6: inputTokens / outputTokens) ──
+      const onFinish = async (event: { usage: { inputTokens?: number; outputTokens?: number } }) => {
+        const tokensIn = event.usage.inputTokens ?? 0;
+        const tokensOut = event.usage.outputTokens ?? 0;
+        if (isServerKeyModel(selectedModel) && (tokensIn > 0 || tokensOut > 0)) {
+          await recordTokenUsage(userId, selectedModel, tokensIn, tokensOut).catch(() => {
+            // Non-fatal — don't fail the request over a usage write
+          });
+        }
+        const durationMs = Date.now() - startTime;
+        agentLog.apiComplete({ model: selectedModel, durationMs });
+      };
+
       if (selectedModel === "gpt-5.3-codex") {
         // Path A: Codex OAuth (priority)
-        if (settings?.codexOAuthAccessToken) {
-          let accessToken = settings.codexOAuthAccessToken;
-          const expiresAt = settings.codexOAuthExpiresAt;
+        if (creds.codexOAuthAccessToken) {
+          let accessToken = creds.codexOAuthAccessToken;
+          const expiresAt = creds.codexOAuthExpiresAt;
           const isExpired = expiresAt !== null && expiresAt !== undefined && Date.now() >= expiresAt;
 
           if (isExpired) {
-            accessToken = await refreshCodexOAuthToken(settings, userId) ?? "";
+            accessToken = await refreshCodexOAuthToken(creds, userId) ?? "";
           }
 
           if (accessToken) {
-            const accountId = settings.codexOAuthAccountId;
+            const accountId = creds.codexOAuthAccountId;
             const openai = createOpenAI({
               apiKey: "codex-oauth-placeholder",
               fetch: async (requestInput: RequestInfo | URL, init?: RequestInit) => {
@@ -493,13 +569,11 @@ export async function POST(req: Request) {
                   }
                 }
 
-                // Override authorization
                 requestHeaders.set("authorization", `Bearer ${accessToken}`);
                 if (accountId) {
                   requestHeaders.set("ChatGPT-Account-Id", accountId);
                 }
 
-                // Rewrite URL to Codex endpoint
                 let finalInput: RequestInfo | URL = requestInput;
                 try {
                   const url = requestInput instanceof URL
@@ -524,13 +598,14 @@ export async function POST(req: Request) {
               system: systemPrompt,
               messages: resolvedMessages,
               tools,
+              onFinish,
             });
             return result.toUIMessageStreamResponse({ headers: responseHeaders });
           }
         }
 
         // Path B: OpenAI API key fallback
-        const apiKey = settings?.openaiApiKey;
+        const apiKey = creds.openaiApiKey;
         if (!apiKey) {
           return new Response(
             JSON.stringify({ error: "Missing OpenAI credentials. Connect ChatGPT Codex or add an OpenAI API key in Settings.", errorType: "auth" }),
@@ -543,12 +618,13 @@ export async function POST(req: Request) {
           system: systemPrompt,
           messages: resolvedMessages,
           tools,
+          onFinish,
         });
         return result.toUIMessageStreamResponse({ headers: responseHeaders });
       }
 
       if (selectedModel === "kimi-k2.5") {
-        const apiKey = settings?.moonshotApiKey;
+        const apiKey = creds.moonshotApiKey;
         if (!apiKey) {
           return new Response(
             JSON.stringify({ error: "Missing Moonshot API key", errorType: "auth" }),
@@ -564,12 +640,18 @@ export async function POST(req: Request) {
           system: systemPrompt,
           messages: resolvedMessages,
           tools,
+          onFinish,
         });
         return result.toUIMessageStreamResponse({ headers: responseHeaders });
       }
 
       if (selectedModel === "fireworks-minimax-m2p5" || selectedModel === "fireworks-glm-5") {
-        const apiKey = settings?.fireworksApiKey;
+        // Check for server-side Fireworks key first (for server-key models)
+        const serverFireworksKey = process.env.FIREWORKS_API_KEY;
+        const apiKey = isServerKeyModel(selectedModel) && serverFireworksKey
+          ? serverFireworksKey
+          : creds.fireworksApiKey;
+
         if (!apiKey) {
           return new Response(
             JSON.stringify({ error: "Missing Fireworks API key", errorType: "auth" }),
@@ -582,38 +664,54 @@ export async function POST(req: Request) {
           system: systemPrompt,
           messages: resolvedMessages,
           tools,
+          onFinish,
         });
         return result.toUIMessageStreamResponse({ headers: responseHeaders });
       }
 
-      // --- Anthropic models ---
-      // Resolve credentials: OAuth token takes priority over API key
+      // ── Anthropic models ──────────────────────────────────────────────────
+      // Priority: OAuth token > server-side API key (for server-key models) > BYOK API key
       let anthropicToken: string | null = null;
 
-      if (settings?.claudeOAuthAccessToken) {
-        const expiresAt = settings.claudeOAuthExpiresAt;
+      if (creds.claudeOAuthAccessToken) {
+        const expiresAt = creds.claudeOAuthExpiresAt;
         const isExpired = expiresAt !== null && expiresAt !== undefined && Date.now() >= expiresAt;
 
         if (!isExpired) {
-          anthropicToken = settings.claudeOAuthAccessToken;
+          anthropicToken = creds.claudeOAuthAccessToken;
         } else {
-          anthropicToken = await refreshAnthropicOAuthToken(settings, userId);
+          anthropicToken = await refreshAnthropicOAuthToken(creds, userId);
         }
       }
 
-      if (!anthropicToken && settings?.anthropicApiKey) {
-        // Fall back to standard API key
-        const anthropic = createAnthropic({ apiKey: settings.anthropicApiKey });
-        const result = streamText({
-          model: anthropic(modelConfig.apiModelId),
-          system: systemPrompt,
-          messages: resolvedMessages,
-          tools,
-        });
-        return result.toUIMessageStreamResponse({ headers: responseHeaders });
-      }
-
       if (!anthropicToken) {
+        // Check server-side Anthropic key for paid tier models
+        const serverAnthropicKey = process.env.ANTHROPIC_API_KEY;
+        if (isServerKeyModel(selectedModel) && serverAnthropicKey) {
+          const anthropic = createAnthropic({ apiKey: serverAnthropicKey });
+          const result = streamText({
+            model: anthropic(modelConfig.apiModelId),
+            system: systemPrompt,
+            messages: resolvedMessages,
+            tools,
+            onFinish,
+          });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders });
+        }
+
+        // Fall back to BYOK key
+        if (creds.anthropicApiKey) {
+          const anthropic = createAnthropic({ apiKey: creds.anthropicApiKey });
+          const result = streamText({
+            model: anthropic(modelConfig.apiModelId),
+            system: systemPrompt,
+            messages: resolvedMessages,
+            tools,
+            onFinish,
+          });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders });
+        }
+
         return new Response(
           JSON.stringify({
             error: "Missing Anthropic credentials. Add an API key or connect via Claude Code OAuth in Settings.",
@@ -630,30 +728,26 @@ export async function POST(req: Request) {
         system: systemPrompt,
         messages: resolvedMessages,
         tools,
+        onFinish,
       });
       return result.toUIMessageStreamResponse({ headers: responseHeaders });
     };
 
-    // --- Execute with retry logic ---
+    // ── Execute with retry logic ─────────────────────────────────────────────
     const response = await withRetry(streamCall, {
       maxRetries: 2,
       signal: req.signal,
     });
 
-    const durationMs = Date.now() - startTime;
-    agentLog.apiComplete({ model: selectedModel, durationMs });
-
     return response;
   } catch (err) {
     const durationMs = Date.now() - startTime;
 
-    // Handle client abort gracefully
     if (err instanceof DOMException && err.name === "AbortError") {
       agentLog.info("request_aborted", { durationMs });
       return new Response(null, { status: 499 });
     }
 
-    // Classify and format the error
     const classified = classifyError(err);
     agentLog.error("agent_api_error", {
       errorType: classified.type,
@@ -661,7 +755,6 @@ export async function POST(req: Request) {
       durationMs,
     });
 
-    // For context overflow, attempt compaction and return a hint
     if (classified.type === "context_overflow") {
       return new Response(
         JSON.stringify({

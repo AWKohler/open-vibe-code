@@ -16,6 +16,8 @@ import type { ToolCallData } from '@/lib/agent/ui-types';
 import { diffLineStats } from '@/lib/agent/diff-stats';
 import { MODEL_CONFIGS, modelSupportsImages, type ModelId } from '@/lib/agent/models';
 import { ModelSelector } from '@/components/ui/ModelSelector';
+import { LimitModal, parseLimitPayload, type LimitReachedPayload } from '@/components/ui/LimitModal';
+import { UsageBudgetBar } from '@/components/ui/UsageBudgetBar';
 import type { AgentErrorType } from '@/lib/agent/errors';
 import { processImageForUpload } from '@/lib/image-processing';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
@@ -116,6 +118,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [showSettings, setShowSettings] = useState(false);
   const [agentError, setAgentError] = useState<StructuredError | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
+  const [limitPayload, setLimitPayload] = useState<LimitReachedPayload | null>(null);
+  const [userTier, setUserTier] = useState<'free' | 'pro' | 'max'>('free');
   const { toast } = useToast();
 
   // --- Input state (v6: managed externally) ---
@@ -135,6 +139,16 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   // --- endTurn detection ---
   const [endTurnCalled, setEndTurnCalled] = useState(false);
   const [showCompletionWarning, setShowCompletionWarning] = useState(false);
+
+  // --- Fetch user tier for model gating ---
+  useEffect(() => {
+    fetch('/api/usage/tier')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { tier?: string } | null) => {
+        if (d?.tier === 'pro' || d?.tier === 'max') setUserTier(d.tier);
+      })
+      .catch(() => {});
+  }, []);
 
   // --- Provider access for ModelSelector ---
   const providerAccess = useMemo(() => ({
@@ -200,6 +214,17 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       }
 
       const msg = error.message || 'An error occurred. Please try again.';
+
+      // Check for structured limit_reached payload first
+      try {
+        const parsed = JSON.parse(msg);
+        const limitP = parseLimitPayload(parsed);
+        if (limitP) {
+          setLimitPayload(limitP);
+          return;
+        }
+      } catch { /* not JSON, fall through */ }
+
       const structured = parseError(msg);
       setAgentError(structured);
 
@@ -995,6 +1020,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               }
             }}
             providerAccess={providerAccess}
+            userTier={userTier}
+            onTierLocked={setLimitPayload}
             size="sm"
           />
           <Button
@@ -1155,6 +1182,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             </div>
           );
         })}
+
+        {/* Budget warning — shown at 80%+ of monthly token budget */}
+        <div className="px-1 pb-1">
+          <UsageBudgetBar model={model} />
+        </div>
 
         {/* Error banner */}
         {renderError()}
@@ -1380,6 +1412,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
       {lightboxSrc && createPortal(
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />,
+        document.body
+      )}
+
+      {limitPayload && createPortal(
+        <LimitModal payload={limitPayload} onClose={() => setLimitPayload(null)} />,
         document.body
       )}
     </div>

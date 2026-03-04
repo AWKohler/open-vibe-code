@@ -4,9 +4,12 @@ import { getDb } from '@/db';
 import { projects } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { provisionConvexBackend, getConvexPlatformClient } from '@/lib/convex-platform';
+import { getUserTierAndLimits } from '@/lib/tier';
+import { countUserConvexProjects } from '@/lib/usage';
+import { limitReachedResponse } from '@/lib/plan-response';
 
-const FLY_WORKER_URL = "https://fly-shy-feather-7138.fly.dev";
-const WORKER_AUTH_TOKEN = "dev-secret";
+const FLY_WORKER_URL = process.env.FLY_WORKER_URL ?? "https://fly-shy-feather-7138.fly.dev";
+const WORKER_AUTH_TOKEN = process.env.FLY_WORKER_AUTH_TOKEN ?? process.env.WORKER_AUTH_TOKEN ?? "";
 
 export async function POST(
   request: NextRequest,
@@ -36,6 +39,22 @@ export async function POST(
     // Auto-provision Convex backend if missing (handles projects created before
     // Convex integration or where provisioning silently failed at creation time).
     if (!project.convexDeployKey) {
+      // Enforce per-user Convex project limit before provisioning a new one
+      if (!project.convexProjectId) {
+        const [limits, currentConvex] = await Promise.all([
+          getUserTierAndLimits(userId),
+          countUserConvexProjects(userId),
+        ]);
+        if (currentConvex >= limits.maxConvexProjects) {
+          return limitReachedResponse({
+            limitType: 'convex_project_count',
+            current: currentConvex,
+            limit: limits.maxConvexProjects,
+            tier: limits.tier,
+          });
+        }
+      }
+
       try {
         let deployKey: string;
 

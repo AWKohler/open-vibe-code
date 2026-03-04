@@ -5,11 +5,16 @@ import { ChevronDown, Lock } from 'lucide-react';
 import { MODEL_CONFIGS, type ModelId } from '@/lib/agent/models';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/toast';
+import type { LimitReachedPayload } from '@/components/ui/LimitModal';
 
 export interface ModelSelectorProps {
   value: ModelId;
   onChange: (model: ModelId) => void;
   providerAccess: Record<string, boolean | null>; // provider → has credentials
+  /** Current user tier — used to show/block tier-locked models */
+  userTier?: 'free' | 'pro' | 'max';
+  /** Called when user selects a tier-locked model — triggers upsell modal */
+  onTierLocked?: (payload: LimitReachedPayload) => void;
   size?: 'sm' | 'md';
   className?: string;
 }
@@ -20,6 +25,20 @@ const PROVIDER_LABELS: Record<string, string> = {
   moonshot: 'Moonshot',
   fireworks: 'Fireworks',
 };
+
+/** Minimum tier required to use a model on server-side keys */
+const MODEL_SERVER_TIER: Record<ModelId, 'free' | 'pro' | 'max'> = {
+  'gpt-5.3-codex': 'free',
+  'fireworks-minimax-m2p5': 'free',
+  'kimi-k2.5': 'free',
+  'claude-haiku-4.5': 'pro',
+  'fireworks-glm-5': 'pro',
+  'claude-sonnet-4.6': 'max',
+  'claude-opus-4.6': 'max',
+};
+
+const TIER_RANK: Record<string, number> = { free: 0, pro: 1, max: 2 };
+const TIER_LABELS: Record<string, string> = { pro: 'Pro', max: 'Max' };
 
 function formatContextSize(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(0)}M`;
@@ -37,7 +56,7 @@ const MODEL_ORDER: ModelId[] = [
   'fireworks-glm-5',
 ];
 
-export function ModelSelector({ value, onChange, providerAccess, size = 'md', className }: ModelSelectorProps) {
+export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -46,17 +65,41 @@ export function ModelSelector({ value, onChange, providerAccess, size = 'md', cl
 
   const handleSelect = useCallback((modelId: ModelId) => {
     const config = MODEL_CONFIGS[modelId];
-    const hasAccess = providerAccess[config.provider];
-    if (hasAccess === false) {
+    const requiredTier = MODEL_SERVER_TIER[modelId] ?? 'free';
+    const userTierRank = TIER_RANK[userTier] ?? 0;
+    const requiredTierRank = TIER_RANK[requiredTier] ?? 0;
+
+    // Check tier gate for server-key models (free users clicking Pro models, etc.)
+    const isTierLocked = requiredTierRank > userTierRank && !providerAccess[config.provider];
+    if (isTierLocked) {
+      const upgradeTarget = requiredTier === 'pro' ? 'pro' : 'max';
+      const payload: LimitReachedPayload = {
+        error: 'limit_reached',
+        limitType: 'agent_turns_daily',
+        current: 0,
+        limit: 0,
+        tier: userTier,
+        upgradeTarget,
+        model: modelId,
+        message: `${config.displayName} requires the ${TIER_LABELS[requiredTier]} plan. Upgrade to use it with your server-side budget, or add your own API key in Settings.`,
+      };
+      onTierLocked?.(payload);
+      setOpen(false);
+      return;
+    }
+
+    // BYOK credential check
+    if (providerAccess[config.provider] === false) {
       toast({
         title: 'Missing API key',
         description: `Please add your ${PROVIDER_LABELS[config.provider]} credentials in Settings.`,
       });
       return;
     }
+
     onChange(modelId);
     setOpen(false);
-  }, [onChange, providerAccess, toast]);
+  }, [onChange, providerAccess, userTier, onTierLocked, toast]);
 
   // Close on click outside
   useEffect(() => {
@@ -103,15 +146,21 @@ export function ModelSelector({ value, onChange, providerAccess, size = 'md', cl
       {open && (
         <div
           className={cn(
-            'absolute z-50 mt-1 min-w-[260px] rounded-xl border border-border bg-surface shadow-lg overflow-hidden',
+            'absolute z-50 mt-1 min-w-[280px] rounded-xl border border-border bg-surface shadow-lg overflow-hidden',
             isSm ? 'right-0' : 'left-0',
           )}
         >
           {MODEL_ORDER.map((modelId) => {
             const config = MODEL_CONFIGS[modelId];
             const hasAccess = providerAccess[config.provider];
-            const isInaccessible = hasAccess === false;
+            const isCredentialMissing = hasAccess === false;
+            const requiredTier = MODEL_SERVER_TIER[modelId] ?? 'free';
+            const userTierRank = TIER_RANK[userTier] ?? 0;
+            const requiredTierRank = TIER_RANK[requiredTier] ?? 0;
+            const isTierLocked = requiredTierRank > userTierRank && !hasAccess;
             const isSelected = modelId === value;
+
+            const tierBadge = requiredTierRank > 0 ? TIER_LABELS[requiredTier] : null;
 
             return (
               <button
@@ -121,26 +170,42 @@ export function ModelSelector({ value, onChange, providerAccess, size = 'md', cl
                 className={cn(
                   'flex w-full items-center gap-3 px-3 py-2.5 text-left transition',
                   isSelected ? 'bg-elevated' : 'hover:bg-elevated/60',
-                  isInaccessible && 'opacity-40',
+                  isTierLocked && 'opacity-50',
                 )}
               >
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className={cn('text-sm font-medium', isSelected ? 'text-foreground' : 'text-foreground')}>
                       {config.displayName}
                     </span>
                     <span className="inline-flex items-center rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-medium text-muted">
                       {PROVIDER_LABELS[config.provider]}
                     </span>
+                    {tierBadge && (
+                      <span className={cn(
+                        'inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                        requiredTier === 'max'
+                          ? 'bg-accent/10 text-accent'
+                          : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                      )}>
+                        {tierBadge}
+                      </span>
+                    )}
                   </div>
                   <div className="text-[11px] text-muted mt-0.5">
                     {formatContextSize(config.maxContextTokens)} context
                   </div>
                 </div>
-                {isInaccessible && (
+                {(isCredentialMissing && !isTierLocked) && (
                   <div className="flex items-center gap-1 text-muted">
                     <Lock className="h-3 w-3" />
                     <span className="text-[10px]">no key</span>
+                  </div>
+                )}
+                {isTierLocked && (
+                  <div className="flex items-center gap-1 text-muted">
+                    <Lock className="h-3 w-3" />
+                    <span className="text-[10px]">{tierBadge}</span>
                   </div>
                 )}
               </button>

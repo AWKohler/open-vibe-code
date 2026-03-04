@@ -60,8 +60,28 @@ export default function RootLayout({
           profilePage: "!text-[var(--sand-text)]",
           internal: "!text-[var(--sand-text)]",
           title: "!text-[var(--sand-text)]",
-          text: "!text-[var(--sand-text)]",
+          // text: "!text-[var(--sand-text)]",
           badge: "!text-[var(--sand-text)]",
+
+          switchIndicator: "bg-accent",
+          pricingTableCard: "!shadow-none border",
+
+
+          pricingTableCardFooterButton: "!text-[var(--sand-bg)] !bg-[var(--sand-text)]",
+
+
+          // pricingTableCardFee: "text-3xl",
+          // CardNumberInput: "!bg-[var(--color-elevated)] !text-[var(--sand-text)]",
+          // input: "!bg-[var(--color-elevated)] !text-[var(--sand-text)]",
+          // formFieldInput: "!bg-[var(--color-elevated)] !text-[var(--sand-text)]",
+
+          pricingTableCardFee: "text-3xl",
+          CardNumberInput: "!bg-red-500",
+          input: "!bg-red-500",
+          formFieldInput: "!bg-red-500",
+
+          alertText: "text-accent",
+          alertIcon: "!text-accent",
         },
 
         baseTheme: shadcn,

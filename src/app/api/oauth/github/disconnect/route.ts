@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { clearUserCredentials } from '@/lib/user-credentials';
 import { getDb } from '@/db';
 import { userSettings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -12,15 +13,18 @@ export async function POST() {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+    // Clear from Clerk privateMetadata
+    await clearUserCredentials(userId, [
+      'githubAccessToken',
+      'githubUsername',
+      'githubAvatarUrl',
+    ]);
+
+    // Also clear display fields from Neon
     const db = getDb();
     await db
       .update(userSettings)
-      .set({
-        githubAccessToken: null,
-        githubUsername: null,
-        githubAvatarUrl: null,
-        updatedAt: new Date(),
-      })
+      .set({ githubUsername: null, githubAvatarUrl: null, updatedAt: new Date() })
       .where(eq(userSettings.userId, userId));
 
     return NextResponse.json({ ok: true });

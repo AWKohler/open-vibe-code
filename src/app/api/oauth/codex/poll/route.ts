@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getDb } from '@/db';
-import { userSettings } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { setUserCredentials } from '@/lib/user-credentials';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -14,7 +12,6 @@ function extractAccountId(idToken: string): string | null {
     const parts = idToken.split('.');
     if (parts.length < 2) return null;
     const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString());
-    // Try the direct field first, then the namespaced claim, then organizations
     if (payload.chatgpt_account_id) return payload.chatgpt_account_id;
     const nsKey = 'https://api.openai.com/auth.chatgpt_account_id';
     if (payload[nsKey]) return payload[nsKey];
@@ -87,33 +84,18 @@ export async function POST(req: NextRequest) {
       id_token?: string;
     };
 
-    // Extract account ID from id_token
     const accountId = tokens.id_token ? extractAccountId(tokens.id_token) : null;
 
     const expiresAt = tokens.expires_in
       ? Date.now() + tokens.expires_in * 1000 - 5 * 60 * 1000
       : null;
 
-    // Store in DB
-    const db = getDb();
-    const [existing] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-
-    const oauthData = {
+    await setUserCredentials(userId, {
       codexOAuthAccessToken: tokens.access_token,
       codexOAuthRefreshToken: tokens.refresh_token ?? null,
       codexOAuthExpiresAt: expiresAt,
       codexOAuthAccountId: accountId,
-      updatedAt: new Date(),
-    };
-
-    if (existing) {
-      await db.update(userSettings).set(oauthData).where(eq(userSettings.userId, userId));
-    } else {
-      await db.insert(userSettings).values({
-        userId,
-        ...oauthData,
-      });
-    }
+    });
 
     return NextResponse.json({ status: 'success' });
   } catch (e) {

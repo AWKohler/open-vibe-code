@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { setUserCredentials } from '@/lib/user-credentials';
 import { getDb } from '@/db';
 import { userSettings } from '@/db/schema';
 import { eq } from 'drizzle-orm';
@@ -65,24 +66,24 @@ export async function GET(req: NextRequest) {
     });
     const ghUser = await userRes.json() as { login: string; avatar_url: string };
 
-    // Upsert into userSettings
+    // Write token to Clerk privateMetadata (cache-invalidating)
+    await setUserCredentials(userId, {
+      githubAccessToken: tokenData.access_token,
+      githubUsername: ghUser.login,
+      githubAvatarUrl: ghUser.avatar_url,
+    });
+
+    // Also keep display fields in Neon userSettings for components that read them directly
     const db = getDb();
     const [existing] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
-
     if (existing) {
       await db
         .update(userSettings)
-        .set({
-          githubAccessToken: tokenData.access_token,
-          githubUsername: ghUser.login,
-          githubAvatarUrl: ghUser.avatar_url,
-          updatedAt: new Date(),
-        })
+        .set({ githubUsername: ghUser.login, githubAvatarUrl: ghUser.avatar_url, updatedAt: new Date() })
         .where(eq(userSettings.userId, userId));
     } else {
       await db.insert(userSettings).values({
         userId,
-        githubAccessToken: tokenData.access_token,
         githubUsername: ghUser.login,
         githubAvatarUrl: ghUser.avatar_url,
       });

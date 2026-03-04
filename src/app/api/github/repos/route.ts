@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getDb } from '@/db';
-import { userSettings } from '@/db/schema';
-import { eq } from 'drizzle-orm';
+import { getUserCredentials } from '@/lib/user-credentials';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -12,10 +10,9 @@ export async function POST(req: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const db = getDb();
-    const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    const creds = await getUserCredentials(userId);
 
-    if (!settings?.githubAccessToken) {
+    if (!creds.githubAccessToken) {
       return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 });
     }
 
@@ -31,7 +28,7 @@ export async function POST(req: NextRequest) {
     const createRes = await fetch('https://api.github.com/user/repos', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${settings.githubAccessToken}`,
+        Authorization: `Bearer ${creds.githubAccessToken}`,
         Accept: 'application/vnd.github.v3+json',
         'Content-Type': 'application/json',
       },
@@ -39,7 +36,7 @@ export async function POST(req: NextRequest) {
         name,
         description: description ?? '',
         private: isPrivate ?? false,
-        auto_init: true, // Creates initial commit with README so we have a SHA
+        auto_init: true,
       }),
     });
 
@@ -56,12 +53,12 @@ export async function POST(req: NextRequest) {
       name: string;
     };
 
-    // Fetch the HEAD commit SHA so we have a base for diffing
+    // Fetch the HEAD commit SHA
     const branchRes = await fetch(
       `https://api.github.com/repos/${repo.full_name}/branches/${repo.default_branch}`,
       {
         headers: {
-          Authorization: `Bearer ${settings.githubAccessToken}`,
+          Authorization: `Bearer ${creds.githubAccessToken}`,
           Accept: 'application/vnd.github.v3+json',
         },
       }
@@ -93,16 +90,15 @@ export async function GET() {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const db = getDb();
-    const [settings] = await db.select().from(userSettings).where(eq(userSettings.userId, userId));
+    const creds = await getUserCredentials(userId);
 
-    if (!settings?.githubAccessToken) {
+    if (!creds.githubAccessToken) {
       return NextResponse.json({ error: 'GitHub not connected' }, { status: 400 });
     }
 
     const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=50', {
       headers: {
-        Authorization: `Bearer ${settings.githubAccessToken}`,
+        Authorization: `Bearer ${creds.githubAccessToken}`,
         Accept: 'application/vnd.github.v3+json',
       },
     });

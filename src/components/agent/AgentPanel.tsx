@@ -1439,7 +1439,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       </form>
 
       {createPortal(
-        <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />,
+        <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} workspaceContext />,
         document.body
       )}
 

@@ -14,14 +14,13 @@ const nextConfig: NextConfig = {
   headers: async () => {
     return [
       {
-        // Cross-origin isolation is required by WebContainer (SharedArrayBuffer).
-        // `credentialless` COEP achieves isolation without blocking third-party scripts
-        // (Stripe, etc.) that lack Cross-Origin-Resource-Policy headers — unlike `require-corp`.
-        source: '/(.*)',
+        // WebContainer requires cross-origin isolation (SharedArrayBuffer) — apply only to
+        // workspace routes so Stripe/Clerk checkout iframes work everywhere else.
+        source: '/workspace/(.*)',
         headers: [
           {
             key: 'Cross-Origin-Embedder-Policy',
-            value: 'credentialless',
+            value: 'require-corp',
           },
           {
             key: 'Cross-Origin-Opener-Policy',

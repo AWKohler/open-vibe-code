@@ -11,6 +11,9 @@ interface SettingsModalProps {
   open: boolean;
   onClose: () => void;
   defaultTab?: Tab;
+  /** Pass true when rendering inside the workspace — COEP headers prevent Stripe iframes
+   *  from loading, so the subscription tab opens /pricing in a new tab instead. */
+  workspaceContext?: boolean;
 }
 
 type Tab = 'usage' | 'connections' | 'subscription';
@@ -29,7 +32,7 @@ const PROVIDERS: Array<{
   { provider: 'fireworks', label: 'Fireworks AI API Key', field: 'fireworksApiKey', placeholder: 'fw-...' },
 ];
 
-export function SettingsModal({ open, onClose, defaultTab = 'usage' }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceContext = false }: SettingsModalProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
   const [loading, setLoading] = useState(true);
@@ -391,10 +394,29 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage' }: SettingsM
                   Free is the default plan — no action needed to get started.
                   Upgrade anytime to unlock more capabilities.
                 </p>
-                <PricingTable
-                  newSubscriptionRedirectUrl="/projects"
-                  ctaPosition="bottom"
-                />
+                {workspaceContext ? (
+                  /* Stripe iframes can't run inside COEP-isolated workspace pages.
+                     Open the pricing page in a new tab where there's no COEP restriction. */
+                  <div className="flex flex-col items-start gap-3">
+                    <p className="text-sm text-muted">
+                      Subscription management opens in a new tab to ensure the payment form loads correctly.
+                    </p>
+                    <a
+                      href="/pricing"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 rounded-xl bg-fg px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition"
+                    >
+                      Manage subscription
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  </div>
+                ) : (
+                  <PricingTable
+                    newSubscriptionRedirectUrl="/projects"
+                    ctaPosition="bottom"
+                  />
+                )}
               </div>
             )}
 

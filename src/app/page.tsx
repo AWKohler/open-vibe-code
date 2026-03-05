@@ -38,6 +38,7 @@ export default function Home() {
   const [hasMoonshotKey, setHasMoonshotKey] = useState<boolean | null>(null);
   const [hasCodexOAuth, setHasCodexOAuth] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
+  const [userTier, setUserTier] = useState<'free' | 'pro' | 'max'>('free');
   const [showSettings, setShowSettings] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [showNameDialog, setShowNameDialog] = useState(false);
@@ -233,15 +234,24 @@ export default function Home() {
 
   const fetchUserSettings = useCallback(async () => {
     try {
-      const res = await fetch("/api/user-settings");
-      if (res.ok) {
-        const data = await res.json();
+      const [settingsRes, budgetRes] = await Promise.all([
+        fetch("/api/user-settings"),
+        fetch("/api/usage/budget"),
+      ]);
+      if (settingsRes.ok) {
+        const data = await settingsRes.json();
         setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
         setHasAnthropicKey(Boolean(data?.hasAnthropicKey));
         setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
         setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
         setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
         setHasFireworksKey(Boolean(data?.hasFireworksKey));
+      }
+      if (budgetRes.ok) {
+        const data = await budgetRes.json();
+        if (data?.tier === 'pro' || data?.tier === 'max') {
+          setUserTier(data.tier as 'pro' | 'max');
+        }
       }
     } catch {}
   }, []);
@@ -519,11 +529,12 @@ export default function Home() {
                       value={model}
                       onChange={setModel}
                       providerAccess={providerAccess}
+                      userTier={userTier}
                       size="md"
                       onTierLocked={() => {
                         toast({
                           title: "Plan required",
-                          description: "This model requires a Pro or Max plan. Start with Codex or MiniMax on the free tier.",
+                          description: "This model requires a Pro or Max plan. Upgrade or add your own API key in Settings.",
                         });
                       }}
                     />

@@ -26,22 +26,25 @@ const PROVIDER_LABELS: Record<string, string> = {
   fireworks: 'Fireworks',
 };
 
-/** Minimum tier required to use a model on server-side keys */
+/** Minimum tier required to use a model on server-side keys (must match backend MODEL_TIER_REQUIREMENT) */
 const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
-  'gpt-5.3-codex': 'free',
   'fireworks-minimax-m2p5': 'free',
-  'fireworks-glm-5': 'free',    // Now available on free tier
-  'claude-sonnet-4.6': 'pro',   // Requires Pro+
-  'claude-opus-4.6': 'pro',     // Requires Pro+
+  'fireworks-glm-5': 'free',
+  'gpt-5.3-codex': 'pro',       // Pro+ for server key; free requires BYOK/OAuth
+  'claude-haiku-4.5': 'pro',    // Pro+
+  'claude-sonnet-4.6': 'pro',   // Pro+
+  'claude-opus-4.6': 'pro',     // Pro+
 };
 
 /**
- * Models served via platform server keys — BYOK not required.
+ * Models served via platform server keys — BYOK not required for eligible tiers.
  * Selecting these skips the "missing API key" BYOK check.
  */
 const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-minimax-m2p5',
   'fireworks-glm-5',
+  'gpt-5.3-codex',
+  'claude-haiku-4.5',
   'claude-sonnet-4.6',
   'claude-opus-4.6',
 ]);
@@ -76,16 +79,6 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
     const requiredTier = MODEL_SERVER_TIER[modelId] ?? 'free';
     const userTierRank = TIER_RANK[userTier] ?? 0;
     const requiredTierRank = TIER_RANK[requiredTier] ?? 0;
-
-    // Codex is BYOK/OAuth only — special message
-    if (modelId === 'gpt-5.3-codex' && providerAccess[config.provider] === false) {
-      toast({
-        title: 'Connect ChatGPT Codex',
-        description: 'Sign in with ChatGPT or add an OpenAI API key in Settings to use Codex.',
-      });
-      setOpen(false);
-      return;
-    }
 
     // Check tier gate for server-key models (free users clicking Pro-only models, etc.)
     const isTierLocked = requiredTierRank > userTierRank && !providerAccess[config.provider];

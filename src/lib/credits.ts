@@ -49,9 +49,9 @@ export function rawToCredits(tokens: number, model: ModelId): number {
 
 export function getMonthlyLimit(tier: Tier): number {
   switch (tier) {
-    case 'free': return envInt('CREDITS_FREE_MONTHLY', 500_000);
-    case 'pro':  return envInt('CREDITS_PRO_MONTHLY', 10_000_000);
-    case 'max':  return envInt('CREDITS_MAX_MONTHLY', 50_000_000);
+    case 'free': return envInt('CREDITS_FREE_MONTHLY', 2_000_000);
+    case 'pro':  return envInt('CREDITS_PRO_MONTHLY', 40_000_000);
+    case 'max':  return envInt('CREDITS_MAX_MONTHLY', 200_000_000);
   }
 }
 

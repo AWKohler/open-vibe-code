@@ -170,6 +170,65 @@ function getTools() {
 const TOOLS_TOKEN_ESTIMATE = 800;
 
 // ============================================================================
+// Anthropic prompt caching helpers
+// ============================================================================
+
+/**
+ * Builds the messages array for Anthropic calls with prompt caching.
+ *
+ * Two cache breakpoints are injected:
+ *  1. The system prompt (first message) — cached on every call since it never changes.
+ *  2. The penultimate message — caches the growing conversation history so only the
+ *     final user message is charged at full input price on follow-up turns.
+ *
+ * Anthropic charges ~10x less for cache hits ($0.30/MTok) vs fresh input ($3/MTok for
+ * Sonnet), so this dramatically reduces cost for multi-turn coding sessions.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildAnthropicCachedMessages(systemPrompt: string, messages: ModelMessage[]): any[] {
+  const sysMsg = {
+    role: 'system',
+    content: systemPrompt,
+    providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } },
+  };
+
+  if (messages.length < 3) {
+    return [sysMsg, ...messages];
+  }
+
+  // Add a 2nd cache breakpoint on the last text part of the penultimate message.
+  // This causes Anthropic to cache everything up to that point, so only the new
+  // user message is processed from scratch on each turn.
+  const allButLast = messages.slice(0, -1);
+  const last = messages[messages.length - 1];
+  const penultimate = allButLast[allButLast.length - 1];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const content = (penultimate as any).content;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let cachedPenultimate: any = penultimate;
+
+  if (typeof content === 'string') {
+    cachedPenultimate = {
+      ...penultimate,
+      content: [{ type: 'text', text: content, providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } }],
+    };
+  } else if (Array.isArray(content)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parts = [...content] as any[];
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (parts[i].type === 'text') {
+        parts[i] = { ...parts[i], providerOptions: { anthropic: { cacheControl: { type: 'ephemeral' } } } };
+        break;
+      }
+    }
+    cachedPenultimate = { ...penultimate, content: parts };
+  }
+
+  return [sysMsg, ...allButLast.slice(0, -1), cachedPenultimate, last];
+}
+
+// ============================================================================
 // Provider creation helpers
 // ============================================================================
 
@@ -681,7 +740,9 @@ export async function POST(req: Request) {
             { status: isServerKeyModel(selectedModel) ? 503 : 400, headers: { "Content-Type": "application/json" } },
           );
         }
-        const fireworks = createFireworks({ apiKey });
+        // Pass userId as session affinity so Fireworks routes to the same replica,
+        // maximizing prompt cache hit rates (caching only works within one replica).
+        const fireworks = createFireworks({ apiKey, headers: { 'x-session-affinity': userId } });
         const result = streamText({
           model: fireworks(modelConfig.apiModelId),
           system: systemPrompt,
@@ -714,8 +775,7 @@ export async function POST(req: Request) {
           const anthropic = createAnthropic({ apiKey: serverAnthropicKey });
           const result = streamText({
             model: anthropic(modelConfig.apiModelId),
-            system: systemPrompt,
-            messages: resolvedMessages,
+            messages: buildAnthropicCachedMessages(systemPrompt, resolvedMessages),
             tools,
             onFinish,
           });
@@ -727,8 +787,7 @@ export async function POST(req: Request) {
           const anthropic = createAnthropic({ apiKey: creds.anthropicApiKey });
           const result = streamText({
             model: anthropic(modelConfig.apiModelId),
-            system: systemPrompt,
-            messages: resolvedMessages,
+            messages: buildAnthropicCachedMessages(systemPrompt, resolvedMessages),
             tools,
             onFinish,
           });
@@ -748,8 +807,7 @@ export async function POST(req: Request) {
       const anthropic = createAnthropicOAuthProvider(anthropicToken);
       const result = streamText({
         model: anthropic(modelConfig.apiModelId),
-        system: systemPrompt,
-        messages: resolvedMessages,
+        messages: buildAnthropicCachedMessages(systemPrompt, resolvedMessages),
         tools,
         onFinish,
       });

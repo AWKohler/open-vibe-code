@@ -432,10 +432,11 @@ async function refreshCodexOAuthToken(
 /** Server key models: models the app pays for on behalf of paid users */
 const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-minimax-m2p5', // free tier
-  'claude-haiku-4.5',        // pro
-  'fireworks-glm-5',         // pro
-  'claude-sonnet-4.6',       // max
-  'claude-opus-4.6',         // max
+  'fireworks-glm-5',         // free tier
+  'gpt-5.3-codex',           // pro+
+  'claude-haiku-4.5',        // pro+
+  'claude-sonnet-4.6',       // pro+
+  'claude-opus-4.6',         // pro+
 ]);
 
 function isServerKeyModel(model: ModelId): boolean {
@@ -683,23 +684,37 @@ export async function POST(req: Request) {
           }
         }
 
-        // Path B: OpenAI API key fallback
-        const apiKey = creds.openaiApiKey;
-        if (!apiKey) {
-          return new Response(
-            JSON.stringify({ error: "Missing OpenAI credentials. Connect ChatGPT Codex or add an OpenAI API key in Settings.", errorType: "auth" }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
-          );
+        // Path B: OpenAI BYOK API key
+        if (creds.openaiApiKey) {
+          const openai = createOpenAI({ apiKey: creds.openaiApiKey });
+          const result = streamText({
+            model: openai(modelConfig.apiModelId),
+            system: systemPrompt,
+            messages: resolvedMessages,
+            tools,
+            onFinish,
+          });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders });
         }
-        const openai = createOpenAI({ apiKey });
-        const result = streamText({
-          model: openai(modelConfig.apiModelId),
-          system: systemPrompt,
-          messages: resolvedMessages,
-          tools,
-          onFinish,
-        });
-        return result.toUIMessageStreamResponse({ headers: responseHeaders });
+
+        // Path C: Server-side OpenAI key for Pro/Max tiers
+        const serverOpenAIKey = process.env.OPENAI_API_KEY;
+        if (isServerKeyModel(selectedModel) && serverOpenAIKey) {
+          const openai = createOpenAI({ apiKey: serverOpenAIKey });
+          const result = streamText({
+            model: openai(modelConfig.apiModelId),
+            system: systemPrompt,
+            messages: resolvedMessages,
+            tools,
+            onFinish,
+          });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders });
+        }
+
+        return new Response(
+          JSON.stringify({ error: "Missing OpenAI credentials. Connect ChatGPT Codex or add an OpenAI API key in Settings.", errorType: "auth" }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        );
       }
 
       if (selectedModel === "kimi-k2.5") {

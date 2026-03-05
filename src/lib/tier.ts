@@ -147,12 +147,13 @@ export async function invalidateTierCache(userId: string): Promise<void> {
 
 /** Which tier is required to use a model on server-side keys */
 export const MODEL_TIER_REQUIREMENT: Record<string, Tier> = {
-  'gpt-5.3-codex': 'free',          // BYOK/OAuth only
   'fireworks-minimax-m2p5': 'free',
-  'fireworks-glm-5': 'free',         // Now available on free tier
-  'claude-sonnet-4.6': 'pro',        // Requires Pro+
+  'fireworks-glm-5': 'free',
   'kimi-k2.5': 'free',               // BYOK only
-  'claude-opus-4.6': 'pro',          // Requires Pro+
+  'gpt-5.3-codex': 'pro',            // Pro+ for server key; free requires BYOK/OAuth
+  'claude-haiku-4.5': 'pro',         // Pro+ for server key
+  'claude-sonnet-4.6': 'pro',        // Pro+ for server key
+  'claude-opus-4.6': 'pro',          // Pro+ for server key
 };
 
 const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, max: 2 };

@@ -14,13 +14,14 @@ const nextConfig: NextConfig = {
   headers: async () => {
     return [
       {
-        // SharedArrayBuffer (required by WebContainer) needs cross-origin isolation
-        // Applied globally so it works regardless of which route hosts the workspace
+        // Cross-origin isolation is required by WebContainer (SharedArrayBuffer).
+        // `credentialless` COEP achieves isolation without blocking third-party scripts
+        // (Stripe, etc.) that lack Cross-Origin-Resource-Policy headers — unlike `require-corp`.
         source: '/(.*)',
         headers: [
           {
             key: 'Cross-Origin-Embedder-Policy',
-            value: 'require-corp',
+            value: 'credentialless',
           },
           {
             key: 'Cross-Origin-Opener-Policy',

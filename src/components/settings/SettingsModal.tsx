@@ -415,6 +415,11 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                   <PricingTable
                     newSubscriptionRedirectUrl="/projects"
                     ctaPosition="bottom"
+
+                  
+                    // appearance={
+
+                    // }
                   />
                 )}
               </div>

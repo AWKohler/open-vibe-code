@@ -7,7 +7,7 @@
  * All numeric limits are env-var driven so they can be tuned without a deploy.
  */
 
-import { clerkClient } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { redis } from './redis';
 
 export type Tier = 'free' | 'pro' | 'max';
@@ -88,27 +88,48 @@ export function getLimitsForTier(tier: Tier): TierLimits {
 
 // ─── Tier detection ───────────────────────────────────────────────────────────
 
-const TIER_CACHE_TTL = 300; // 5 minutes
+// Short TTL — Clerk's PricingTable updates the JWT immediately after purchase,
+// so a 60s cache is safe and avoids hammering Clerk's API.
+const TIER_CACHE_TTL = 60;
 
 export async function getUserTier(userId: string): Promise<Tier> {
+  // ── Primary: auth().has({ plan }) ────────────────────────────────────────
+  // Reads the JWT session token that Clerk refreshes automatically after a
+  // subscription change. This is the source-of-truth for Clerk built-in billing.
+  // Falls through to the publicMetadata fallback if called outside request context.
   const cacheKey = `tier:${userId}`;
 
-  const cached = await redis.get<string>(cacheKey);
-  if (cached === 'free' || cached === 'pro' || cached === 'max') {
-    return cached;
+  try {
+    const { has } = await auth();
+    let tier: Tier = 'free';
+    if (has({ plan: 'max' })) {
+      tier = 'max';
+    } else if (has({ plan: 'pro' })) {
+      tier = 'pro';
+    } else {
+      // has() returned false for both — check publicMetadata for manually-set plans.
+      const client = await clerkClient();
+      const user = await client.users.getUser(userId);
+      const plan = (user.publicMetadata as Record<string, unknown>)?.plan as string | undefined;
+      if (plan === 'max') tier = 'max';
+      else if (plan === 'pro') tier = 'pro';
+    }
+    // Keep Redis in sync (helps the fallback path and webhook invalidation flow)
+    await redis.setex(cacheKey, TIER_CACHE_TTL, tier).catch(() => {});
+    return tier;
+  } catch {
+    // ── Fallback: Redis cache → Clerk backend API ─────────────────────────
+    // Used when auth() context is not available (e.g. webhook handlers).
+    const cached = await redis.get<string>(cacheKey);
+    if (cached === 'free' || cached === 'pro' || cached === 'max') return cached;
+
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const plan = (user.publicMetadata as Record<string, unknown>)?.plan as string | undefined;
+    const tier: Tier = plan === 'pro' ? 'pro' : plan === 'max' ? 'max' : 'free';
+    await redis.setex(cacheKey, TIER_CACHE_TTL, tier);
+    return tier;
   }
-
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const plan = (user.publicMetadata as Record<string, unknown>)?.plan as string | undefined;
-
-  const tier: Tier =
-    plan === 'pro' ? 'pro' :
-    plan === 'max' ? 'max' :
-    'free';
-
-  await redis.setex(cacheKey, TIER_CACHE_TTL, tier);
-  return tier;
 }
 
 /** Get tier + limits together (most callers need both) */

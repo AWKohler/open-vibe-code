@@ -52,7 +52,7 @@ export default function RootLayout({
           formField__username: "!bg-[var(--color-elevated)] !font-bold",
           userPreview: "!text-[var(--sand-text)]",
           userPreviewMainIdentifierText: "!text-[var(--sand-text)]",
-          rootBox: "!text-[var(--sand-text)]",
+          // rootBox: "!text-[var(--sand-text)]",
           navbar: "!text-[var(--sand-text)] !bg-surface",
           footer: "!pt-0 !mt-0",
           headerTitle: "!text-[var(--sand-text)]",
@@ -81,8 +81,13 @@ export default function RootLayout({
 
         baseTheme: shadcn,
         variables: {
-          // use the CSS variable that backs `bg-surface` so Clerk follows light/dark modes
+          // use CSS variables so Clerk follows light/dark modes
           colorBackground: "var(--color-surface)",
+          colorText: "var(--sand-text)",
+          colorTextSecondary: "var(--sand-text-muted)",
+          colorInputBackground: "var(--sand-elevated)",
+          colorInputText: "var(--sand-text)",
+          colorNeutral: "var(--sand-text)",
         },
       }}
     >

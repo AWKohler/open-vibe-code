@@ -678,26 +678,6 @@ export function Workspace({
 
   // REMOVED: Manual snapshot test button (no longer needed)
 
-  // WebContainer requires crossOriginIsolated (COOP + COEP headers).
-  // Next.js client-side navigation never sends a new HTML response, so the
-  // headers from next.config.ts aren't applied. Force a hard reload once so the
-  // browser fetches the page fresh and picks up the isolation headers.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (!window.crossOriginIsolated) {
-      const RELOAD_KEY = 'wc-isolation-reload';
-      if (!sessionStorage.getItem(RELOAD_KEY)) {
-        sessionStorage.setItem(RELOAD_KEY, '1');
-        window.location.reload();
-      }
-      // If we already reloaded and still not isolated, headers may not be
-      // configured — proceed and let WebContainer surface the error naturally.
-    } else {
-      // Isolated and healthy — clear the guard so future navigations can reload again.
-      sessionStorage.removeItem('wc-isolation-reload');
-    }
-  }, []);
-
   useEffect(() => {
     async function initWebContainer() {
       // Prevent concurrent initializations within same mount

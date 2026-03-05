@@ -3,7 +3,7 @@ import { getDb } from '@/db';
 import { projects } from '@/db/schema';
 import { and, eq } from 'drizzle-orm';
 import Link from 'next/link';
-import { Workspace } from '@/components/workspace';
+import { IsolationGuard } from './isolation-guard';
 
 export default async function WorkspacePage({
   params,
@@ -61,5 +61,5 @@ export default async function WorkspacePage({
     .set({ lastOpened: new Date() })
     .where(eq(projects.id, projectId));
 
-  return <Workspace projectId={projectId} initialPrompt={initialPrompt} platform={platform} />;
+  return <IsolationGuard projectId={projectId} initialPrompt={initialPrompt} platform={platform} />;
 }

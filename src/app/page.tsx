@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   SignedIn,
   SignedOut,
@@ -366,18 +367,18 @@ export default function Home() {
 
                 <div className="flex items-center gap-2">
                   <SignedOut>
-                    <a
+                    <Link
                       href="/sign-in"
                       className="hidden sm:inline-flex items-center rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
                     >
                       Log in
-                    </a>
-                    <a
+                    </Link>
+                    <Link
                       href="/sign-up"
                       className="inline-flex items-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow-[0_1px_0_rgba(255,255,255,0.2)_inset,0_8px_20px_-8px_rgba(0,0,0,0.5)] hover:opacity-95 transition"
                     >
                       Get started
-                    </a>
+                    </Link>
                   </SignedOut>
                   <SignedIn>
                     <button

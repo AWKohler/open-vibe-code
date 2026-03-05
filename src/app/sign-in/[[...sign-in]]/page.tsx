@@ -26,10 +26,6 @@ export default async function Page({
                   alignItems: "stretch",
                 },
               },
-              variables: {
-                colorMuted: "var(--color-surface)",
-                colorForeground: "var(--color-text)",
-              },
             }}
           />
         </div>

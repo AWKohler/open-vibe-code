@@ -17,7 +17,6 @@ import { ModelSelector } from "@/components/ui/ModelSelector";
 import type { ModelId } from "@/lib/agent/models";
 import { modelSupportsImages } from "@/lib/agent/models";
 import { processImageForUpload } from "@/lib/image-processing";
-import Dither from "@/components/landing/Dither";
 
 interface LandingPendingImage {
   id: string;
@@ -303,32 +302,20 @@ export default function Home() {
   return (
     <>
       <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen flex flex-col">
-        {/* Background dither */}
+        {/* Background gradient */}
         <div className="relative isolate overflow-hidden flex flex-1 flex-col">
-          <div className="pointer-events-none absolute inset-0 -z-10">
-            <Dither
-              className="h-full w-full"
-              colorNum={4}
-              waveAmplitude={0.3}
-              waveFrequency={3}
-              waveSpeed={0.05}
-              pixelSize={2}
-              enableMouseInteraction={false}
-            />
-          </div>
+          <div className="pointer-events-none absolute inset-0 -z-10 landing-gradient" />
 
           {/* Nav */}
           <header className="relative">
             <div className="mx-auto max-w-7xl px-6 py-5">
               <div className="flex items-center justify-between">
-                <a className="flex items-center gap-3" href="#">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border bg-elevated shadow-sm">
-                    <img
-                      src="/brand/botflow-glyph.svg"
-                      alt=""
-                      className="h-6 w-6"
-                    />
-                  </span>
+                <a className="flex items-center gap-2.5" href="#">
+                  <img
+                    src="/brand/botflow-glyph.svg"
+                    alt=""
+                    className="h-9 w-9"
+                  />
                   <img
                     src="/brand/botflow-wordmark.svg"
                     alt="Botflow"
@@ -379,25 +366,23 @@ export default function Home() {
 
                 <div className="flex items-center gap-2">
                   <SignedOut>
-                    <SignInButton
-                      mode="modal"
-                      appearance={landingSignInModalAppearance}
+                    <a
+                      href="/sign-in"
+                      className="hidden sm:inline-flex items-center rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
                     >
-                      <button className="hidden sm:inline-flex items-center rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-neutral-50 transition">
-                        Log in
-                      </button>
-                    </SignInButton>
-                    <button
-                      onClick={() => start(false)}
+                      Log in
+                    </a>
+                    <a
+                      href="/sign-up"
                       className="inline-flex items-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow-[0_1px_0_rgba(255,255,255,0.2)_inset,0_8px_20px_-8px_rgba(0,0,0,0.5)] hover:opacity-95 transition"
                     >
                       Get started
-                    </button>
+                    </a>
                   </SignedOut>
                   <SignedIn>
                     <button
                       onClick={() => setShowSettings(true)}
-                      className="inline-flex items-center justify-center rounded-xl border border-border bg-elevated px-2.5 py-2 text-sm text-[var(--sand-text)] shadow-sm hover:bg-neutral-50 transition"
+                      className="inline-flex items-center justify-center rounded-xl border border-border bg-elevated px-2.5 py-2 text-sm text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
                       title="Settings"
                       aria-label="Settings"
                     >
@@ -415,14 +400,12 @@ export default function Home() {
             <div className="mx-auto max-w-4xl px-6 pt-10 pb-24 sm:pt-16">
               <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-semibold tracking-tight text-[var(--sand-text)] text-center">
                 Build something
-                <span className="inline-flex translate-y-1 align-middle">
-                  <span className="mx-2 inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-elevated shadow-sm">
-                    <img
-                      src="/brand/botflow-glyph.svg"
-                      alt=""
-                      className="h-4 w-4"
-                    />
-                  </span>
+                <span className="inline-flex mx-2 translate-y-1 align-middle">
+                  <img
+                    src="/brand/botflow-glyph.svg"
+                    alt=""
+                    className="h-12 w-12"
+                  />
                 </span>
               </h1>
               <p className="mt-4 text-center text-[var(--sand-text)] sm:text-lg">

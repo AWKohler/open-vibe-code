@@ -175,6 +175,15 @@ body {
     }
 }
 
+/* Landing page gradient */
+.landing-gradient {
+    background:
+        radial-gradient(ellipse 80% 60% at 20% 0%, color-mix(in oklab, var(--sand-accent) 8%, transparent), transparent),
+        radial-gradient(ellipse 60% 50% at 80% 10%, color-mix(in oklab, var(--sand-soft) 60%, transparent), transparent),
+        radial-gradient(ellipse 50% 70% at 50% 100%, color-mix(in oklab, var(--sand-elevated) 80%, transparent), transparent),
+        linear-gradient(180deg, var(--sand-bg) 0%, var(--sand-surface) 50%, var(--sand-bg) 100%);
+}
+
 /* Animation classes */
 .bolt-fade-in {
     animation: fadeIn 0.3s ease-in-out;

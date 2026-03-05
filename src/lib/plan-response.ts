@@ -19,6 +19,8 @@ export type LimitType =
   | 'project_count'
   | 'agent_turns_daily'
   | 'token_budget'
+  | 'weekly_credits'
+  | 'monthly_credits'
   | 'convex_project_count'
   | 'cf_pages_count'
   | 'screenshot_daily';
@@ -48,6 +50,10 @@ function humanMessage(opts: LimitReachedOptions): string {
       return `You've used all ${opts.limit} agent turns for today on the ${opts.tier} plan.${upgradeSuffix}`;
     case 'token_budget':
       return `You've exhausted your monthly ${opts.model ?? 'model'} token budget (${(opts.limit / 1_000_000).toFixed(1)}M tokens) on the ${opts.tier} plan.${upgradeSuffix}`;
+    case 'weekly_credits':
+      return `You've used your weekly credit allowance on the ${opts.tier} plan. Your credits reset at the start of next week.${upgradeSuffix}`;
+    case 'monthly_credits':
+      return `You've used your monthly credit budget on the ${opts.tier} plan.${upgradeSuffix}`;
     case 'convex_project_count':
       return `You've reached the ${opts.limit}-Convex-project limit on the ${opts.tier} plan.${upgradeSuffix}`;
     case 'cf_pages_count':

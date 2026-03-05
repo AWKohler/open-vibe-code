@@ -20,13 +20,18 @@ import {
   compactMessages,
 } from "@/lib/agent/compaction";
 import { getUserCredentials, setUserCredentials } from "@/lib/user-credentials";
-import { getUserTierAndLimits, MODEL_TIER_REQUIREMENT, tierMeetsRequirement } from "@/lib/tier";
+import { getUserTier, MODEL_TIER_REQUIREMENT, tierMeetsRequirement } from "@/lib/tier";
 import {
-  getDailyAgentTurns,
-  incrementDailyAgentTurns,
-  getMonthlyTokenUsage,
   recordTokenUsage,
 } from "@/lib/usage";
+import {
+  rawToCredits,
+  getWeeklyCredits,
+  getMonthlyCredits,
+  incrementWeeklyCredits,
+  getWeeklyLimit,
+  getMonthlyLimit,
+} from "@/lib/credits";
 import { limitReachedResponse } from "@/lib/plan-response";
 
 // Allow long-running streamed responses on Vercel
@@ -429,53 +434,62 @@ export async function POST(req: Request) {
     const tools = getTools();
 
     // ── Tier enforcement for server-key models ──────────────────────────────
-    if (isServerKeyModel(selectedModel)) {
-      const limits = await getUserTierAndLimits(userId);
+    // Detect if this request uses personal BYOK/OAuth credentials (skip credit checks)
+    const isUsingPersonalCredentials = ((): boolean => {
+      if (selectedModel === 'gpt-5.3-codex') {
+        return Boolean(creds.codexOAuthAccessToken || creds.openaiApiKey);
+      }
+      if (selectedModel === 'kimi-k2.5') {
+        return Boolean(creds.moonshotApiKey);
+      }
+      if (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5') {
+        return Boolean(creds.fireworksApiKey) && !process.env.FIREWORKS_API_KEY;
+      }
+      // Anthropic models
+      return Boolean(creds.claudeOAuthAccessToken || creds.anthropicApiKey);
+    })();
+
+    if (isServerKeyModel(selectedModel) && !isUsingPersonalCredentials) {
+      const tier = await getUserTier(userId);
       const requiredTier = MODEL_TIER_REQUIREMENT[selectedModel] ?? 'free';
 
       // Check if user's tier supports this model on server keys
-      if (!tierMeetsRequirement(limits.tier, requiredTier)) {
+      if (!tierMeetsRequirement(tier, requiredTier)) {
         return limitReachedResponse({
-          limitType: 'agent_turns_daily', // reuse — signals upgrade needed
+          limitType: 'agent_turns_daily',
           current: 0,
           limit: 0,
-          tier: limits.tier,
+          tier,
           model: selectedModel,
         });
       }
 
-      // Check daily agent turn limit
-      if (limits.maxAgentTurnsPerDay > 0) {
-        const turnsUsed = await getDailyAgentTurns(userId);
-        if (turnsUsed >= limits.maxAgentTurnsPerDay) {
-          return limitReachedResponse({
-            limitType: 'agent_turns_daily',
-            current: turnsUsed,
-            limit: limits.maxAgentTurnsPerDay,
-            tier: limits.tier,
-          });
-        }
+      // Check weekly credit limit
+      const weeklyLimit = getWeeklyLimit(tier);
+      const weeklyUsed = await getWeeklyCredits(userId);
+      if (weeklyUsed >= weeklyLimit) {
+        return limitReachedResponse({
+          limitType: 'weekly_credits',
+          current: weeklyUsed,
+          limit: weeklyLimit,
+          tier,
+          model: selectedModel,
+        });
       }
 
-      // Check monthly token budget
-      const budget = limits.tokenBudgets[selectedModel];
-      if (budget !== undefined && budget > 0) {
-        const usage = await getMonthlyTokenUsage(userId, selectedModel);
-        if (usage.total >= budget) {
-          return limitReachedResponse({
-            limitType: 'token_budget',
-            current: usage.total,
-            limit: budget,
-            tier: limits.tier,
-            model: selectedModel,
-          });
-        }
+      // Check monthly credit limit
+      const monthlyLimit = getMonthlyLimit(tier);
+      const monthlyUsed = await getMonthlyCredits(userId);
+      if (monthlyUsed >= monthlyLimit) {
+        return limitReachedResponse({
+          limitType: 'monthly_credits',
+          current: monthlyUsed,
+          limit: monthlyLimit,
+          tier,
+          model: selectedModel,
+        });
       }
 
-      // Increment turn counter immediately (before stream so we don't miss counts on abort)
-      if (limits.maxAgentTurnsPerDay > 0) {
-        await incrementDailyAgentTurns(userId);
-      }
     }
 
     // ── Convert UIMessages to ModelMessages ─────────────────────────────────
@@ -530,9 +544,15 @@ export async function POST(req: Request) {
         const tokensIn = event.usage.inputTokens ?? 0;
         const tokensOut = event.usage.outputTokens ?? 0;
         if (isServerKeyModel(selectedModel) && (tokensIn > 0 || tokensOut > 0)) {
-          await recordTokenUsage(userId, selectedModel, tokensIn, tokensOut).catch(() => {
-            // Non-fatal — don't fail the request over a usage write
-          });
+          const totalTokens = tokensIn + tokensOut;
+          const credits = rawToCredits(totalTokens, selectedModel);
+          await Promise.all([
+            recordTokenUsage(userId, selectedModel, tokensIn, tokensOut, credits).catch(() => {}),
+            // Only increment weekly credits for server-key (platform-paid) usage
+            !isUsingPersonalCredentials
+              ? incrementWeeklyCredits(userId, credits).catch(() => {})
+              : Promise.resolve(),
+          ]);
         }
         const durationMs = Date.now() - startTime;
         agentLog.apiComplete({ model: selectedModel, durationMs });
@@ -653,9 +673,12 @@ export async function POST(req: Request) {
           : creds.fireworksApiKey;
 
         if (!apiKey) {
+          const msg = isServerKeyModel(selectedModel)
+            ? `${modelConfig.displayName} is temporarily unavailable (missing server configuration). Please try a different model or add your own Fireworks API key in Settings.`
+            : "Missing Fireworks API key. Please add it in Settings.";
           return new Response(
-            JSON.stringify({ error: "Missing Fireworks API key", errorType: "auth" }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
+            JSON.stringify({ error: msg, errorType: isServerKeyModel(selectedModel) ? "unavailable" : "auth" }),
+            { status: isServerKeyModel(selectedModel) ? 503 : 400, headers: { "Content-Type": "application/json" } },
           );
         }
         const fireworks = createFireworks({ apiKey });

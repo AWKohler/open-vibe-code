@@ -18,8 +18,8 @@ export interface TierLimits {
   maxProjects: number;
   // Agent turns per day (server-side keys only; BYOK is unlimited)
   maxAgentTurnsPerDay: number;
-  // Monthly token budgets per model (0 = not available on server key)
-  tokenBudgets: Partial<Record<string, number>>;
+  // Monthly credit budget in MiniMax-equivalent tokens
+  monthlyCreditBudget: number;
   // Convex backends
   maxConvexProjects: number;
   // Cloudflare Pages live deployments
@@ -49,11 +49,8 @@ export function getLimitsForTier(tier: Tier): TierLimits {
       return {
         tier: 'free',
         maxProjects: 3,
-        maxAgentTurnsPerDay: 0, // BYOK only — no server-side budget
-        tokenBudgets: {
-          // MiniMax is the free-tier server-side model
-          'fireworks-minimax-m2p5': envInt('TIER_FREE_MINIMAX_TOKEN_BUDGET', 500_000),
-        },
+        maxAgentTurnsPerDay: 0, // no daily turn cap — credit budget handles it
+        monthlyCreditBudget: envInt('CREDITS_FREE_MONTHLY', 500_000),
         maxConvexProjects: 1,
         maxCfPagesDeployments: 1,
         maxScreenshotsPerDay: 5,
@@ -65,12 +62,8 @@ export function getLimitsForTier(tier: Tier): TierLimits {
       return {
         tier: 'pro',
         maxProjects: 15,
-        maxAgentTurnsPerDay: 100,
-        tokenBudgets: {
-          'claude-haiku-4.5': envInt('TIER_PRO_HAIKU_TOKEN_BUDGET', 10_000_000),
-          'fireworks-glm-5': envInt('TIER_PRO_GLM5_TOKEN_BUDGET', 10_000_000),
-          // Sonnet available via BYOK or Haiku budget (server key uses Haiku)
-        },
+        maxAgentTurnsPerDay: 0,
+        monthlyCreditBudget: envInt('CREDITS_PRO_MONTHLY', 10_000_000),
         maxConvexProjects: 3,
         maxCfPagesDeployments: 5,
         maxScreenshotsPerDay: 50,
@@ -82,14 +75,8 @@ export function getLimitsForTier(tier: Tier): TierLimits {
       return {
         tier: 'max',
         maxProjects: Infinity,
-        maxAgentTurnsPerDay: 500,
-        tokenBudgets: {
-          'claude-haiku-4.5': envInt('TIER_PRO_HAIKU_TOKEN_BUDGET', 10_000_000), // also gets haiku
-          'claude-sonnet-4.6': envInt('TIER_MAX_SONNET_TOKEN_BUDGET', 5_000_000),
-          'claude-opus-4.6': envInt('TIER_MAX_OPUS_TOKEN_BUDGET', 5_000_000),
-          'fireworks-glm-5': envInt('TIER_PRO_GLM5_TOKEN_BUDGET', 10_000_000),
-          'fireworks-minimax-m2p5': envInt('TIER_FREE_MINIMAX_TOKEN_BUDGET', 500_000),
-        },
+        maxAgentTurnsPerDay: 0,
+        monthlyCreditBudget: envInt('CREDITS_MAX_MONTHLY', 50_000_000),
         maxConvexProjects: 10,
         maxCfPagesDeployments: 20,
         maxScreenshotsPerDay: Infinity,
@@ -139,13 +126,12 @@ export async function invalidateTierCache(userId: string): Promise<void> {
 
 /** Which tier is required to use a model on server-side keys */
 export const MODEL_TIER_REQUIREMENT: Record<string, Tier> = {
-  'gpt-5.3-codex': 'free',       // BYOK/OAuth only
+  'gpt-5.3-codex': 'free',          // BYOK/OAuth only
   'fireworks-minimax-m2p5': 'free',
-  'claude-haiku-4.5': 'pro',
-  'fireworks-glm-5': 'pro',
-  'claude-sonnet-4.6': 'max',
-  'kimi-k2.5': 'free',            // BYOK only
-  'claude-opus-4.6': 'max',
+  'fireworks-glm-5': 'free',         // Now available on free tier
+  'claude-sonnet-4.6': 'pro',        // Requires Pro+
+  'kimi-k2.5': 'free',               // BYOK only
+  'claude-opus-4.6': 'pro',          // Requires Pro+
 };
 
 const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, max: 2 };

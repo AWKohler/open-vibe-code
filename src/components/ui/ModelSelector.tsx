@@ -30,9 +30,9 @@ const PROVIDER_LABELS: Record<string, string> = {
 const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
   'gpt-5.3-codex': 'free',
   'fireworks-minimax-m2p5': 'free',
-  'fireworks-glm-5': 'pro',
-  'claude-sonnet-4.6': 'max',
-  'claude-opus-4.6': 'max',
+  'fireworks-glm-5': 'free',    // Now available on free tier
+  'claude-sonnet-4.6': 'pro',   // Requires Pro+
+  'claude-opus-4.6': 'pro',     // Requires Pro+
 };
 
 /**
@@ -55,12 +55,13 @@ function formatContextSize(tokens: number): string {
   return String(tokens);
 }
 
+// Order: cheapest → most expensive (by credit multiplier)
 const MODEL_ORDER: ModelId[] = [
-  'gpt-5.3-codex',
-  'claude-sonnet-4.6',
-  'claude-opus-4.6',
-  'fireworks-minimax-m2p5',
-  'fireworks-glm-5',
+  'fireworks-minimax-m2p5',  // 1× credits
+  'fireworks-glm-5',         // 1.7×
+  'gpt-5.3-codex',           // 10× (BYOK/OAuth)
+  'claude-sonnet-4.6',       // 10×
+  'claude-opus-4.6',         // 50×
 ];
 
 export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className }: ModelSelectorProps) {
@@ -76,7 +77,17 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
     const userTierRank = TIER_RANK[userTier] ?? 0;
     const requiredTierRank = TIER_RANK[requiredTier] ?? 0;
 
-    // Check tier gate for server-key models (free users clicking Pro models, etc.)
+    // Codex is BYOK/OAuth only — special message
+    if (modelId === 'gpt-5.3-codex' && providerAccess[config.provider] === false) {
+      toast({
+        title: 'Connect ChatGPT Codex',
+        description: 'Sign in with ChatGPT or add an OpenAI API key in Settings to use Codex.',
+      });
+      setOpen(false);
+      return;
+    }
+
+    // Check tier gate for server-key models (free users clicking Pro-only models, etc.)
     const isTierLocked = requiredTierRank > userTierRank && !providerAccess[config.provider];
     if (isTierLocked) {
       const upgradeTarget = requiredTier === 'pro' ? 'pro' : 'max';
@@ -104,6 +115,7 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
       return;
     }
 
+    // Credits exhausted does NOT prevent selection — blocked at send time instead
     onChange(modelId);
     setOpen(false);
   }, [onChange, providerAccess, userTier, onTierLocked, toast]);
@@ -133,7 +145,7 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
   const isSm = size === 'sm';
 
   return (
-    <div ref={containerRef} className={cn('relative', className)}>
+    <div ref={containerRef} className={cn('relative pointer-events-auto', className)}>
       {/* Trigger button */}
       <button
         type="button"

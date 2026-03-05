@@ -213,6 +213,8 @@ export const usageRecords = pgTable('usage_records', {
   model: text('model').notNull(),
   tokensIn: bigint('tokens_in', { mode: 'number' }).notNull().default(0),
   tokensOut: bigint('tokens_out', { mode: 'number' }).notNull().default(0),
+  // Credits consumed (MiniMax-equivalent tokens) — computed from raw tokens × model multiplier
+  credits: bigint('credits', { mode: 'number' }).notNull().default(0),
   // Cumulative agent turns in this period (all models combined tracked separately)
   agentTurns: integer('agent_turns').notNull().default(0),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

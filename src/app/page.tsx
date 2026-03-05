@@ -30,7 +30,7 @@ export default function Home() {
   const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState("");
   const [platform, setPlatform] = useState<"web" | "mobile">("web");
-  const [model, setModel] = useState<ModelId>("gpt-5.3-codex");
+  const [model, setModel] = useState<ModelId>("fireworks-minimax-m2p5");
   const { toast } = useToast();
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
   const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);
@@ -82,9 +82,12 @@ export default function Home() {
 
   const providerAccess = useMemo(() => ({
     openai: hasCodexOAuth || hasOpenAIKey,
-    anthropic: hasClaudeOAuth || hasAnthropicKey,
+    // For server-key models (Sonnet, Opus, MiniMax, GLM-5) BYOK isn't required —
+    // treat provider as null (unknown/not checked) rather than false (blocked).
+    // The tier gate handles access control for those models.
+    anthropic: hasClaudeOAuth || hasAnthropicKey || null,
     moonshot: hasMoonshotKey,
-    fireworks: hasFireworksKey,
+    fireworks: hasFireworksKey === true ? true : null,
   }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasMoonshotKey, hasFireworksKey]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -228,6 +231,21 @@ export default function Home() {
     }
   };
 
+  const fetchUserSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/user-settings");
+      if (res.ok) {
+        const data = await res.json();
+        setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
+        setHasAnthropicKey(Boolean(data?.hasAnthropicKey));
+        setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
+        setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
+        setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
+        setHasFireworksKey(Boolean(data?.hasFireworksKey));
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     if (!isSignedIn) {
       setHasOpenAIKey(null);
@@ -236,21 +254,15 @@ export default function Home() {
       setHasFireworksKey(null);
       return;
     }
-    (async () => {
-      try {
-        const res = await fetch("/api/user-settings");
-        if (res.ok) {
-          const data = await res.json();
-          setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
-          setHasAnthropicKey(Boolean(data?.hasAnthropicKey));
-          setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
-          setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
-          setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
-          setHasFireworksKey(Boolean(data?.hasFireworksKey));
-        }
-      } catch {}
-    })();
-  }, [isSignedIn]);
+    void fetchUserSettings();
+  }, [isSignedIn, fetchUserSettings]);
+
+  // Refresh provider access when settings modal closes
+  useEffect(() => {
+    const handler = () => { if (isSignedIn) void fetchUserSettings(); };
+    window.addEventListener('settings-closed', handler);
+    return () => window.removeEventListener('settings-closed', handler);
+  }, [isSignedIn, fetchUserSettings]);
 
   useEffect(() => {
     if (!pendingParams && typeof window !== "undefined") {
@@ -508,6 +520,12 @@ export default function Home() {
                       onChange={setModel}
                       providerAccess={providerAccess}
                       size="md"
+                      onTierLocked={() => {
+                        toast({
+                          title: "Plan required",
+                          description: "This model requires a Pro or Max plan. Start with Codex or MiniMax on the free tier.",
+                        });
+                      }}
                     />
                   </div>
 

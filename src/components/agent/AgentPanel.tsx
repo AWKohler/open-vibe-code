@@ -17,7 +17,7 @@ import { diffLineStats } from '@/lib/agent/diff-stats';
 import { MODEL_CONFIGS, modelSupportsImages, type ModelId } from '@/lib/agent/models';
 import { ModelSelector } from '@/components/ui/ModelSelector';
 import { LimitModal, parseLimitPayload, type LimitReachedPayload } from '@/components/ui/LimitModal';
-import { UsageBudgetBar } from '@/components/ui/UsageBudgetBar';
+import { CreditGauge } from '@/components/ui/CreditGauge';
 import type { AgentErrorType } from '@/lib/agent/errors';
 import { processImageForUpload } from '@/lib/image-processing';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
@@ -140,15 +140,30 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [endTurnCalled, setEndTurnCalled] = useState(false);
   const [showCompletionWarning, setShowCompletionWarning] = useState(false);
 
-  // --- Fetch user tier for model gating ---
-  useEffect(() => {
-    fetch('/api/usage/tier')
+  // --- Credit gauge state ---
+  const [creditPct, setCreditPct] = useState(0);
+
+  const fetchCredits = useCallback(() => {
+    fetch('/api/usage/credits')
       .then(r => r.ok ? r.json() : null)
-      .then((d: { tier?: string } | null) => {
-        if (d?.tier === 'pro' || d?.tier === 'max') setUserTier(d.tier);
+      .then((d: { pct?: number; tier?: string } | null) => {
+        if (d?.pct !== undefined) setCreditPct(d.pct);
+        if (d?.tier === 'pro' || d?.tier === 'max') setUserTier(d.tier as 'pro' | 'max');
       })
       .catch(() => {});
   }, []);
+
+  // --- Fetch user tier + credits for model gating ---
+  useEffect(() => {
+    fetchCredits();
+  }, [fetchCredits]);
+
+  // Refresh credits after each completed agent turn
+  useEffect(() => {
+    const handler = () => fetchCredits();
+    window.addEventListener('agent-turn-finished', handler);
+    return () => window.removeEventListener('agent-turn-finished', handler);
+  }, [fetchCredits]);
 
   // --- Provider access for ModelSelector ---
   const providerAccess = useMemo(() => ({
@@ -699,6 +714,26 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     })();
   }, [projectId]);
 
+  // Refresh provider access when settings modal closes
+  useEffect(() => {
+    const handler = () => {
+      fetch('/api/user-settings')
+        .then(r => r.ok ? r.json() : null)
+        .then((data: Record<string, unknown> | null) => {
+          if (!data) return;
+          setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
+          setHasAnthropicKey(Boolean(data?.hasAnthropicKey));
+          setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
+          setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
+          setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
+          setHasFireworksKey(Boolean(data?.hasFireworksKey));
+        })
+        .catch(() => {});
+    };
+    window.addEventListener('settings-closed', handler);
+    return () => window.removeEventListener('settings-closed', handler);
+  }, []);
+
   // Persist new messages — only when message count changes (not during streaming content updates)
   useEffect(() => {
     if (!initialized) return;
@@ -1000,9 +1035,12 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     <div className={cn('flex h-full flex-col text-sm bg-surface text-fg p-2.5', className)}>
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 bg-surface">
-        <button onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings" className="text-muted hover:text-fg">
-          <Cog size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowSettings(true)} title="Settings" aria-label="Settings" className="text-muted hover:text-fg">
+            <Cog size={16} />
+          </button>
+          <CreditGauge pct={creditPct} size="sm" />
+        </div>
         <div className="flex items-center gap-2">
           <ModelSelector
             value={model}
@@ -1182,11 +1220,6 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             </div>
           );
         })}
-
-        {/* Budget warning — shown at 80%+ of monthly token budget */}
-        <div className="px-1 pb-1">
-          <UsageBudgetBar model={model} />
-        </div>
 
         {/* Error banner */}
         {renderError()}

@@ -5,6 +5,7 @@ import { SignedIn, SignedOut, SignInButton, PricingTable } from '@clerk/nextjs';
 import { useToast } from '@/components/ui/toast';
 import { X, ExternalLink, AlertTriangle, CheckCircle2, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { UsageTab } from './UsageTab';
 
 interface SettingsModalProps {
   open: boolean;
@@ -12,7 +13,7 @@ interface SettingsModalProps {
   defaultTab?: Tab;
 }
 
-type Tab = 'connections' | 'subscription';
+type Tab = 'usage' | 'connections' | 'subscription';
 type Provider = 'openai' | 'anthropic' | 'moonshot' | 'fireworks';
 type OAuthStep = 'idle' | 'tos' | 'connecting' | 'exchanging' | 'success';
 
@@ -28,7 +29,7 @@ const PROVIDERS: Array<{
   { provider: 'fireworks', label: 'Fireworks AI API Key', field: 'fireworksApiKey', placeholder: 'fw-...' },
 ];
 
-export function SettingsModal({ open, onClose, defaultTab = 'connections' }: SettingsModalProps) {
+export function SettingsModal({ open, onClose, defaultTab = 'usage' }: SettingsModalProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
   const [loading, setLoading] = useState(true);
@@ -105,11 +106,13 @@ export function SettingsModal({ open, onClose, defaultTab = 'connections' }: Set
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') handleClose();
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
+  // handleClose is stable (defined inline on render, but deps are fine for this)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Codex device auth polling
   useEffect(() => {
@@ -290,6 +293,14 @@ export function SettingsModal({ open, onClose, defaultTab = 'connections' }: Set
 
   if (!open) return null;
 
+  const handleClose = () => {
+    onClose();
+    // Notify listeners (AgentPanel, landing page) to refresh provider access
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('settings-closed'));
+    }
+  };
+
   const isSubscriptionTab = activeTab === 'subscription';
 
   return (
@@ -299,12 +310,12 @@ export function SettingsModal({ open, onClose, defaultTab = 'connections' }: Set
           traps Clerk's checkout panel (position:fixed) inside our modal. */}
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleClose}
       />
       <div
         className={cn(
           'relative w-full rounded-2xl border border-border bg-bg shadow-xl max-h-[90vh] flex flex-col overflow-hidden transition-all duration-200',
-          isSubscriptionTab ? 'max-w-5xl' : 'max-w-lg'
+          isSubscriptionTab ? 'max-w-5xl' : activeTab === 'usage' ? 'max-w-xl' : 'max-w-lg'
         )}
         onClick={e => e.stopPropagation()}
       >
@@ -313,6 +324,17 @@ export function SettingsModal({ open, onClose, defaultTab = 'connections' }: Set
           <div className="flex items-center gap-6">
             <h2 className="text-lg font-semibold text-fg">Settings</h2>
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => setActiveTab('usage')}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-sm font-medium transition',
+                  activeTab === 'usage'
+                    ? 'bg-elevated text-fg'
+                    : 'text-muted hover:text-fg'
+                )}
+              >
+                Usage
+              </button>
               <button
                 onClick={() => setActiveTab('connections')}
                 className={cn(
@@ -338,7 +360,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'connections' }: Set
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="inline-flex items-center justify-center h-8 w-8 rounded-full hover:bg-elevated transition"
           >
             <X className="h-4 w-4 text-muted" />
@@ -359,6 +381,9 @@ export function SettingsModal({ open, onClose, defaultTab = 'connections' }: Set
           </SignedOut>
 
           <SignedIn>
+            {/* ── Usage tab ── */}
+            {activeTab === 'usage' && <UsageTab />}
+
             {/* ── Subscription tab ── */}
             {activeTab === 'subscription' && (
               <div>

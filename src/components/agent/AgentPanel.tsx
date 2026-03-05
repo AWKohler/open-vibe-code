@@ -795,9 +795,14 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     const usingAnthropic = model === 'claude-sonnet-4.6' || model === 'claude-haiku-4.5' || model === 'claude-opus-4.6';
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
     const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
-    if ((model === 'gpt-5.3-codex' && hasOpenAICreds === false) || (usingAnthropic && hasAnthropicCreds === false)) {
-      toast({ title: 'Missing API key', description: `Please add your ${model === 'gpt-5.3-codex' ? 'OpenAI' : 'Anthropic'} API key in Settings.` });
-      return;
+    // Pro/Max users can use OpenAI and Anthropic models via platform server keys — only
+    // block free-tier users who have no personal credentials for these providers.
+    const isPayingTier = userTier === 'pro' || userTier === 'max';
+    if (!isPayingTier) {
+      if ((model === 'gpt-5.3-codex' && hasOpenAICreds === false) || (usingAnthropic && hasAnthropicCreds === false)) {
+        toast({ title: 'Missing API key', description: `Please add your ${model === 'gpt-5.3-codex' ? 'OpenAI' : 'Anthropic'} API key in Settings, or upgrade to Pro.` });
+        return;
+      }
     }
 
     // Warn if model doesn't support images but images are attached

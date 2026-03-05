@@ -20,7 +20,10 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Cross-Origin-Embedder-Policy',
-            value: 'require-corp',
+            // 'credentialless' enables SharedArrayBuffer (required by WebContainer) while
+            // allowing cross-origin resources that don't set CORP headers (Clerk, CDN fonts, etc.)
+            // 'require-corp' was too strict and broke third-party embeds, preventing crossOriginIsolated.
+            value: 'credentialless',
           },
           {
             key: 'Cross-Origin-Opener-Policy',

@@ -457,7 +457,7 @@ export default function Home() {
                       href="/sign-up"
                       className="inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3.5 py-1.5 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
                     >
-                      <OpenAI className="shrink-0 scale-150" />
+                      <OpenAI className="h-4 w-4 shrink-0" />
                       Sign in with ChatGPT
                     </Link>
                   </SignedOut>

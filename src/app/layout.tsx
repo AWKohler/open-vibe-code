@@ -5,6 +5,7 @@ import "./globals.css";
 import { ToastProvider } from "@/components/ui/toast";
 import { shadcn } from "@clerk/themes";
 import { enUS } from "@clerk/localizations";
+import { Analytics } from "@vercel/analytics/next";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -105,6 +106,7 @@ export default function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
           <ToastProvider>{children}</ToastProvider>
+          <Analytics />
         </body>
       </html>
     </ClerkProvider>

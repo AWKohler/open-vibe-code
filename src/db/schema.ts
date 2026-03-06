@@ -213,6 +213,9 @@ export const usageRecords = pgTable('usage_records', {
   model: text('model').notNull(),
   tokensIn: bigint('tokens_in', { mode: 'number' }).notNull().default(0),
   tokensOut: bigint('tokens_out', { mode: 'number' }).notNull().default(0),
+  // Anthropic prompt cache: tokens served from cache (cheaper) and tokens written to cache
+  cachedTokensRead: bigint('cached_tokens_read', { mode: 'number' }).notNull().default(0),
+  cachedTokensWrite: bigint('cached_tokens_write', { mode: 'number' }).notNull().default(0),
   // Credits consumed (MiniMax-equivalent tokens) — computed from raw tokens × model multiplier
   credits: bigint('credits', { mode: 'number' }).notNull().default(0),
   // Cumulative agent turns in this period (all models combined tracked separately)

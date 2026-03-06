@@ -21,9 +21,8 @@ import {
 } from "@/lib/agent/compaction";
 import { getUserCredentials, setUserCredentials } from "@/lib/user-credentials";
 import { getUserTier, MODEL_TIER_REQUIREMENT, tierMeetsRequirement } from "@/lib/tier";
-import {
-  recordTokenUsage,
-} from "@/lib/usage";
+import { recordTokenUsage } from "@/lib/usage";
+import { redis } from "@/lib/redis";
 import {
   rawToCredits,
   getWeeklyCredits,
@@ -597,17 +596,72 @@ export async function POST(req: Request) {
     };
 
     // ── Build the model provider and stream ──────────────────────────────────
+
+    // Fetch last-call timestamp for Fireworks cache timing heuristic (fire-and-forget ok if fails)
+    const lastCallKey = `last_call:${userId}:${projectId ?? 'anon'}`;
+    const lastCallMs = await redis.get<number>(lastCallKey).catch(() => 0) ?? 0;
+    const msSinceLastCall = startTime - lastCallMs;
+    const CACHE_TTL_MS = 5 * 60 * 1000; // Fireworks cache max TTL
+
     const streamCall = async () => {
 
-      // ── onFinish: record actual token usage (ai-sdk v6: inputTokens / outputTokens) ──
-      const onFinish = async (event: { usage: { inputTokens?: number; outputTokens?: number } }) => {
+      // ── onFinish: record actual token usage ──────────────────────────────────
+      const onFinish = async (event: {
+        usage: {
+          inputTokens?: number;
+          outputTokens?: number;
+          // Anthropic prompt cache fields
+          cacheReadInputTokens?: number;
+          cacheCreationInputTokens?: number;
+        };
+        // Provider-specific metadata from AI SDK (OpenAI, Fireworks cache stats, etc.)
+        providerMetadata?: Record<string, Record<string, unknown>>;
+        // Response headers forwarded by AI SDK (used for Fireworks header fallback)
+        response?: { headers?: Record<string, string> };
+      }) => {
         const tokensIn = event.usage.inputTokens ?? 0;
         const tokensOut = event.usage.outputTokens ?? 0;
+
+        // ── Extract cached token counts per provider ──────────────────────────
+        let cachedRead = 0;
+        let cachedWrite = 0;
+
+        if (selectedModel === 'claude-sonnet-4.6' || selectedModel === 'claude-opus-4.6') {
+          // Anthropic: AI SDK surfaces these directly in usage
+          cachedRead = event.usage.cacheReadInputTokens ?? 0;
+          cachedWrite = event.usage.cacheCreationInputTokens ?? 0;
+
+        } else if (selectedModel === 'gpt-5.3-codex') {
+          // OpenAI: AI SDK maps prompt_tokens_details.cached_tokens → providerMetadata.openai.cachedPromptTokens
+          cachedRead = (event.providerMetadata?.openai?.cachedPromptTokens as number | undefined) ?? 0;
+
+        } else if (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5') {
+          // Fireworks: try providerMetadata first (Responses API path)
+          const metaCache = event.providerMetadata?.fireworks?.cachedPromptTokens as number | undefined;
+          if (metaCache !== undefined) {
+            cachedRead = metaCache;
+          } else {
+            // Fallback: fireworks-cached-prompt-tokens response header (Chat Completions path)
+            const headerVal = event.response?.headers?.['fireworks-cached-prompt-tokens'];
+            if (headerVal) {
+              const parsed = parseInt(headerVal, 10);
+              if (!isNaN(parsed)) cachedRead = parsed;
+            }
+          }
+          // If we got 0 from both sources but <5 min since last call, caching may have
+          // occurred but we couldn't read it. If >5 min (minimum TTL), it's expired.
+          // Either way we record 0 — we don't fabricate a count.
+        }
+
+        // Update last-call timestamp for next request's timing heuristic
+        redis.setex(lastCallKey, 86_400, startTime).catch(() => {});
+
         if (isServerKeyModel(selectedModel) && (tokensIn > 0 || tokensOut > 0)) {
           const totalTokens = tokensIn + tokensOut;
-          const credits = rawToCredits(totalTokens, selectedModel);
+          // Personal credentials (OAuth/BYOK) don't consume platform credits
+          const credits = isUsingPersonalCredentials ? 0 : rawToCredits(totalTokens, selectedModel);
           await Promise.all([
-            recordTokenUsage(userId, selectedModel, tokensIn, tokensOut, credits).catch(() => {}),
+            recordTokenUsage(userId, selectedModel, tokensIn, tokensOut, credits, cachedRead, cachedWrite).catch(() => {}),
             // Only increment weekly credits for server-key (platform-paid) usage
             !isUsingPersonalCredentials
               ? incrementWeeklyCredits(userId, credits).catch(() => {})
@@ -666,8 +720,31 @@ export async function POST(req: Request) {
                   // ignore URL parse errors
                 }
 
+                // The Codex backend requires `instructions` but @ai-sdk/openai
+                // puts the system prompt into `input` as a system message.
+                // Move it to `instructions` so the Codex endpoint accepts it.
+                let body = init?.body;
+                if (body && typeof body === "string") {
+                  try {
+                    const parsed = JSON.parse(body);
+                    if (!parsed.instructions && Array.isArray(parsed.input)) {
+                      const sysIdx = parsed.input.findIndex(
+                        (m: { role?: string }) => m.role === "system" || m.role === "developer"
+                      );
+                      if (sysIdx !== -1) {
+                        parsed.instructions = parsed.input[sysIdx].content;
+                        parsed.input.splice(sysIdx, 1);
+                      }
+                    }
+                    body = JSON.stringify(parsed);
+                  } catch {
+                    // ignore parse errors
+                  }
+                }
+
                 return fetch(finalInput, {
                   ...init,
+                  body,
                   headers: requestHeaders,
                 });
               },
@@ -866,6 +943,7 @@ export async function POST(req: Request) {
 
     const statusMap: Record<string, number> = {
       rate_limit: 429,
+      quota_exceeded: 429,
       auth: 401,
       context_overflow: 400,
       network: 502,

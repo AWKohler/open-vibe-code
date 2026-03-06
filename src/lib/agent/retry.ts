@@ -17,6 +17,7 @@ function getDelay(attempt: number): number {
 }
 
 function isRetryable(error: AgentError): boolean {
+  // quota_exceeded has retry-after of hours/days — never worth retrying inline
   return error.type === "rate_limit" || error.type === "network";
 }
 

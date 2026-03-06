@@ -150,7 +150,9 @@ export async function recordTokenUsage(
   model: string,
   tokensIn: number,
   tokensOut: number,
-  credits: number = 0
+  credits: number = 0,
+  cachedTokensRead: number = 0,
+  cachedTokensWrite: number = 0,
 ): Promise<void> {
   const db = getDb();
   await db
@@ -161,6 +163,8 @@ export async function recordTokenUsage(
       model,
       tokensIn,
       tokensOut,
+      cachedTokensRead,
+      cachedTokensWrite,
       credits,
       agentTurns: 1,
     })
@@ -169,6 +173,8 @@ export async function recordTokenUsage(
       set: {
         tokensIn: sql`usage_records.tokens_in + excluded.tokens_in`,
         tokensOut: sql`usage_records.tokens_out + excluded.tokens_out`,
+        cachedTokensRead: sql`usage_records.cached_tokens_read + excluded.cached_tokens_read`,
+        cachedTokensWrite: sql`usage_records.cached_tokens_write + excluded.cached_tokens_write`,
         credits: sql`usage_records.credits + excluded.credits`,
         agentTurns: sql`usage_records.agent_turns + 1`,
         updatedAt: new Date(),

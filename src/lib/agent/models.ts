@@ -85,7 +85,7 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     id: "fireworks-minimax-m2p5",
     provider: "fireworks",
     apiModelId: "accounts/fireworks/models/minimax-m2p5",
-    displayName: "Fireworks MiniMax-M2.5",
+    displayName: "MiniMax-M2.5",
     maxContextTokens: 32_000,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
@@ -95,7 +95,7 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     id: "fireworks-glm-5",
     provider: "fireworks",
     apiModelId: "accounts/fireworks/models/glm-5",
-    displayName: "Fireworks GLM-5",
+    displayName: "GLM-5",
     maxContextTokens: 202_800,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
@@ -130,7 +130,7 @@ export function getProviderKeyName(model: ModelId): string {
     openai: "OpenAI",
     anthropic: "Anthropic",
     moonshot: "Moonshot",
-    fireworks: "Fireworks AI",
+    fireworks: "Fireworks",
   };
   return map[MODEL_CONFIGS[model].provider];
 }

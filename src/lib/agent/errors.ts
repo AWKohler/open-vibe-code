@@ -4,6 +4,7 @@
 
 export type AgentErrorType =
   | "rate_limit"
+  | "quota_exceeded"
   | "auth"
   | "context_overflow"
   | "network"
@@ -17,12 +18,63 @@ export interface AgentError {
   details?: string;
 }
 
+/** Pull response headers off AI SDK errors (AI_APICallError or AI_RetryError → lastError) */
+function extractResponseHeaders(err: unknown): Record<string, string> | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const e = err as Record<string, unknown>;
+  // AI_APICallError has responseHeaders directly
+  if (e.responseHeaders && typeof e.responseHeaders === "object") {
+    return e.responseHeaders as Record<string, string>;
+  }
+  // AI_RetryError wraps the last error in lastError
+  if (e.lastError && typeof e.lastError === "object") {
+    const last = e.lastError as Record<string, unknown>;
+    if (last.responseHeaders && typeof last.responseHeaders === "object") {
+      return last.responseHeaders as Record<string, string>;
+    }
+  }
+  return undefined;
+}
+
+function formatTimeUntilReset(seconds: number): string {
+  if (seconds >= 86_400) {
+    const days = Math.ceil(seconds / 86_400);
+    return `~${days} day${days > 1 ? "s" : ""}`;
+  }
+  if (seconds >= 3_600) {
+    const hours = Math.ceil(seconds / 3_600);
+    return `~${hours} hour${hours > 1 ? "s" : ""}`;
+  }
+  const mins = Math.ceil(seconds / 60);
+  return `~${mins} minute${mins > 1 ? "s" : ""}`;
+}
+
 /**
  * Classify an error from a provider API call into a structured AgentError.
  */
 export function classifyError(err: unknown): AgentError {
   const message = err instanceof Error ? err.message : String(err);
   const lower = message.toLowerCase();
+
+  // Extract response headers for richer context (AI SDK attaches these)
+  const headers = extractResponseHeaders(err);
+  const retryAfterSecs = headers?.["retry-after"] ? parseInt(headers["retry-after"], 10) : undefined;
+
+  // ── Anthropic / provider weekly quota exhaustion ──────────────────────────
+  // Detected by: 7-day rate limit header rejected, OR message "would exceed your account's rate limit"
+  const is7dQuotaExhausted =
+    headers?.["anthropic-ratelimit-unified-7d-status"] === "rejected" ||
+    lower.includes("would exceed your account");
+
+  if (is7dQuotaExhausted) {
+    const resetIn = retryAfterSecs ? ` Resets in ${formatTimeUntilReset(retryAfterSecs)}.` : "";
+    return {
+      type: "quota_exceeded",
+      message: `Your Claude subscription has used up its weekly usage quota.${resetIn} Use a different model or add an Anthropic API key in Settings.`,
+      retryAfter: retryAfterSecs,
+      details: message,
+    };
+  }
 
   // Rate limiting
   if (
@@ -31,10 +83,10 @@ export function classifyError(err: unknown): AgentError {
     lower.includes("429") ||
     lower.includes("too many requests")
   ) {
-    const retryAfter = extractRetryAfter(message);
+    const retryAfter = retryAfterSecs ?? extractRetryAfter(message);
     return {
       type: "rate_limit",
-      message: "Rate limited by the provider.",
+      message: "Rate limited by the provider. Retrying shortly…",
       retryAfter,
       details: message,
     };

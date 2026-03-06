@@ -144,14 +144,14 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
         type="button"
         onClick={() => setOpen(v => !v)}
         className={cn(
-          'inline-flex items-center gap-1.5 border transition',
+          'inline-flex items-center gap-1.5 border transition min-w-0',
           isSm
-            ? 'bg-elevated border-border rounded-md px-2 py-1 text-xs text-muted'
-            : 'pointer-events-auto rounded-full border-border bg-elevated px-3 py-1.5 text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15',
+            ? 'bg-elevated border-border rounded-md px-2 py-1 text-xs text-muted max-w-[120px]'
+            : 'pointer-events-auto rounded-full border-border bg-elevated px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 max-w-[120px] sm:max-w-[200px]',
         )}
       >
-        <span>{currentConfig.displayName}</span>
-        <ChevronDown className={cn(isSm ? 'h-3 w-3' : 'h-3.5 w-3.5', 'opacity-50')} />
+        <span className="truncate">{currentConfig.displayName}</span>
+        <ChevronDown className={cn(isSm ? 'h-3 w-3' : 'h-3.5 w-3.5', 'opacity-50 shrink-0')} />
       </button>
 
       {/* Dropdown */}

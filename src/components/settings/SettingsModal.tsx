@@ -64,8 +64,20 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
 
   useEffect(() => {
     if (!open) return;
-    setActiveTab(defaultTab);
+    // On mobile, connections tab is hidden — fall back to usage
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+    setActiveTab(defaultTab === 'connections' && isMobile ? 'usage' : defaultTab);
   }, [open, defaultTab]);
+
+  // If screen resizes to mobile while connections is active, switch away
+  useEffect(() => {
+    if (activeTab !== 'connections') return;
+    const check = () => {
+      if (window.innerWidth < 640) setActiveTab('usage');
+    };
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -218,14 +230,16 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
 
   function extractCode(input: string): string {
     const trimmed = input.trim();
+    // Full callback URL — extract the `code` query param
     try {
       const url = new URL(trimmed);
       const code = url.searchParams.get('code');
       if (code) return code;
     } catch {
-      // Not a URL — treat as raw code
+      // Not a URL — fall through
     }
-    return trimmed;
+    // Raw code possibly suffixed with #state — strip the fragment
+    return trimmed.split('#')[0];
   }
 
   const exchangeCode = async () => {
@@ -323,14 +337,14 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-6">
-            <h2 className="text-lg font-semibold text-fg">Settings</h2>
-            <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between px-3 sm:px-6 py-3 sm:py-4 border-b border-border flex-shrink-0 gap-2">
+          <div className="flex items-center gap-2 sm:gap-6 min-w-0">
+            <h2 className="text-sm sm:text-lg font-semibold text-fg shrink-0">Settings</h2>
+            <div className="flex items-center gap-0.5 sm:gap-1">
               <button
                 onClick={() => setActiveTab('usage')}
                 className={cn(
-                  'px-3 py-1.5 rounded-lg text-sm font-medium transition',
+                  'px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap',
                   activeTab === 'usage'
                     ? 'bg-elevated text-fg'
                     : 'text-muted hover:text-fg'
@@ -341,7 +355,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
               <button
                 onClick={() => setActiveTab('connections')}
                 className={cn(
-                  'px-3 py-1.5 rounded-lg text-sm font-medium transition',
+                  'hidden sm:block px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap',
                   activeTab === 'connections'
                     ? 'bg-elevated text-fg'
                     : 'text-muted hover:text-fg'
@@ -352,7 +366,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
               <button
                 onClick={() => setActiveTab('subscription')}
                 className={cn(
-                  'px-3 py-1.5 rounded-lg text-sm font-medium transition',
+                  'px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg text-xs sm:text-sm font-medium transition whitespace-nowrap',
                   activeTab === 'subscription'
                     ? 'bg-elevated text-fg'
                     : 'text-muted hover:text-fg'
@@ -364,14 +378,14 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
           </div>
           <button
             onClick={handleClose}
-            className="inline-flex items-center justify-center h-8 w-8 rounded-full hover:bg-elevated transition"
+            className="shrink-0 inline-flex items-center justify-center h-8 w-8 rounded-full hover:bg-elevated transition"
           >
             <X className="h-4 w-4 text-muted" />
           </button>
         </div>
 
         {/* Scrollable body */}
-        <div className="px-6 py-5 overflow-y-auto flex-1">
+        <div className="px-3 sm:px-6 py-4 sm:py-5 overflow-y-auto flex-1">
           <SignedOut>
             <div className="rounded-xl border border-border p-6">
               <p className="mb-4 text-sm text-muted">You need to sign in to manage settings.</p>
@@ -580,12 +594,12 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                       )}
 
                       {oauthStep === 'tos' && (
-                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+                        <div className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-4 space-y-3">
                           <div className="flex items-start gap-2">
-                            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
                             <div>
-                              <p className="text-sm font-semibold text-amber-800">Non-commercial use only</p>
-                              <p className="text-xs text-amber-700 mt-1">
+                              <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">Non-commercial use only</p>
+                              <p className="text-xs text-amber-700 dark:text-amber-300/80 mt-1">
                                 Per Anthropic&apos;s Terms of Service, using your Claude Pro/Max
                                 subscription via OAuth is permitted for <strong>personal, non-commercial
                                 use only</strong>. Do not use this feature to power commercial products
@@ -595,7 +609,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                                 href="https://www.anthropic.com/legal/consumer-terms"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-amber-700 underline mt-1"
+                                className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 underline mt-1"
                               >
                                 Anthropic Consumer Terms <ExternalLink className="h-3 w-3" />
                               </a>
@@ -606,9 +620,9 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                               type="checkbox"
                               checked={tosChecked}
                               onChange={e => setTosChecked(e.target.checked)}
-                              className="h-4 w-4 rounded border-amber-300 accent-amber-600"
+                              className="h-4 w-4 rounded border-amber-400/50 accent-amber-500"
                             />
-                            <span className="text-xs text-amber-800">
+                            <span className="text-xs text-amber-700 dark:text-amber-300/80">
                               I understand this is for non-commercial use only
                             </span>
                           </label>

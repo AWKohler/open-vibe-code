@@ -2,12 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { CreditGauge } from '@/components/ui/CreditGauge';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Info } from 'lucide-react';
 
 interface ModelRow {
   model: string;
   credits: number;
   turns: number;
+  tokensIn: number;
+  tokensOut: number;
+  cachedTokensRead: number;
+  cachedTokensWrite: number;
 }
 
 interface CreditsData {
@@ -60,8 +64,23 @@ export function UsageTab() {
     return <p className="text-sm text-muted py-4">Could not load usage data.</p>;
   }
 
+  // Totals for cache summary
+  const totalCachedRead = data.models.reduce((s, r) => s + r.cachedTokensRead, 0);
+  const totalCachedWrite = data.models.reduce((s, r) => s + r.cachedTokensWrite, 0);
+  const hasCacheData = totalCachedRead > 0 || totalCachedWrite > 0;
+
   return (
     <div className="space-y-6">
+      {/* Credits ≠ tokens note */}
+      <div className="flex gap-2 items-start rounded-lg bg-soft border border-border px-3 py-2.5">
+        <Info className="h-3.5 w-3.5 text-muted mt-0.5 shrink-0" />
+        <p className="text-xs text-muted leading-relaxed">
+          <span className="font-medium text-fg">Credits ≠ tokens.</span>{' '}
+          Credits are normalized across models — 1 MiniMax token = 1 credit, but a Sonnet token costs 10× more.
+          Your own API keys (OAuth / BYOK) use credits but don&apos;t count toward your platform budget.
+        </p>
+      </div>
+
       {/* Weekly gauge + stats */}
       <div className="flex items-center gap-8">
         <CreditGauge pct={data.pct} size="lg" />
@@ -103,6 +122,32 @@ export function UsageTab() {
         </div>
       </div>
 
+      {/* Cache summary (Anthropic models only) */}
+      {hasCacheData && (
+        <div className="rounded-xl border border-border px-3 py-3 space-y-1.5">
+          <p className="text-xs font-semibold text-muted uppercase tracking-wide">Prompt cache this month</p>
+          <div className="flex gap-6 text-sm">
+            <div>
+              <span className="text-muted text-xs">Cache hits</span>
+              <p className="font-medium text-fg tabular-nums">{fmt(totalCachedRead)}</p>
+            </div>
+            <div>
+              <span className="text-muted text-xs">Cache writes</span>
+              <p className="font-medium text-fg tabular-nums">{fmt(totalCachedWrite)}</p>
+            </div>
+            <div>
+              <span className="text-muted text-xs">Hit rate</span>
+              <p className="font-medium text-fg tabular-nums">
+                {totalCachedRead + totalCachedWrite > 0
+                  ? `${Math.round((totalCachedRead / (totalCachedRead + totalCachedWrite)) * 100)}%`
+                  : '—'}
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-muted">Cache hits are billed at ~10% of normal token cost by Anthropic.</p>
+        </div>
+      )}
+
       {/* Model breakdown */}
       {data.models.length > 0 && (
         <div>
@@ -113,6 +158,8 @@ export function UsageTab() {
                 <tr className="border-b border-border bg-surface">
                   <th className="text-left px-3 py-2 text-xs font-medium text-muted">Model</th>
                   <th className="text-right px-3 py-2 text-xs font-medium text-muted">Credits</th>
+                  <th className="text-right px-3 py-2 text-xs font-medium text-muted">Tokens</th>
+                  <th className="text-right px-3 py-2 text-xs font-medium text-muted">Cache hits</th>
                   <th className="text-right px-3 py-2 text-xs font-medium text-muted">Turns</th>
                 </tr>
               </thead>
@@ -123,6 +170,10 @@ export function UsageTab() {
                       {MODEL_DISPLAY[row.model] ?? row.model}
                     </td>
                     <td className="px-3 py-2 text-right text-muted tabular-nums">{fmt(row.credits)}</td>
+                    <td className="px-3 py-2 text-right text-muted tabular-nums">{fmt(row.tokensIn + row.tokensOut)}</td>
+                    <td className="px-3 py-2 text-right text-muted tabular-nums">
+                      {row.cachedTokensRead > 0 ? fmt(row.cachedTokensRead) : '—'}
+                    </td>
                     <td className="px-3 py-2 text-right text-muted tabular-nums">{row.turns}</td>
                   </tr>
                 ))}

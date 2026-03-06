@@ -1,7 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { Monitor } from 'lucide-react';
 import { Workspace } from '@/components/workspace';
+import { checkDeviceSupport } from '@/lib/device';
 
 interface Props {
   projectId: string;
@@ -10,31 +13,67 @@ interface Props {
 }
 
 /**
- * Guards the Workspace component behind a cross-origin isolation check.
- * WebContainer requires `crossOriginIsolated` (SharedArrayBuffer access).
- * Next.js client-side navigation doesn't re-fetch HTML headers, so navigating
- * to /workspace/* without a full page load won't have the COOP/COEP headers.
- * This component triggers a hard reload when not isolated, then renders
- * Workspace only after isolation is confirmed — preventing the race condition
- * where an initial agent prompt fires before the reload, causing duplicate
- * concurrent API requests and a 429.
+ * Guards the Workspace component behind:
+ * 1. A device support check — blocks unsupported mobile devices
+ * 2. A cross-origin isolation check — WebContainer requires SharedArrayBuffer
  */
 export function IsolationGuard({ projectId, initialPrompt, platform }: Props) {
+  const [deviceBlocked, setDeviceBlocked] = useState<string | null>(null);
   const [ready] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
     if (window.crossOriginIsolated) return true;
-    // If we already tried a reload this session, don't loop
     return Boolean(sessionStorage.getItem('wc-isolation-reload'));
   });
 
   useEffect(() => {
+    const device = checkDeviceSupport();
+    if (!device.supported) {
+      setDeviceBlocked(device.reason ?? 'Your device is not supported.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (deviceBlocked) return;
     if (!ready) {
       sessionStorage.setItem('wc-isolation-reload', '1');
       window.location.reload();
     } else {
       sessionStorage.removeItem('wc-isolation-reload');
     }
-  }, [ready]);
+  }, [ready, deviceBlocked]);
+
+  if (deviceBlocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[var(--sand-bg)] text-[var(--sand-text)] px-4">
+        <div className="max-w-md text-center space-y-5 p-8 rounded-2xl border border-border bg-white shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100">
+            <Monitor className="h-7 w-7 text-neutral-500" />
+          </div>
+          <h1 className="text-2xl font-semibold text-neutral-900">Desktop required</h1>
+          <p className="text-sm text-neutral-600 leading-relaxed">
+            {deviceBlocked}
+          </p>
+          <p className="text-xs text-neutral-400">
+            Botflow uses WebContainer technology that requires a desktop browser to run full development environments.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+            <Link
+              href="/projects"
+              className="inline-flex items-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90 transition"
+            >
+              View my projects
+            </Link>
+            <Link
+              href="/"
+              className="inline-flex items-center rounded-xl border border-border bg-elevated px-4 py-2 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-neutral-50 transition"
+            >
+              Back home
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!ready) return null;
 

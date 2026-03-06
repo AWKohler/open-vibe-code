@@ -8,7 +8,7 @@ import { provisionConvexBackend } from '@/lib/convex-platform';
 export async function GET(request: Request) {
   const { userId, redirectToSignIn } = await auth();
   const url = new URL(request.url);
-  const prompt = url.searchParams.get('prompt')?.slice(0, 4000) ?? '';
+  const prompt = url.searchParams.get('prompt')?.slice(0, 30000) ?? '';
   const visibility = url.searchParams.get('visibility') ?? 'public';
   const platform = (url.searchParams.get('platform') === 'mobile' ? 'mobile' : 'web') as 'web' | 'mobile';
   const modelParam = url.searchParams.get('model');

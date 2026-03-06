@@ -311,7 +311,7 @@ export default function Home() {
           const resolved = storedModel === 'gpt-5.2' ? 'gpt-5.3-codex' : storedModel;
           setModel(resolved as ModelId);
         }
-        if (storedPlatform === "mobile" || storedPlatform === "web") {
+        if (storedPlatform === "web" || (storedPlatform === "mobile" && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP)) {
           setPlatform(storedPlatform);
         }
         if (storedName) setProjectName(storedName);
@@ -565,16 +565,18 @@ export default function Home() {
                             </div>
                           )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setPlatform(platform === "web" ? "mobile" : "web")}
-                          className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition"
-                          title="Toggle platform"
-                        >
-                          {platform === "web" ? <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
-                          <span className="hidden sm:inline">{platform === "web" ? "Web" : "Mobile App (Experimental)"}</span>
-                          <span className="sm:hidden">{platform === "web" ? "Web" : "Mobile"}</span>
-                        </button>
+                        {process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP && (
+                          <button
+                            type="button"
+                            onClick={() => setPlatform(platform === "web" ? "mobile" : "web")}
+                            className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition"
+                            title="Toggle platform"
+                          >
+                            {platform === "web" ? <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+                            <span className="hidden sm:inline">{platform === "web" ? "Web" : "Mobile App (Experimental)"}</span>
+                            <span className="sm:hidden">{platform === "web" ? "Web" : "Mobile"}</span>
+                          </button>
+                        )}
                         <ModelSelector
                           value={model}
                           onChange={setModel}

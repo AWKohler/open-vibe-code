@@ -1,6 +1,7 @@
 import type { SVGProps } from "react";
 
-// function Convex(props: SVGProps<SVGSVGElement>) {
+type Props = React.SVGProps<SVGSVGElement>;
+
 export function Convex(props: Props) {
   return (
     <svg

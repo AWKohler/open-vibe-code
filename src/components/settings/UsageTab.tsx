@@ -36,8 +36,8 @@ const MODEL_DISPLAY: Record<string, string> = {
   'fireworks-glm-5': 'GLM-5',
   'claude-sonnet-4.6': 'Claude Sonnet 4.6',
   'claude-opus-4.6': 'Claude Opus 4.6',
-  'gpt-5.3-codex': 'GPT-5.3 Codex',
-  'kimi-k2.5': 'Kimi K2.5',
+  'gpt-5.3-codex': 'GPT-5.3',
+  'gpt-5.4': 'GPT-5.4',
 };
 
 export function UsageTab() {
@@ -76,8 +76,8 @@ export function UsageTab() {
         <Info className="h-3.5 w-3.5 text-muted mt-0.5 shrink-0" />
         <p className="text-xs text-muted leading-relaxed">
           <span className="font-medium text-fg">Credits ≠ tokens.</span>{' '}
-          Credits are normalized across models — 1 MiniMax token = 1 credit, but a Sonnet token costs 10× more.
-          Your own API keys (OAuth / BYOK) use credits but don&apos;t count toward your platform budget.
+          Credits are normalized across models — 1 MiniMax token = 1 credit. Cached input tokens cost significantly less.
+          Your own API keys (OAuth / BYOK) don&apos;t count toward your platform budget.
         </p>
       </div>
 
@@ -122,7 +122,7 @@ export function UsageTab() {
         </div>
       </div>
 
-      {/* Cache summary (Anthropic models only) */}
+      {/* Cache summary */}
       {hasCacheData && (
         <div className="rounded-xl border border-border px-3 py-3 space-y-1.5">
           <p className="text-xs font-semibold text-muted uppercase tracking-wide">Prompt cache this month</p>
@@ -144,7 +144,7 @@ export function UsageTab() {
               </p>
             </div>
           </div>
-          <p className="text-xs text-muted">Cache hits are billed at ~10% of normal token cost by Anthropic.</p>
+          <p className="text-xs text-muted">Cache hits are billed at a fraction of normal input cost, saving credits.</p>
         </div>
       )}
 

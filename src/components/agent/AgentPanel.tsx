@@ -167,11 +167,10 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
   // --- Provider access for ModelSelector ---
   const providerAccess = useMemo(() => ({
-    openai: hasCodexOAuth || hasOpenAIKey,
-    anthropic: hasClaudeOAuth || hasAnthropicKey,
-    moonshot: hasMoonshotKey,
-    fireworks: hasFireworksKey,
-  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasMoonshotKey, hasFireworksKey]);
+    openai: hasCodexOAuth || hasOpenAIKey || null,
+    anthropic: hasClaudeOAuth || hasAnthropicKey || null,
+    fireworks: hasFireworksKey === true ? true : null,
+  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey]);
 
   // --- Token tracking ---
   const [tokenEstimate, setTokenEstimate] = useState(0);
@@ -677,23 +676,26 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           const proj = await res.json();
           if (
             proj?.model === 'gpt-5.3-codex' ||
+            proj?.model === 'gpt-5.4' ||
             proj?.model === 'gpt-5.2' ||
             proj?.model === 'gpt-4.1' || // legacy migration
             proj?.model === 'claude-sonnet-4.6' ||
             proj?.model === 'claude-sonnet-4.5' ||
-            proj?.model === 'claude-haiku-4.5' ||
+            proj?.model === 'claude-haiku-4.5' || // removed → sonnet
             proj?.model === 'claude-opus-4.6' ||
             proj?.model === 'claude-opus-4.5' ||
-            proj?.model === 'kimi-k2.5' ||
-            proj?.model === 'kimi-k2-thinking-turbo' || // legacy migration
+            proj?.model === 'kimi-k2.5' || // removed → minimax
+            proj?.model === 'kimi-k2-thinking-turbo' || // removed → minimax
             proj?.model === 'fireworks-minimax-m2p5' ||
             proj?.model === 'fireworks-glm-5'
           ) {
             const m = proj.model === 'gpt-4.1' ? 'gpt-5.3-codex'
               : proj.model === 'gpt-5.2' ? 'gpt-5.3-codex'
               : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4.6'
+              : proj.model === 'claude-haiku-4.5' ? 'claude-sonnet-4.6'
               : proj.model === 'claude-opus-4.5' ? 'claude-opus-4.6'
-              : proj.model === 'kimi-k2-thinking-turbo' ? 'kimi-k2.5'
+              : proj.model === 'kimi-k2-thinking-turbo' ? 'fireworks-minimax-m2p5'
+              : proj.model === 'kimi-k2.5' ? 'fireworks-minimax-m2p5'
               : proj.model;
             setModel(m as ModelId);
           }
@@ -792,7 +794,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     const hasImages = pendingImages.length > 0;
     if (!hasText && !hasImages) return;
 
-    const usingAnthropic = model === 'claude-sonnet-4.6' || model === 'claude-haiku-4.5' || model === 'claude-opus-4.6';
+    const usingAnthropic = model === 'claude-sonnet-4.6' || model === 'claude-opus-4.6';
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
     const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
     // Pro/Max users can use OpenAI and Anthropic models via platform server keys — only

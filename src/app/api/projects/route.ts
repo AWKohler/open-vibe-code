@@ -34,10 +34,9 @@ export async function POST(request: NextRequest) {
       platform?: 'web' | 'mobile';
       model?:
         | 'gpt-5.3-codex'
+        | 'gpt-5.4'
         | 'claude-sonnet-4.6'
-        | 'claude-haiku-4.5'
         | 'claude-opus-4.6'
-        | 'kimi-k2.5'
         | 'fireworks-minimax-m2p5'
         | 'fireworks-glm-5';
     };
@@ -69,14 +68,12 @@ export async function POST(request: NextRequest) {
         userId,
         platform: platform === 'mobile' ? 'mobile' : 'web',
         model:
-          model === 'claude-sonnet-4.6'
+          model === 'gpt-5.4'
+            ? 'gpt-5.4'
+            : model === 'claude-sonnet-4.6'
             ? 'claude-sonnet-4.6'
-            : model === 'claude-haiku-4.5'
-            ? 'claude-haiku-4.5'
             : model === 'claude-opus-4.6'
             ? 'claude-opus-4.6'
-            : model === 'kimi-k2.5'
-            ? 'kimi-k2.5'
             : model === 'fireworks-minimax-m2p5'
             ? 'fireworks-minimax-m2p5'
             : model === 'fireworks-glm-5'

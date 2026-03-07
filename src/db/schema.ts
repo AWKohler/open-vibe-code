@@ -5,7 +5,7 @@ export const projects = pgTable('projects', {
   name: text('name').notNull(),
   userId: text('user_id').notNull(), // Clerk user id
   platform: text('platform').notNull().default('web'), // 'web' | 'mobile'
-  // Preferred model for this project: 'gpt-5.3-codex' | 'claude-sonnet-4.6' | 'claude-haiku-4.5' | 'claude-opus-4.6' | 'kimi-k2-thinking-turbo' | 'fireworks-minimax-m2p5'
+  // Preferred model for this project: 'gpt-5.3-codex' | 'gpt-5.4' | 'claude-sonnet-4.6' | 'claude-opus-4.6' | 'fireworks-minimax-m2p5' | 'fireworks-glm-5'
   model: text('model').notNull().default('gpt-5.3-codex'),
   // Snapshot URLs for project thumbnails and HTML captures
   thumbnailUrl: text('thumbnail_url'),
@@ -209,11 +209,11 @@ export const usageRecords = pgTable('usage_records', {
   userId: text('user_id').notNull(),
   // Billing period in YYYY-MM format, e.g. "2026-03"
   period: text('period').notNull(),
-  // Model id as used in MODEL_CONFIGS, e.g. "claude-haiku-4.5"
+  // Model id as used in MODEL_CONFIGS, e.g. "claude-sonnet-4.6"
   model: text('model').notNull(),
   tokensIn: bigint('tokens_in', { mode: 'number' }).notNull().default(0),
   tokensOut: bigint('tokens_out', { mode: 'number' }).notNull().default(0),
-  // Anthropic prompt cache: tokens served from cache (cheaper) and tokens written to cache
+  // Prompt cache: tokens served from cache (cheaper) and tokens written to cache
   cachedTokensRead: bigint('cached_tokens_read', { mode: 'number' }).notNull().default(0),
   cachedTokensWrite: bigint('cached_tokens_write', { mode: 'number' }).notNull().default(0),
   // Credits consumed (MiniMax-equivalent tokens) — computed from raw tokens × model multiplier

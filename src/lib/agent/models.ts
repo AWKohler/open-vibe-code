@@ -4,14 +4,13 @@
 
 export type ModelId =
   | "gpt-5.3-codex"
+  | "gpt-5.4"
   | "claude-sonnet-4.6"
-  | "claude-haiku-4.5"
   | "claude-opus-4.6"
-  | "kimi-k2.5"
   | "fireworks-minimax-m2p5"
   | "fireworks-glm-5";
 
-export type Provider = "openai" | "anthropic" | "moonshot" | "fireworks";
+export type Provider = "openai" | "anthropic" | "fireworks";
 
 export interface ModelConfig {
   id: ModelId;
@@ -35,7 +34,17 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     id: "gpt-5.3-codex",
     provider: "openai",
     apiModelId: "gpt-5.3-codex",
-    displayName: "GPT-5.3 Codex",
+    displayName: "GPT-5.3",
+    maxContextTokens: 400_000,
+    warnThreshold: 0.7,
+    criticalThreshold: 0.9,
+    supportsImages: true,
+  },
+  "gpt-5.4": {
+    id: "gpt-5.4",
+    provider: "openai",
+    apiModelId: "gpt-5.4",
+    displayName: "GPT-5.4",
     maxContextTokens: 400_000,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
@@ -51,32 +60,12 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     criticalThreshold: 0.9,
     supportsImages: true,
   },
-  "claude-haiku-4.5": {
-    id: "claude-haiku-4.5",
-    provider: "anthropic",
-    apiModelId: "claude-haiku-4-5-20251001",
-    displayName: "Claude Haiku 4.5",
-    maxContextTokens: 200_000,
-    warnThreshold: 0.7,
-    criticalThreshold: 0.9,
-    supportsImages: true,
-  },
   "claude-opus-4.6": {
     id: "claude-opus-4.6",
     provider: "anthropic",
     apiModelId: "claude-opus-4-6",
     displayName: "Claude Opus 4.6",
     maxContextTokens: 200_000,
-    warnThreshold: 0.7,
-    criticalThreshold: 0.9,
-    supportsImages: true,
-  },
-  "kimi-k2.5": {
-    id: "kimi-k2.5",
-    provider: "moonshot",
-    apiModelId: "kimi-k2.5",
-    displayName: "Kimi K2.5",
-    maxContextTokens: 64_000,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
     supportsImages: true,
@@ -109,7 +98,9 @@ export function resolveModelId(stored: string | null | undefined): ModelId {
   if (stored === "claude-opus-4.5") return "claude-opus-4.6";
   if (stored === "gpt-4.1") return "gpt-5.3-codex"; // migrate legacy
   if (stored === "gpt-5.2") return "gpt-5.3-codex"; // migrate legacy
-  if (stored === "kimi-k2-thinking-turbo") return "kimi-k2.5"; // migrate legacy
+  if (stored === "claude-haiku-4.5") return "claude-sonnet-4.6"; // removed model
+  if (stored === "kimi-k2.5") return "fireworks-minimax-m2p5"; // removed model
+  if (stored === "kimi-k2-thinking-turbo") return "fireworks-minimax-m2p5"; // removed model
   if (stored && stored in MODEL_CONFIGS) return stored as ModelId;
   return "gpt-5.3-codex";
 }
@@ -124,12 +115,16 @@ export function isAnthropicModel(model: ModelId): boolean {
   return MODEL_CONFIGS[model].provider === "anthropic";
 }
 
+/** Check if a model uses the OpenAI provider */
+export function isOpenAIModel(model: ModelId): boolean {
+  return MODEL_CONFIGS[model].provider === "openai";
+}
+
 /** Get the provider key name needed in user settings */
 export function getProviderKeyName(model: ModelId): string {
   const map: Record<Provider, string> = {
     openai: "OpenAI",
     anthropic: "Anthropic",
-    moonshot: "Moonshot",
     fireworks: "Fireworks",
   };
   return map[MODEL_CONFIGS[model].provider];

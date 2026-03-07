@@ -22,7 +22,6 @@ export interface ModelSelectorProps {
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
-  moonshot: 'Moonshot',
   fireworks: 'Fireworks',
 };
 
@@ -31,7 +30,7 @@ const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
   'fireworks-minimax-m2p5': 'free',
   'fireworks-glm-5': 'free',
   'gpt-5.3-codex': 'pro',       // Pro+ for server key; free requires BYOK/OAuth
-  'claude-haiku-4.5': 'pro',    // Pro+
+  'gpt-5.4': 'pro',             // Pro+
   'claude-sonnet-4.6': 'pro',   // Pro+
   'claude-opus-4.6': 'pro',     // Pro+
 };
@@ -44,10 +43,20 @@ const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-minimax-m2p5',
   'fireworks-glm-5',
   'gpt-5.3-codex',
-  'claude-haiku-4.5',
+  'gpt-5.4',
   'claude-sonnet-4.6',
   'claude-opus-4.6',
 ]);
+
+/** Rounded per-model cost multiplier for user display */
+const MODEL_COST_LABEL: Record<ModelId, string> = {
+  'fireworks-minimax-m2p5': 'x1',
+  'fireworks-glm-5': 'x2',
+  'gpt-5.3-codex': 'x4',
+  'claude-sonnet-4.6': 'x5',
+  'gpt-5.4': 'x6',
+  'claude-opus-4.6': 'x10',
+};
 
 const TIER_RANK: Record<string, number> = { free: 0, pro: 1, max: 2 };
 const TIER_LABELS: Record<string, string> = { pro: 'Pro', max: 'Max' };
@@ -60,11 +69,12 @@ function formatContextSize(tokens: number): string {
 
 // Order: cheapest → most expensive (by credit multiplier)
 const MODEL_ORDER: ModelId[] = [
-  'fireworks-minimax-m2p5',  // 1× credits
-  'fireworks-glm-5',         // 1.7×
-  'gpt-5.3-codex',           // 10× (BYOK/OAuth)
-  'claude-sonnet-4.6',       // 10×
-  'claude-opus-4.6',         // 50×
+  'fireworks-minimax-m2p5',  // x1
+  'fireworks-glm-5',         // x2
+  'gpt-5.3-codex',           // x4
+  'claude-sonnet-4.6',       // x5
+  'gpt-5.4',                 // x6
+  'claude-opus-4.6',         // x10
 ];
 
 export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className }: ModelSelectorProps) {
@@ -173,6 +183,7 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
             const isSelected = modelId === value;
 
             const tierBadge = requiredTierRank > 0 ? TIER_LABELS[requiredTier] : null;
+            const costLabel = MODEL_COST_LABEL[modelId];
 
             return (
               <button
@@ -204,8 +215,10 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
                       </span>
                     )}
                   </div>
-                  <div className="text-[11px] text-muted mt-0.5">
-                    {formatContextSize(config.maxContextTokens)} context
+                  <div className="flex items-center gap-2 text-[11px] text-muted mt-0.5">
+                    <span>{formatContextSize(config.maxContextTokens)} context</span>
+                    <span className="text-muted/50">·</span>
+                    <span className="font-medium">{costLabel}</span>
                   </div>
                 </div>
                 {(isCredentialMissing && !isTierLocked && !SERVER_KEY_MODELS.has(modelId)) && (

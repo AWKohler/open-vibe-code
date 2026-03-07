@@ -60,10 +60,10 @@ export default function Home() {
   const PENDING_NAME_KEY = "huggable_pending_project_name";
   const allowedModels = new Set([
     "gpt-5.3-codex",
+    "gpt-5.4",
     "gpt-5.2", // legacy compat
     "claude-sonnet-4.6",
     "claude-opus-4.6",
-    "kimi-k2-thinking-turbo", // legacy compat
     "fireworks-minimax-m2p5",
     "fireworks-glm-5",
   ]);
@@ -72,6 +72,8 @@ export default function Home() {
   const serverKeyModels = new Set([
     "fireworks-minimax-m2p5",
     "fireworks-glm-5",
+    "gpt-5.3-codex",
+    "gpt-5.4",
     "claude-sonnet-4.6",
     "claude-opus-4.6",
   ]);
@@ -88,14 +90,13 @@ export default function Home() {
   const canSend = useMemo(() => prompt.trim().length > 0 || pendingImages.length > 0, [prompt, pendingImages.length]);
 
   const providerAccess = useMemo(() => ({
-    openai: hasCodexOAuth || hasOpenAIKey,
-    // For server-key models (Sonnet, Opus, MiniMax, GLM-5) BYOK isn't required —
+    openai: hasCodexOAuth || hasOpenAIKey || null,
+    // For server-key models BYOK isn't required —
     // treat provider as null (unknown/not checked) rather than false (blocked).
     // The tier gate handles access control for those models.
     anthropic: hasClaudeOAuth || hasAnthropicKey || null,
-    moonshot: hasMoonshotKey,
     fireworks: hasFireworksKey === true ? true : null,
-  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasMoonshotKey, hasFireworksKey]);
+  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);

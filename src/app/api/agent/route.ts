@@ -24,7 +24,7 @@ import { getUserTier, MODEL_TIER_REQUIREMENT, tierMeetsRequirement } from "@/lib
 import { recordTokenUsage } from "@/lib/usage";
 import { redis } from "@/lib/redis";
 import {
-  rawToCredits,
+  calculateCredits,
   getWeeklyCredits,
   getMonthlyCredits,
   incrementWeeklyCredits,
@@ -425,6 +425,23 @@ async function refreshCodexOAuthToken(
 }
 
 // ============================================================================
+// GPT-5.4: inject prompt_cache_retention: "24h" for extended caching
+// ============================================================================
+
+async function injectOpenAICacheRetention(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (init?.body && typeof init.body === 'string') {
+    try {
+      const parsed = JSON.parse(init.body);
+      parsed.prompt_cache_retention = '24h';
+      return fetch(input, { ...init, body: JSON.stringify(parsed) });
+    } catch {
+      // ignore parse errors — fall through to normal fetch
+    }
+  }
+  return fetch(input, init);
+}
+
+// ============================================================================
 // Determine if this request is using a server-side key (paid tier) vs BYOK/OAuth
 // ============================================================================
 
@@ -433,7 +450,7 @@ const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-minimax-m2p5', // free tier
   'fireworks-glm-5',         // free tier
   'gpt-5.3-codex',           // pro+
-  'claude-haiku-4.5',        // pro+
+  'gpt-5.4',                 // pro+
   'claude-sonnet-4.6',       // pro+
   'claude-opus-4.6',         // pro+
 ]);
@@ -495,11 +512,8 @@ export async function POST(req: Request) {
     // ── Tier enforcement for server-key models ──────────────────────────────
     // Detect if this request uses personal BYOK/OAuth credentials (skip credit checks)
     const isUsingPersonalCredentials = ((): boolean => {
-      if (selectedModel === 'gpt-5.3-codex') {
+      if (selectedModel === 'gpt-5.3-codex' || selectedModel === 'gpt-5.4') {
         return Boolean(creds.codexOAuthAccessToken || creds.openaiApiKey);
-      }
-      if (selectedModel === 'kimi-k2.5') {
-        return Boolean(creds.moonshotApiKey);
       }
       if (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5') {
         return Boolean(creds.fireworksApiKey) && !process.env.FIREWORKS_API_KEY;
@@ -627,11 +641,12 @@ export async function POST(req: Request) {
         let cachedWrite = 0;
 
         if (selectedModel === 'claude-sonnet-4.6' || selectedModel === 'claude-opus-4.6') {
-          // Anthropic: AI SDK surfaces these directly in usage
+          // Anthropic: AI SDK surfaces cache fields directly in usage
+          // inputTokens = uncached input only; cacheRead/cacheWrite are separate
           cachedRead = event.usage.cacheReadInputTokens ?? 0;
           cachedWrite = event.usage.cacheCreationInputTokens ?? 0;
 
-        } else if (selectedModel === 'gpt-5.3-codex') {
+        } else if (selectedModel === 'gpt-5.3-codex' || selectedModel === 'gpt-5.4') {
           // OpenAI: AI SDK maps prompt_tokens_details.cached_tokens → providerMetadata.openai.cachedPromptTokens
           cachedRead = (event.providerMetadata?.openai?.cachedPromptTokens as number | undefined) ?? 0;
 
@@ -648,18 +663,31 @@ export async function POST(req: Request) {
               if (!isNaN(parsed)) cachedRead = parsed;
             }
           }
-          // If we got 0 from both sources but <5 min since last call, caching may have
-          // occurred but we couldn't read it. If >5 min (minimum TTL), it's expired.
-          // Either way we record 0 — we don't fabricate a count.
+          // Fireworks doesn't reliably report cache hits — if <5min since last call,
+          // assume all input tokens were cached (best-effort heuristic).
+          if (cachedRead === 0 && msSinceLastCall < CACHE_TTL_MS && tokensIn > 0) {
+            cachedRead = tokensIn;
+          }
         }
 
         // Update last-call timestamp for next request's timing heuristic
         redis.setex(lastCallKey, 86_400, startTime).catch(() => {});
 
         if (isServerKeyModel(selectedModel) && (tokensIn > 0 || tokensOut > 0)) {
-          const totalTokens = tokensIn + tokensOut;
+          // Compute uncached input tokens:
+          // - Anthropic: tokensIn is already uncached; cachedRead/cachedWrite are separate
+          // - OpenAI/Fireworks: tokensIn includes cached tokens, so subtract cachedRead
+          const isAnthropic = selectedModel === 'claude-sonnet-4.6' || selectedModel === 'claude-opus-4.6';
+          const uncachedInput = isAnthropic ? tokensIn : Math.max(0, tokensIn - cachedRead);
+
           // Personal credentials (OAuth/BYOK) don't consume platform credits
-          const credits = isUsingPersonalCredentials ? 0 : rawToCredits(totalTokens, selectedModel);
+          const credits = isUsingPersonalCredentials ? 0 : calculateCredits({
+            model: selectedModel,
+            inputTokens: uncachedInput,
+            outputTokens: tokensOut,
+            cachedReadTokens: cachedRead,
+            cacheWriteTokens: cachedWrite,
+          });
           await Promise.all([
             recordTokenUsage(userId, selectedModel, tokensIn, tokensOut, credits, cachedRead, cachedWrite).catch(() => {}),
             // Only increment weekly credits for server-key (platform-paid) usage
@@ -672,7 +700,7 @@ export async function POST(req: Request) {
         agentLog.apiComplete({ model: selectedModel, durationMs });
       };
 
-      if (selectedModel === "gpt-5.3-codex") {
+      if (selectedModel === "gpt-5.3-codex" || selectedModel === "gpt-5.4") {
         // Path A: Codex OAuth (priority)
         if (creds.codexOAuthAccessToken) {
           let accessToken = creds.codexOAuthAccessToken;
@@ -763,7 +791,9 @@ export async function POST(req: Request) {
 
         // Path B: OpenAI BYOK API key
         if (creds.openaiApiKey) {
-          const openai = createOpenAI({ apiKey: creds.openaiApiKey });
+          const openai = createOpenAI(selectedModel === 'gpt-5.4'
+            ? { apiKey: creds.openaiApiKey, fetch: injectOpenAICacheRetention }
+            : { apiKey: creds.openaiApiKey });
           const result = streamText({
             model: openai(modelConfig.apiModelId),
             system: systemPrompt,
@@ -777,7 +807,9 @@ export async function POST(req: Request) {
         // Path C: Server-side OpenAI key for Pro/Max tiers
         const serverOpenAIKey = process.env.OPENAI_API_KEY;
         if (isServerKeyModel(selectedModel) && serverOpenAIKey) {
-          const openai = createOpenAI({ apiKey: serverOpenAIKey });
+          const openai = createOpenAI(selectedModel === 'gpt-5.4'
+            ? { apiKey: serverOpenAIKey, fetch: injectOpenAICacheRetention }
+            : { apiKey: serverOpenAIKey });
           const result = streamText({
             model: openai(modelConfig.apiModelId),
             system: systemPrompt,
@@ -792,28 +824,6 @@ export async function POST(req: Request) {
           JSON.stringify({ error: "Missing OpenAI credentials. Connect ChatGPT Codex or add an OpenAI API key in Settings.", errorType: "auth" }),
           { status: 400, headers: { "Content-Type": "application/json" } },
         );
-      }
-
-      if (selectedModel === "kimi-k2.5") {
-        const apiKey = creds.moonshotApiKey;
-        if (!apiKey) {
-          return new Response(
-            JSON.stringify({ error: "Missing Moonshot API key", errorType: "auth" }),
-            { status: 400, headers: { "Content-Type": "application/json" } },
-          );
-        }
-        const moonshot = createOpenAI({
-          apiKey,
-          baseURL: "https://api.moonshot.ai/v1",
-        });
-        const result = streamText({
-          model: moonshot("kimi-k2.5"),
-          system: systemPrompt,
-          messages: resolvedMessages,
-          tools,
-          onFinish,
-        });
-        return result.toUIMessageStreamResponse({ headers: responseHeaders });
       }
 
       if (selectedModel === "fireworks-minimax-m2p5" || selectedModel === "fireworks-glm-5") {

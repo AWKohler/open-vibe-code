@@ -149,9 +149,8 @@ export async function invalidateTierCache(userId: string): Promise<void> {
 export const MODEL_TIER_REQUIREMENT: Record<string, Tier> = {
   'fireworks-minimax-m2p5': 'free',
   'fireworks-glm-5': 'free',
-  'kimi-k2.5': 'free',               // BYOK only
   'gpt-5.3-codex': 'pro',            // Pro+ for server key; free requires BYOK/OAuth
-  'claude-haiku-4.5': 'pro',         // Pro+ for server key
+  'gpt-5.4': 'pro',                  // Pro+ for server key
   'claude-sonnet-4.6': 'pro',        // Pro+ for server key
   'claude-opus-4.6': 'pro',          // Pro+ for server key
 };

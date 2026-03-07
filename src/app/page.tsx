@@ -432,7 +432,7 @@ export default function Home() {
                   />
                 </span>
               </h1>
-              <p className="mt-3 sm:mt-4 text-center text-[var(--sand-text)] text-sm sm:text-lg leading-none">
+              <p className="text-center text-[var(--sand-text)] text-sm sm:text-lg leading-none">
                 Create apps and websites by chatting with AI, with backend by{" "}
                 <span className="inline-flex items-center align-middle -ml-3" style={{ height: "2.8em" }}>
                   <Convex className="h-full w-auto" />
@@ -440,7 +440,7 @@ export default function Home() {
               </p>
 
               {/* OAuth provider pills */}
-              <div className="mt-6 sm:mt-8 flex flex-col items-center gap-2">
+              <div className="mt-1 sm:mt-2 flex flex-col items-center gap-2">
                 <p className="text-xs text-neutral-400">
                   Use Botflow with your Claude or ChatGPT plan
                 </p>

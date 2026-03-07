@@ -396,8 +396,10 @@ export default function Home() {
           </header>
 
           {/* Hero */}
-          <section className="relative">
-            <div className="mx-auto max-w-4xl px-4 sm:px-6 pt-8 pb-16 sm:pt-16 sm:pb-24">
+          <section className="relative flex flex-1 items-center justify-center">
+            <div className="relative flex w-full flex-col items-center justify-center overflow-hidden px-6 py-[20vh] pb-[24vh] 2xl:py-48 2xl:pb-52">
+              <div className="w-full max-w-3xl flex flex-col items-center">
+
               <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-semibold tracking-tight text-[var(--sand-text)] text-center leading-tight">
                 Build something
                 <span className="inline-flex mx-1 sm:mx-2 translate-y-0.5 sm:translate-y-1 align-middle">
@@ -409,57 +411,17 @@ export default function Home() {
                 </span>
               </h1>
               <p className="text-center text-[var(--sand-text)] text-sm sm:text-lg leading-none">
-                Create apps and websites by chatting with AI, with backend by{" "}
+                Create apps and websites by chatting with AI.
+              </p>
+              {/* <p className="text-center text-[var(--sand-text)] text-sm sm:text-lg leading-none -mt-2">
+                Backend by{" "}
                 <span className="inline-flex items-center align-middle -ml-3" style={{ height: "2.8em" }}>
                   <Convex className="h-full w-auto" />
                 </span>
-              </p>
-
-              {/* OAuth provider pills */}
-              <div className="mt-1 sm:mt-2 flex flex-col items-center gap-2">
-                <p className="text-xs text-neutral-400">
-                  Use Botflow with your Claude or ChatGPT plan
-                </p>
-                <div className="flex items-center gap-2 flex-wrap justify-center">
-                  <SignedOut>
-                    <Link
-                      href="/sign-up"
-                      className="inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3.5 py-1.5 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
-                    >
-                      <Anthropic className="h-4 w-4 shrink-0" />
-                      Sign in with Claude
-                    </Link>
-                    <Link
-                      href="/sign-up"
-                      className="inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3.5 py-1.5 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
-                    >
-                      <OpenAI className="h-4 w-4 shrink-0" />
-                      Sign in with ChatGPT
-                    </Link>
-                  </SignedOut>
-                  <SignedIn>
-                    <button
-                      type="button"
-                      onClick={() => { setSettingsDefaultTab('connections'); setShowSettings(true); }}
-                      className="inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3.5 py-1.5 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
-                    >
-                      <Anthropic className="h-4 w-4 shrink-0" />
-                      Sign in with Claude
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSettingsDefaultTab('connections'); setShowSettings(true); }}
-                      className="inline-flex items-center gap-2 rounded-full border border-border bg-elevated px-3.5 py-1.5 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
-                    >
-                      <OpenAI className="h-4 w-4 shrink-0" />
-                      Sign in with ChatGPT
-                    </button>
-                  </SignedIn>
-                </div>
-              </div>
+              </p> */}
 
               {/* Prompt box */}
-              <div className="mx-auto mt-3.5 sm:mt-4">
+              <div className="w-full mt-4 sm:mt-5">
                 <div className="flex flex-col rounded-2xl sm:rounded-3xl border border-border bg-elevated backdrop-blur-sm shadow-[0_2px_0_rgba(0,0,0,0.02),0_20px_60px_-20px_rgba(0,0,0,0.2)]">
 
                   {/* Textarea — grows but never overlaps the footer */}
@@ -593,7 +555,79 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            </div>
+
+              {/* Suggestion pills */}
+              {/* <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                {[
+                  "A SaaS dashboard with auth",
+                  "A real-time chat app",
+                  "A portfolio website",
+                  "A todo app with a backend",
+                ].map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    onClick={() => setPrompt(suggestion)}
+                    className="rounded-full border border-border bg-elevated px-3.5 py-1.5 text-xs sm:text-sm text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div> */}
+
+              {/* OAuth provider pills */}
+              <div className="mt-1 sm:mt-2 flex flex-col items-center gap-2">
+                {/* <p className="text-xs text-neutral-400">
+                  Use Botflow with your Claude or ChatGPT plan
+                </p> */}
+                <div className="flex items-center justify-center gap-1.5 sm:gap-2 mt-2">
+                  <SignedOut>
+                    <Link
+                      href="/sign-up"
+                      className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
+                    >
+                      <Anthropic className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                      Sign in with Claude
+                    </Link>
+                    <Link
+                      href="/sign-up"
+                      className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
+                    >
+                      <OpenAI className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                      Sign in with ChatGPT
+                    </Link>
+                  </SignedOut>
+                  <SignedIn>
+                    <button
+                      type="button"
+                      onClick={() => { setSettingsDefaultTab('connections'); setShowSettings(true); }}
+                      className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
+                    >
+                      <Anthropic className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                      Sign in with Claude
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSettingsDefaultTab('connections'); setShowSettings(true); }}
+                      className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
+                    >
+                      <OpenAI className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                      Sign in with ChatGPT
+                    </button>
+                  </SignedIn>
+                </div>
+              </div>
+
+              <p className="text-center text-[var(--sand-text)] text-sm sm:text-lg leading-none mt-2 opacity-75">
+                Backend by{" "}
+                <span className="inline-flex items-center align-middle -ml-3" style={{ height: "2.8em" }}>
+                  <Convex className="h-full w-auto opacity-75" />
+                </span>
+              </p>
+
+
+              </div>{/* end max-w-3xl */}
+            </div>{/* end hero inner */}
           </section>
 
           {/* Footer */}

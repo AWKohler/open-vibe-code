@@ -358,33 +358,9 @@ export default function Home() {
                   </SignedIn>
                   <a
                     className="font-semibold hover:text-[var(--sand-text)] transition"
-                    href="#"
-                  >
-                    Community
-                  </a>
-                  <a
-                    className="font-semibold hover:text-[var(--sand-text)] transition"
                     href="/pricing"
                   >
                     Pricing
-                  </a>
-                  <a
-                    className="font-semibold hover:text-[var(--sand-text)] transition"
-                    href="#"
-                  >
-                    Enterprise
-                  </a>
-                  <a
-                    className="font-semibold hover:text-[var(--sand-text)] transition"
-                    href="#"
-                  >
-                    Learn
-                  </a>
-                  <a
-                    className="font-semibold hover:text-[var(--sand-text)] transition"
-                    href="#"
-                  >
-                    Launched
                   </a>
                 </nav>
 

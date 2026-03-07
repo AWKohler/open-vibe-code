@@ -178,9 +178,9 @@ body {
 /* Landing page gradient */
 .landing-gradient {
     background:
-        radial-gradient(ellipse 80% 60% at 20% 0%, color-mix(in oklab, var(--sand-accent) 8%, transparent), transparent),
-        radial-gradient(ellipse 60% 50% at 80% 10%, color-mix(in oklab, var(--sand-soft) 60%, transparent), transparent),
-        radial-gradient(ellipse 50% 70% at 50% 100%, color-mix(in oklab, var(--sand-elevated) 80%, transparent), transparent),
+        radial-gradient(ellipse 90% 60% at 15% 0%, color-mix(in oklab, var(--sand-accent) 30%, transparent), transparent),
+        radial-gradient(ellipse 70% 55% at 85% 5%, color-mix(in oklab, var(--sand-soft) 85%, transparent), transparent),
+        radial-gradient(ellipse 60% 70% at 50% 100%, color-mix(in oklab, var(--sand-elevated) 95%, transparent), transparent),
         linear-gradient(180deg, var(--sand-bg) 0%, var(--sand-surface) 50%, var(--sand-bg) 100%);
 }
 

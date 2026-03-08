@@ -35,12 +35,12 @@ export async function GET() {
   const modelRows = await db
     .select({
       model: usageRecords.model,
-      credits: sql<number>`COALESCE(SUM(credits), 0)::bigint`,
+      credits: sql<number>`COALESCE(SUM(credits), 0)::int`,
       turns: sql<number>`COALESCE(SUM(agent_turns), 0)::int`,
-      tokensIn: sql<number>`COALESCE(SUM(tokens_in), 0)::bigint`,
-      tokensOut: sql<number>`COALESCE(SUM(tokens_out), 0)::bigint`,
-      cachedTokensRead: sql<number>`COALESCE(SUM(cached_tokens_read), 0)::bigint`,
-      cachedTokensWrite: sql<number>`COALESCE(SUM(cached_tokens_write), 0)::bigint`,
+      tokensIn: sql<number>`COALESCE(SUM(tokens_in), 0)::int`,
+      tokensOut: sql<number>`COALESCE(SUM(tokens_out), 0)::int`,
+      cachedTokensRead: sql<number>`COALESCE(SUM(cached_tokens_read), 0)::int`,
+      cachedTokensWrite: sql<number>`COALESCE(SUM(cached_tokens_write), 0)::int`,
     })
     .from(usageRecords)
     .where(
@@ -62,12 +62,12 @@ export async function GET() {
     monthlyPct,
     models: modelRows.map(r => ({
       model: r.model,
-      credits: r.credits,
-      turns: r.turns,
-      tokensIn: r.tokensIn,
-      tokensOut: r.tokensOut,
-      cachedTokensRead: r.cachedTokensRead,
-      cachedTokensWrite: r.cachedTokensWrite,
+      credits: Number(r.credits),
+      turns: Number(r.turns),
+      tokensIn: Number(r.tokensIn),
+      tokensOut: Number(r.tokensOut),
+      cachedTokensRead: Number(r.cachedTokensRead),
+      cachedTokensWrite: Number(r.cachedTokensWrite),
     })),
   });
 }

@@ -204,7 +204,7 @@ export function currentPeriod(): string {
 export async function getMonthlyCredits(userId: string): Promise<number> {
   const db = getDb();
   const [row] = await db
-    .select({ total: sql<number>`COALESCE(SUM(credits), 0)::bigint` })
+    .select({ total: sql<number>`COALESCE(SUM(credits), 0)::int` })
     .from(usageRecords)
     .where(
       and(

@@ -8,7 +8,7 @@ import { getUserTierAndLimits } from '@/lib/tier';
 import { countUserConvexProjects } from '@/lib/usage';
 import { limitReachedResponse } from '@/lib/plan-response';
 
-const FLY_WORKER_URL = process.env.FLY_WORKER_URL ?? "https://fly-shy-feather-7138.fly.dev";
+const FLY_WORKER_URL = process.env.FLY_WORKER_URL;
 const WORKER_AUTH_TOKEN = process.env.FLY_WORKER_AUTH_TOKEN ?? process.env.WORKER_AUTH_TOKEN ?? "";
 
 export async function POST(
@@ -106,6 +106,13 @@ export async function POST(
     }
 
     // 4. Send to fly.io worker
+    if (!FLY_WORKER_URL) {
+      return NextResponse.json(
+        { ok: false, output: '', error: 'FLY_WORKER_URL is not configured' },
+        { status: 500 }
+      );
+    }
+
     const response = await fetch(FLY_WORKER_URL, {
       method: 'POST',
       headers: {

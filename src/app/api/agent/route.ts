@@ -646,7 +646,7 @@ export async function POST(req: Request) {
         // ── Extract cached token counts ───────────────────────────────────────
         // AI SDK v6 puts cache details in inputTokenDetails for all providers.
         let cachedRead = event.usage.inputTokenDetails?.cacheReadTokens ?? 0;
-        let cachedWrite = event.usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+        const cachedWrite = event.usage.inputTokenDetails?.cacheWriteTokens ?? 0;
 
         // Fallback: deprecated top-level field
         if (cachedRead === 0 && event.usage.cachedInputTokens) {

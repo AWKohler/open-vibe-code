@@ -39,7 +39,7 @@ export default async function Page({
             alt="Login Banner"
             fill
             priority
-            className="object-cover pointer-events-none select-none dark:hidden"
+            className="object-cover pointer-events-none select-none rounded-lg dark:hidden"
           />
           {/* Dark mode image */}
           <Image
@@ -47,7 +47,7 @@ export default async function Page({
             alt="Login Banner"
             fill
             priority
-            className="object-cover pointer-events-none select-none hidden dark:block"
+            className="object-cover pointer-events-none select-none rounded-lg hidden dark:block"
           />
 
           {/* Centered overlay card on top of the image */}

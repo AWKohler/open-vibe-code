@@ -1,8 +1,21 @@
-![OpenVibeCode Banner](https://raw.githubusercontent.com/AWKohler/open-vibe-code/refs/heads/main/public/brand/openvibecode.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="public/botflow_white.svg">
+  <img src="public/botflow_black.svg" alt="Botflow" height="60">
+</picture>
 
 # OpenVibeCode
 
 OpenVibeCode is an open source AI-powered web IDE for creating, editing, and shipping projects from a browser workspace.
+
+## Screenshots
+
+**Building a web app**
+
+![Demo app being created in the workspace](public/demo-app.png)
+
+**Browsing your Convex database**
+
+![Built-in Convex database viewer](public/convex.png)
 
 ## What It Includes
 

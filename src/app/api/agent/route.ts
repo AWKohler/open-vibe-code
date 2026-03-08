@@ -620,47 +620,49 @@ export async function POST(req: Request) {
     const streamCall = async () => {
 
       // ── onFinish: record actual token usage ──────────────────────────────────
+      // AI SDK v6 usage shape:
+      //   inputTokens: total input (includes cached)
+      //   inputTokenDetails: { noCacheTokens, cacheReadTokens, cacheWriteTokens }
+      //   outputTokens: total output
+      //   providerMetadata: provider-specific extras
       const onFinish = async (event: {
         usage: {
           inputTokens?: number;
           outputTokens?: number;
-          // Anthropic prompt cache fields
-          cacheReadInputTokens?: number;
-          cacheCreationInputTokens?: number;
+          inputTokenDetails?: {
+            noCacheTokens?: number;
+            cacheReadTokens?: number;
+            cacheWriteTokens?: number;
+          };
+          // Deprecated but still available as fallback
+          cachedInputTokens?: number;
         };
-        // Provider-specific metadata from AI SDK (OpenAI, Fireworks cache stats, etc.)
         providerMetadata?: Record<string, Record<string, unknown>>;
-        // Response headers forwarded by AI SDK (used for Fireworks header fallback)
         response?: { headers?: Record<string, string> };
       }) => {
         const tokensIn = event.usage.inputTokens ?? 0;
         const tokensOut = event.usage.outputTokens ?? 0;
 
-        // ── Extract cached token counts per provider ──────────────────────────
-        let cachedRead = 0;
-        let cachedWrite = 0;
+        // ── Extract cached token counts ───────────────────────────────────────
+        // AI SDK v6 puts cache details in inputTokenDetails for all providers.
+        let cachedRead = event.usage.inputTokenDetails?.cacheReadTokens ?? 0;
+        let cachedWrite = event.usage.inputTokenDetails?.cacheWriteTokens ?? 0;
 
-        if (selectedModel === 'claude-sonnet-4.6' || selectedModel === 'claude-opus-4.6') {
-          // Anthropic: AI SDK surfaces cache fields directly in usage
-          // inputTokens = uncached input only; cacheRead/cacheWrite are separate
-          cachedRead = event.usage.cacheReadInputTokens ?? 0;
-          cachedWrite = event.usage.cacheCreationInputTokens ?? 0;
+        // Fallback: deprecated top-level field
+        if (cachedRead === 0 && event.usage.cachedInputTokens) {
+          cachedRead = event.usage.cachedInputTokens;
+        }
 
-        } else if (selectedModel === 'gpt-5.3-codex' || selectedModel === 'gpt-5.4') {
-          // OpenAI: AI SDK maps prompt_tokens_details.cached_tokens → providerMetadata.openai.cachedPromptTokens
-          cachedRead = (event.providerMetadata?.openai?.cachedPromptTokens as number | undefined) ?? 0;
-
-        } else if (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5') {
-          // Fireworks: try providerMetadata first (Responses API path)
+        // Fireworks fallback: providerMetadata or response header
+        if (cachedRead === 0 && (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5')) {
           const metaCache = event.providerMetadata?.fireworks?.cachedPromptTokens as number | undefined;
-          if (metaCache !== undefined) {
+          if (metaCache !== undefined && metaCache > 0) {
             cachedRead = metaCache;
           } else {
-            // Fallback: fireworks-cached-prompt-tokens response header (Chat Completions path)
             const headerVal = event.response?.headers?.['fireworks-cached-prompt-tokens'];
             if (headerVal) {
               const parsed = parseInt(headerVal, 10);
-              if (!isNaN(parsed)) cachedRead = parsed;
+              if (!isNaN(parsed) && parsed > 0) cachedRead = parsed;
             }
           }
           // Fireworks doesn't reliably report cache hits — if <5min since last call,
@@ -674,11 +676,11 @@ export async function POST(req: Request) {
         redis.setex(lastCallKey, 86_400, startTime).catch(() => {});
 
         if (isServerKeyModel(selectedModel) && (tokensIn > 0 || tokensOut > 0)) {
-          // Compute uncached input tokens:
-          // - Anthropic: tokensIn is already uncached; cachedRead/cachedWrite are separate
-          // - OpenAI/Fireworks: tokensIn includes cached tokens, so subtract cachedRead
-          const isAnthropic = selectedModel === 'claude-sonnet-4.6' || selectedModel === 'claude-opus-4.6';
-          const uncachedInput = isAnthropic ? tokensIn : Math.max(0, tokensIn - cachedRead);
+          // Compute uncached input tokens.
+          // In AI SDK v6, inputTokens is the TOTAL (includes cached).
+          // noCacheTokens gives us the uncached portion directly; otherwise derive it.
+          const uncachedInput = event.usage.inputTokenDetails?.noCacheTokens
+            ?? Math.max(0, tokensIn - cachedRead - cachedWrite);
 
           // Personal credentials (OAuth/BYOK) don't consume platform credits
           const credits = isUsingPersonalCredentials ? 0 : calculateCredits({

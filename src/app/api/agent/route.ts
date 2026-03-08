@@ -433,6 +433,7 @@ async function injectOpenAICacheRetention(input: RequestInfo | URL, init?: Reque
     try {
       const parsed = JSON.parse(init.body);
       parsed.prompt_cache_retention = '24h';
+      parsed.store = false;
       return fetch(input, { ...init, body: JSON.stringify(parsed) });
     } catch {
       // ignore parse errors — fall through to normal fetch
@@ -757,6 +758,8 @@ export async function POST(req: Request) {
                 if (body && typeof body === "string") {
                   try {
                     const parsed = JSON.parse(body);
+                    // Codex OAuth tokens don't support store — always disable
+                    parsed.store = false;
                     if (!parsed.instructions && Array.isArray(parsed.input)) {
                       const sysIdx = parsed.input.findIndex(
                         (m: { role?: string }) => m.role === "system" || m.role === "developer"

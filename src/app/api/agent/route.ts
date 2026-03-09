@@ -783,11 +783,17 @@ export async function POST(req: Request) {
             ? { apiKey: creds.openaiApiKey, fetch: injectOpenAICacheRetention }
             : { apiKey: creds.openaiApiKey });
           const result = streamText({
-            model: openai(modelConfig.apiModelId),
-            system: systemPrompt,
+            model: openai.responses(modelConfig.apiModelId),
             messages: resolvedMessages,
             tools,
             onFinish,
+            providerOptions: {
+              openai: {
+                instructions: systemPrompt,
+                systemMessageMode: "remove",
+                store: false,
+              },
+            },
           });
           return result.toUIMessageStreamResponse({ headers: responseHeaders });
         }
@@ -799,11 +805,17 @@ export async function POST(req: Request) {
             ? { apiKey: serverOpenAIKey, fetch: injectOpenAICacheRetention }
             : { apiKey: serverOpenAIKey });
           const result = streamText({
-            model: openai(modelConfig.apiModelId),
-            system: systemPrompt,
+            model: openai.responses(modelConfig.apiModelId),
             messages: resolvedMessages,
             tools,
             onFinish,
+            providerOptions: {
+              openai: {
+                instructions: systemPrompt,
+                systemMessageMode: "remove",
+                store: false,
+              },
+            },
           });
           return result.toUIMessageStreamResponse({ headers: responseHeaders });
         }

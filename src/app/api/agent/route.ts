@@ -769,6 +769,7 @@ export async function POST(req: Request) {
                 openai: {
                   instructions: systemPrompt,
                   systemMessageMode: "remove",
+                  store: false,
                 },
               },
             });

@@ -750,42 +750,27 @@ export async function POST(req: Request) {
                   // ignore URL parse errors
                 }
 
-                // The Codex backend requires `instructions` but @ai-sdk/openai
-                // puts the system prompt into `input` as a system message.
-                // Move it to `instructions` so the Codex endpoint accepts it.
-                let body = init?.body;
-                if (body && typeof body === "string") {
-                  try {
-                    const parsed = JSON.parse(body);
-                    if (!parsed.instructions && Array.isArray(parsed.input)) {
-                      const sysIdx = parsed.input.findIndex(
-                        (m: { role?: string }) => m.role === "system" || m.role === "developer"
-                      );
-                      if (sysIdx !== -1) {
-                        parsed.instructions = parsed.input[sysIdx].content;
-                        parsed.input.splice(sysIdx, 1);
-                      }
-                    }
-                    body = JSON.stringify(parsed);
-                  } catch {
-                    // ignore parse errors
-                  }
-                }
-
                 return fetch(finalInput, {
                   ...init,
-                  body,
                   headers: requestHeaders,
                 });
               },
             });
 
+            // Pass system prompt via providerOptions.instructions so the SDK
+            // sets it natively in the request body. systemMessageMode:"remove"
+            // prevents it from also being added as a developer message in input.
             const result = streamText({
               model: openai.responses(modelConfig.apiModelId),
-              system: systemPrompt,
               messages: resolvedMessages,
               tools,
               onFinish,
+              providerOptions: {
+                openai: {
+                  instructions: systemPrompt,
+                  systemMessageMode: "remove",
+                },
+              },
             });
             return result.toUIMessageStreamResponse({ headers: responseHeaders });
           }

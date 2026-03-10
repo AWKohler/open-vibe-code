@@ -91,7 +91,7 @@ export default function ProjectsPage() {
 
   return (
     <div className="antialiased text-fg bg-bg min-h-screen">
-      <div className="relative isolate overflow-hidden">
+      <div className="relative isolate overflow-hidden min-h-screen">
         <div className="pointer-events-none absolute inset-0 -z-10">
           <div
             className="absolute -top-1/3 -left-1/4 h-[80vh] w-[80vw] rounded-full blur-3xl opacity-50"
@@ -111,7 +111,7 @@ export default function ProjectsPage() {
 
         <header className="relative">
           <div className="mx-auto max-w-7xl px-6 py-5">
-            <div className="flex items-center justify-between">
+            <div className="grid grid-cols-3 items-center">
               <Link className="flex items-center gap-3" href="/">
                 <img src="/brand/botflow-glyph.svg" alt="" className="h-8 w-8" />
                 <img
@@ -121,13 +121,12 @@ export default function ProjectsPage() {
                 />
               </Link>
 
-              <nav className="hidden md:flex items-center gap-7 text-sm text-muted">
+              <nav className="hidden md:flex items-center justify-center gap-7 text-sm text-muted">
                 <a className="text-fg font-medium" href="/projects">My Projects</a>
-                <a className="hover:text-fg transition" href="#">Community</a>
-                <a className="hover:text-fg transition" href="#">Learn</a>
+                <a className="hover:text-fg transition" href="/pricing">Pricing</a>
               </nav>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center justify-end gap-2">
                 <SignedOut>
                   <SignInButton>
                     <button className="inline-flex items-center rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-soft transition">
@@ -362,11 +361,10 @@ export default function ProjectsPage() {
             </SignedIn>
           </div>
         </main>
+        {openMenuId && (
+          <div className="fixed inset-0 z-30" onClick={() => setOpenMenuId(null)} />
+        )}
       </div>
-
-      {openMenuId && (
-        <div className="fixed inset-0 z-30" onClick={() => setOpenMenuId(null)} />
-      )}
 
       <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} />
     </div>

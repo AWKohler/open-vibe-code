@@ -334,7 +334,7 @@ export default function Home() {
           {/* Nav */}
           <header className="relative">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-5">
-              <div className="flex items-center justify-between">
+              <div className="grid grid-cols-3 items-center">
                 <a className="flex items-center gap-2.5" href="#">
                   <img
                     src="/brand/botflow-glyph.svg"
@@ -348,7 +348,7 @@ export default function Home() {
                   />
                 </a>
 
-                <nav className="hidden md:flex items-center gap-7 text-sm text-[var(--sand-text)]">
+                <nav className="hidden md:flex items-center justify-center gap-7 text-sm text-[var(--sand-text)]">
                   <SignedIn>
                     <a
                       className="font-medium hover:text-[var(--sand-text)] transition"
@@ -365,7 +365,7 @@ export default function Home() {
                   </a>
                 </nav>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center justify-end gap-2">
                   <SignedOut>
                     <Link
                       href="/sign-in"
@@ -633,7 +633,7 @@ export default function Home() {
 
           {/* Footer */}
           <footer className="relative mt-auto">
-            <div className="mx-auto max-w-7xl px-6 py-12 text-sm text-[var(--sand-text)]">
+            <div className="mx-auto max-w-7xl px-6 py-4 text-sm text-[var(--sand-text)]">
               <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
                 <p>© 2026 Botflow</p>
                 <div className="flex items-center gap-6">

@@ -12,6 +12,29 @@ import { SYSTEM_PROMPT_WEB, SYSTEM_PROMPT_MOBILE } from "@/lib/agent/prompts";
 import { MODEL_CONFIGS, resolveModelId, type ModelId } from "@/lib/agent/models";
 import { agentLog, generateRequestId, setRequestId } from "@/lib/agent/logger";
 import { classifyError, formatErrorResponse } from "@/lib/agent/errors";
+
+/** Convert a stream error to the JSON string the client's parseError() expects. */
+function getStreamErrorMessage(error: unknown): string {
+  // Try to extract OpenAI responseBody detail (AI_APICallError)
+  const e = error as Record<string, unknown>;
+  const rawBody = typeof e.responseBody === "string" ? e.responseBody
+    : typeof (e.lastError as Record<string, unknown> | undefined)?.responseBody === "string"
+      ? (e.lastError as Record<string, unknown>).responseBody as string
+      : undefined;
+  if (rawBody) {
+    try {
+      const detail = (JSON.parse(rawBody) as Record<string, unknown>).detail as string | undefined;
+      if (detail?.includes("not supported when using Codex")) {
+        return JSON.stringify({
+          error: "This model is not available with your ChatGPT account. Try a different model or add an OpenAI API key in Settings.",
+          errorType: "auth",
+        });
+      }
+    } catch { /* ignore */ }
+  }
+  const classified = classifyError(error);
+  return JSON.stringify(formatErrorResponse(classified));
+}
 import { withRetry } from "@/lib/agent/retry";
 import {
   estimateTokens,
@@ -773,7 +796,7 @@ export async function POST(req: Request) {
                 },
               },
             });
-            return result.toUIMessageStreamResponse({ headers: responseHeaders });
+            return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
           }
         }
 
@@ -795,7 +818,7 @@ export async function POST(req: Request) {
               },
             },
           });
-          return result.toUIMessageStreamResponse({ headers: responseHeaders });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
         }
 
         // Path C: Server-side OpenAI key for Pro/Max tiers
@@ -817,7 +840,7 @@ export async function POST(req: Request) {
               },
             },
           });
-          return result.toUIMessageStreamResponse({ headers: responseHeaders });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
         }
 
         return new Response(
@@ -852,7 +875,7 @@ export async function POST(req: Request) {
           tools,
           onFinish,
         });
-        return result.toUIMessageStreamResponse({ headers: responseHeaders });
+        return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
       }
 
       // ── Anthropic models ──────────────────────────────────────────────────
@@ -881,7 +904,7 @@ export async function POST(req: Request) {
             tools,
             onFinish,
           });
-          return result.toUIMessageStreamResponse({ headers: responseHeaders });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
         }
 
         // Fall back to BYOK key
@@ -893,7 +916,7 @@ export async function POST(req: Request) {
             tools,
             onFinish,
           });
-          return result.toUIMessageStreamResponse({ headers: responseHeaders });
+          return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
         }
 
         return new Response(
@@ -913,7 +936,7 @@ export async function POST(req: Request) {
         tools,
         onFinish,
       });
-      return result.toUIMessageStreamResponse({ headers: responseHeaders });
+      return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
     };
 
     // ── Execute with retry logic ─────────────────────────────────────────────

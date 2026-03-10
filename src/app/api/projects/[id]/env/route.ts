@@ -37,12 +37,23 @@ export async function GET(
   }> = [];
 
   if (project.convexDeployUrl) {
-    systemEnvVars.push({
-      key: 'VITE_CONVEX_URL',
-      value: project.convexDeployUrl,
-      isSystem: true,
-      isSecret: false,
-    });
+    // Inject the appropriate env var based on platform
+    // Vite uses VITE_ prefix, Expo uses EXPO_PUBLIC_ prefix
+    if (project.platform === 'mobile') {
+      systemEnvVars.push({
+        key: 'EXPO_PUBLIC_CONVEX_URL',
+        value: project.convexDeployUrl,
+        isSystem: true,
+        isSecret: false,
+      });
+    } else {
+      systemEnvVars.push({
+        key: 'VITE_CONVEX_URL',
+        value: project.convexDeployUrl,
+        isSystem: true,
+        isSecret: false,
+      });
+    }
   }
 
   return NextResponse.json({
@@ -92,7 +103,7 @@ export async function POST(
   }
 
   // Prevent overriding system vars
-  const systemVarNames = ['VITE_CONVEX_URL'];
+  const systemVarNames = ['VITE_CONVEX_URL', 'EXPO_PUBLIC_CONVEX_URL'];
   if (systemVarNames.includes(key.toUpperCase())) {
     return NextResponse.json(
       { error: 'Cannot override system variable' },
@@ -149,7 +160,7 @@ export async function PUT(
   const { content } = await req.json() as { content: string };
 
   // System vars that cannot be overridden
-  const systemVarNames = ['VITE_CONVEX_URL'];
+  const systemVarNames = ['VITE_CONVEX_URL', 'EXPO_PUBLIC_CONVEX_URL'];
 
   // Parse .env format
   const lines = content.split('\n');

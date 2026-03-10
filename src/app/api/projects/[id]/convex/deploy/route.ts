@@ -105,35 +105,55 @@ export async function POST(
       );
     }
 
-    // 4. Send to fly.io worker
+    // 4. Send to deployment worker
     if (!FLY_WORKER_URL) {
+      console.error('Convex deploy worker URL is not configured');
       return NextResponse.json(
-        { ok: false, output: '', error: 'FLY_WORKER_URL is not configured' },
-        { status: 500 }
+        { ok: false, output: '', error: 'Deployment service is not available. Please try again later.' },
+        { status: 503 }
       );
     }
 
-    const response = await fetch(FLY_WORKER_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${WORKER_AUTH_TOKEN}`,
-        'X-Convex-Deploy-Key': project.convexDeployKey,
-      },
-      body: zipBlob,
-    });
+    let response: Response;
+    try {
+      response = await fetch(FLY_WORKER_URL, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${WORKER_AUTH_TOKEN}`,
+          'X-Convex-Deploy-Key': project.convexDeployKey,
+        },
+        body: zipBlob,
+      });
+    } catch (fetchError) {
+      console.error('Convex deploy worker unreachable:', fetchError);
+      return NextResponse.json(
+        { ok: false, output: '', error: 'Deployment service is temporarily unavailable. Please try again in a moment.' },
+        { status: 503 }
+      );
+    }
 
-    // 5. Parse JSON response from fly.io
-    const result = await response.json();
+    // 5. Parse response from deployment worker
+    let result: { success?: boolean; logs?: string; error?: string; generatedFiles?: { path: string; content: string }[] };
+    try {
+      result = await response.json();
+    } catch {
+      console.error('Convex deploy worker returned non-JSON response, status:', response.status);
+      return NextResponse.json(
+        { ok: false, output: '', error: 'Deployment service returned an unexpected response. Please try again.' },
+        { status: 502 }
+      );
+    }
 
     if (!response.ok || !result.success) {
+      console.error('Convex deploy worker error:', result.error, 'status:', response.status);
       return NextResponse.json(
         {
           ok: false,
           output: result.logs || '',
-          error: result.error || `Deployment failed with status ${response.status}`,
+          error: result.error || 'Deployment failed. Please check your Convex functions for errors and try again.',
           generatedFiles: [],
         },
-        { status: response.status }
+        { status: 200 }
       );
     }
 
@@ -145,12 +165,11 @@ export async function POST(
     });
   } catch (error) {
     console.error('Convex deployment error:', error);
-    const errorMessage = error instanceof Error ? error.message : String(error);
     return NextResponse.json(
       {
         ok: false,
         output: '',
-        error: `Deployment error: ${errorMessage}`,
+        error: 'An unexpected error occurred during deployment. Please try again.',
       },
       { status: 500 }
     );

@@ -71,6 +71,14 @@ export async function deployConvexToFly(
       // Optional
     }
 
+    // Add convex.json if exists (Convex deployment config)
+    try {
+      const convexJson = await container.fs.readFile("/convex.json", "utf8");
+      zip.file("convex.json", convexJson);
+    } catch {
+      // Optional
+    }
+
     // Generate zip blob
     const zipBlob = await zip.generateAsync({ type: "blob" });
 
@@ -121,8 +129,8 @@ async function addFolderToZip(
   });
 
   for (const entry of entries) {
-    // Skip _generated folder - it will be regenerated during deployment
-    if (entry.name === "_generated") {
+    // Skip folders that shouldn't be included in the deployment zip
+    if (entry.name === "_generated" || entry.name === "node_modules") {
       continue;
     }
 

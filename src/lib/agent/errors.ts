@@ -18,6 +18,18 @@ export interface AgentError {
   details?: string;
 }
 
+/** Pull responseBody string off AI SDK errors (AI_APICallError or AI_RetryError → lastError) */
+function extractResponseBody(err: unknown): string | undefined {
+  if (!err || typeof err !== "object") return undefined;
+  const e = err as Record<string, unknown>;
+  if (typeof e.responseBody === "string") return e.responseBody;
+  if (e.lastError && typeof e.lastError === "object") {
+    const last = e.lastError as Record<string, unknown>;
+    if (typeof last.responseBody === "string") return last.responseBody;
+  }
+  return undefined;
+}
+
 /** Pull response headers off AI SDK errors (AI_APICallError or AI_RetryError → lastError) */
 function extractResponseHeaders(err: unknown): Record<string, string> | undefined {
   if (!err || typeof err !== "object") return undefined;
@@ -58,6 +70,22 @@ export function classifyError(err: unknown): AgentError {
 
   // Extract response headers for richer context (AI SDK attaches these)
   const headers = extractResponseHeaders(err);
+
+  // Extract and parse responseBody for provider-specific detail messages
+  const rawBody = extractResponseBody(err);
+  const bodyDetail: string | undefined = (() => {
+    if (!rawBody) return undefined;
+    try { return (JSON.parse(rawBody) as Record<string, unknown>).detail as string | undefined; } catch { return undefined; }
+  })();
+
+  // OpenAI OAuth (Codex): model not available on this ChatGPT account
+  if (bodyDetail?.includes("not supported when using Codex")) {
+    return {
+      type: "auth",
+      message: `This model is not available with your ChatGPT account. Try a different model or add an OpenAI API key in Settings.`,
+      details: bodyDetail,
+    };
+  }
   const retryAfterSecs = headers?.["retry-after"] ? parseInt(headers["retry-after"], 10) : undefined;
 
   // ── Anthropic / provider weekly quota exhaustion ──────────────────────────

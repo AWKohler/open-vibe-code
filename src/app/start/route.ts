@@ -46,8 +46,8 @@ export async function GET(request: Request) {
       .values({ name, userId, platform, model })
       .returning();
 
-    // For web projects, provision a Convex backend
-    if (platform === 'web') {
+    // Provision a Convex backend for all projects (web and mobile)
+    {
       try {
         const convexProjectName = `ide-${project.id.slice(0, 8)}`;
         const convex = await provisionConvexBackend(convexProjectName);

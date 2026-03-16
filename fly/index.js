@@ -65,10 +65,10 @@ const server = http.createServer(async (req, res) => {
     return res.end("unauthorized");
   }
 
-  const deployKey = req.headers["x-convex-deploy-key"];
+  const deployKey = (req.headers["x-convex-deploy-key"] || "").trim();
   if (!deployKey) {
     res.writeHead(400);
-    return res.end("Missing X-Convex-Deploy-Key");
+    return res.end("Missing or empty X-Convex-Deploy-Key");
   }
 
   const jobDir = fs.mkdtempSync(path.join(os.tmpdir(), "convex-job-"));
@@ -93,11 +93,21 @@ const server = http.createServer(async (req, res) => {
 
     logBuffer.push("Installing dependencies...\n");
 
-    await run("npm", ["install", "--omit=dev"], {
-      cwd: jobDir,
-      env: process.env,
-      logBuffer,
-    });
+    // Detect package manager from lock file
+    const hasPnpmLock = fs.existsSync(path.join(jobDir, "pnpm-lock.yaml"));
+    if (hasPnpmLock) {
+      await run("pnpm", ["install", "--no-frozen-lockfile", "--prod"], {
+        cwd: jobDir,
+        env: process.env,
+        logBuffer,
+      });
+    } else {
+      await run("npm", ["install", "--omit=dev"], {
+        cwd: jobDir,
+        env: process.env,
+        logBuffer,
+      });
+    }
 
     logBuffer.push("\nRunning convex deploy...\n");
 
@@ -134,14 +144,17 @@ const server = http.createServer(async (req, res) => {
       })
     );
   } catch (err) {
-    console.error(err);
-    logBuffer.push(`\n❌ Error: ${err.message}\n`);
-    res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+    const errMsg = err.message || String(err);
+    // Include the full log buffer in the error so the caller sees npm/convex CLI output
+    const fullLogs = logBuffer.join("");
+    console.error("Deploy failed:", errMsg, "\nLogs:", fullLogs);
+    logBuffer.push(`\n❌ Error: ${errMsg}\n`);
+    res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
     res.end(
       JSON.stringify({
         success: false,
         logs: logBuffer.join(""),
-        error: err.message,
+        error: errMsg,
         generatedFiles: [],
       })
     );

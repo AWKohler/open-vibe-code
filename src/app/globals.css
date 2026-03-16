@@ -53,7 +53,7 @@
         --sand-border: #3a342e;
         --sand-text: #ede6db;
         --sand-text-muted: #b8ada1;
-        --sand-accent: #d89b6a;
+        --sand-accent: #d8826a;
         --sand-accent-contrast: #1b1713;
         /*--sand-accent-contrast-two: #ffffff;*/
         --sand-overlay: rgba(237, 230, 219, 0.07);
@@ -91,6 +91,18 @@ body {
 @media (prefers-color-scheme: dark) {
     .cl-providerIcon__google {
         filter: grayscale(1) brightness(2.2) contrast(0.85);
+    }
+}
+
+/* Force Google icon to pure black */
+.cl-providerIcon__github {
+    filter: grayscale(100%) contrast(200%) brightness(100);
+}
+
+/* Force Github icon to pure white in dark mode */
+@media (prefers-color-scheme: dark) {
+    .cl-providerIcon__github {
+        filter: grayscale(1) brightness(10) contrast(0.85);
     }
 }
 
@@ -178,10 +190,20 @@ body {
 /* Landing page gradient */
 .landing-gradient {
     background:
-        radial-gradient(ellipse 90% 60% at 15% 0%, color-mix(in oklab, var(--sand-accent) 30%, transparent), transparent),
+        radial-gradient(ellipse 90% 60% at 50% 0%, color-mix(in oklab, var(--sand-accent) 70%, transparent), transparent),
         radial-gradient(ellipse 70% 55% at 85% 5%, color-mix(in oklab, var(--sand-soft) 85%, transparent), transparent),
         radial-gradient(ellipse 60% 70% at 50% 100%, color-mix(in oklab, var(--sand-elevated) 95%, transparent), transparent),
         linear-gradient(180deg, var(--sand-bg) 0%, var(--sand-surface) 50%, var(--sand-bg) 100%);
+}
+
+.landing-gradient::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    /* background: url("/grain.1ccdda41.png") repeat; */
+    background-size: 200px 200px;
+    opacity: 0.3;
+    pointer-events: none;
 }
 
 /* Animation classes */

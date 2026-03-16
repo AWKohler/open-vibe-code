@@ -105,7 +105,17 @@ export async function POST(
       }
     }
 
-    // 3. Get the zip blob from request body
+    // 3. Resolve the deploy key — prefer user key, fall back to platform key
+    const resolvedDeployKey = (project.userConvexDeployKey || project.convexDeployKey || '').trim();
+    if (!resolvedDeployKey) {
+      console.error(`No deploy key available for project ${projectId} (backendType=${project.backendType})`);
+      return NextResponse.json(
+        { ok: false, output: '', error: 'No Convex deploy key available. Please reconnect your Convex account or contact support.' },
+        { status: 500 }
+      );
+    }
+
+    // Get the zip blob from request body
     const zipBlob = await request.blob();
 
     if (zipBlob.size === 0) {
@@ -130,7 +140,7 @@ export async function POST(
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${WORKER_AUTH_TOKEN}`,
-          'X-Convex-Deploy-Key': (project.userConvexDeployKey || project.convexDeployKey) ?? '',
+          'X-Convex-Deploy-Key': resolvedDeployKey,
         },
         body: zipBlob,
       });

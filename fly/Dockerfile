@@ -6,8 +6,8 @@ RUN apt-get update && apt-get install -y \
   git \
   && rm -rf /var/lib/apt/lists/*
 
-# Install Convex CLI globally
-RUN npm install -g convex
+# Install Convex CLI and pnpm globally
+RUN npm install -g convex pnpm
 
 # Create app directory
 WORKDIR /app

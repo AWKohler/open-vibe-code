@@ -398,7 +398,7 @@ export default function Home() {
           {/* Nav */}
           <header className="relative">
             <div className="mx-auto max-w-7xl px-4 sm:px-6 py-4 sm:py-5">
-              <div className="grid grid-cols-3 items-center">
+              <div className="flex items-center justify-between md:grid md:grid-cols-3">
                 <a className="flex items-center gap-2.5" href="#">
                   <img
                     src="/brand/botflow-glyph.svg"

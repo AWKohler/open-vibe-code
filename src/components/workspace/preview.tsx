@@ -32,7 +32,7 @@ interface PreviewProps {
   isInstalling?: boolean;
   isStartingServer?: boolean;
   onToggleDevServer?: () => void;
-  platform?: "web" | "mobile";
+  platform?: "web" | "mobile" | "multiplatform";
   expUrl?: string | null;
   htmlSnapshotUrl?: string | null;
   isAgentWorking?: boolean;
@@ -618,6 +618,8 @@ export function Preview({
   const [showSnapshot, setShowSnapshot] = useState(true);
   const [snapshotHtml, setSnapshotHtml] = useState<string | null>(null);
   const [isRealPreviewLoaded, setIsRealPreviewLoaded] = useState(false);
+  // Multiplatform: toggle between web and mobile preview modes
+  const [multiPreviewMode, setMultiPreviewMode] = useState<"web" | "mobile">("web");
 
   const activePreview = previews[activePreviewIndex];
 
@@ -751,7 +753,7 @@ export function Preview({
     // Show HTML snapshot if available
     if (htmlSnapshotUrl && showSnapshot && snapshotHtml) {
       // Mobile platform - show snapshot in iPhone mockup
-      if (platform === "mobile") {
+      if (platform === "mobile" || (platform === "multiplatform" && multiPreviewMode === "mobile")) {
         return (
           <div className="h-full grid grid-cols-1 md:grid-cols-2 gap-3 p-3 overflow-hidden bg-surface rounded-xl border border-border">
             {/* Left: QR code + Expo Go install guidance */}
@@ -1088,8 +1090,8 @@ export function Preview({
           <p className="text-xs mt-3 text-muted">
             Equivalent command:{" "}
             <code className="bg-elevated px-1 rounded border border-border">
-              {platform === "mobile"
-                ? "pnpm exec expo start --tunnel"
+              {(platform === "mobile" || platform === "multiplatform")
+                ? "pnpm exec expo start --web"
                 : "pnpm dev"}
             </code>
           </p>
@@ -1098,10 +1100,45 @@ export function Preview({
     );
   }
 
+  // For multiplatform, determine effective rendering mode
+  const effectivePlatform = platform === "multiplatform"
+    ? multiPreviewMode
+    : platform;
+
   return (
     <div className="h-full flex flex-col bg-surface rounded-xl border border-border">
+      {/* Multiplatform: Web / Mobile toggle tabs */}
+      {platform === "multiplatform" && (
+        <div className="flex items-center gap-1 px-3 pt-2 pb-0">
+          <button
+            onClick={() => setMultiPreviewMode("web")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors border border-b-0",
+              multiPreviewMode === "web"
+                ? "bg-surface border-border text-accent"
+                : "bg-transparent border-transparent text-muted hover:text-fg"
+            )}
+          >
+            <Monitor size={13} />
+            Web
+          </button>
+          <button
+            onClick={() => setMultiPreviewMode("mobile")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium transition-colors border border-b-0",
+              multiPreviewMode === "mobile"
+                ? "bg-surface border-border text-accent"
+                : "bg-transparent border-transparent text-muted hover:text-fg"
+            )}
+          >
+            <Smartphone size={13} />
+            Mobile
+          </button>
+        </div>
+      )}
+
       {/* Preview Header (optional) */}
-      {showHeader && platform === "web" && (
+      {showHeader && (effectivePlatform === "web") && (
         <div className="flex items-center gap-2 p-3 border-b border-border">
           {/* Controls */}
           <Button
@@ -1230,7 +1267,7 @@ export function Preview({
       )}
 
       {/* Preview Content */}
-      {platform === "mobile" ? (
+      {effectivePlatform === "mobile" ? (
         <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 p-3 overflow-hidden">
           {/* Left: QR code + Expo Go install guidance */}
           <div className="rounded-xl border border-border bg-elevated p-5 flex flex-col items-center justify-center min-h-[320px] gap-4">

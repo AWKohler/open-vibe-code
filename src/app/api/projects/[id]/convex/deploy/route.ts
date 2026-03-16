@@ -36,62 +36,72 @@ export async function POST(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Auto-provision Convex backend if missing (handles projects created before
-    // Convex integration or where provisioning silently failed at creation time).
-    if (!project.convexDeployKey) {
-      // Enforce per-user Convex project limit before provisioning a new one
-      if (!project.convexProjectId) {
-        const [limits, currentConvex] = await Promise.all([
-          getUserTierAndLimits(userId),
-          countUserConvexProjects(userId),
-        ]);
-        if (currentConvex >= limits.maxConvexProjects) {
-          return limitReachedResponse({
-            limitType: 'convex_project_count',
-            current: currentConvex,
-            limit: limits.maxConvexProjects,
-            tier: limits.tier,
-          });
-        }
+    // If using user-managed Convex backend, check for user deploy key
+    if (project.backendType === 'user') {
+      if (!project.userConvexDeployKey) {
+        return NextResponse.json({
+          error: 'convex_disconnected',
+          message: 'Your Convex account is not connected. Please reconnect in project settings.',
+        }, { status: 402 });
       }
-
-      try {
-        let deployKey: string;
-
-        if (project.convexDeploymentId) {
-          // Deployment exists but key was lost — create a new deploy key
-          const client = getConvexPlatformClient();
-          deployKey = await client.createDeployKey(project.convexDeploymentId);
-          await db.update(projects)
-            .set({ convexDeployKey: deployKey, updatedAt: new Date() })
-            .where(eq(projects.id, projectId));
-          project.convexDeployKey = deployKey;
-        } else {
-          // No Convex backend at all — provision one now
-          const convexProjectName = `ide-${project.id.slice(0, 8)}`;
-          const convex = await provisionConvexBackend(convexProjectName);
-          await db.update(projects)
-            .set({
-              convexProjectId: convex.projectId,
-              convexDeploymentId: convex.deploymentId,
-              convexDeployUrl: convex.deployUrl,
-              convexDeployKey: convex.deployKey,
-              updatedAt: new Date(),
-            })
-            .where(eq(projects.id, projectId));
-          project.convexDeployKey = convex.deployKey;
+    } else {
+      // Auto-provision platform Convex backend if missing (handles projects created before
+      // Convex integration or where provisioning silently failed at creation time).
+      if (!project.convexDeployKey && !project.userConvexDeployKey) {
+        // Enforce per-user Convex project limit before provisioning a new one
+        if (!project.convexProjectId) {
+          const [limits, currentConvex] = await Promise.all([
+            getUserTierAndLimits(userId),
+            countUserConvexProjects(userId),
+          ]);
+          if (currentConvex >= limits.maxConvexProjects) {
+            return limitReachedResponse({
+              limitType: 'convex_project_count',
+              current: currentConvex,
+              limit: limits.maxConvexProjects,
+              tier: limits.tier,
+            });
+          }
         }
-      } catch (provisionErr) {
-        const msg = provisionErr instanceof Error ? provisionErr.message : String(provisionErr);
-        const isQuota = msg.includes('ProjectQuotaReached');
-        return NextResponse.json(
-          {
-            error: isQuota
-              ? 'Convex project quota reached (20/20). Delete unused projects or upgrade your Convex plan at https://www.convex.dev/plans to continue.'
-              : `Failed to provision Convex backend: ${msg}`,
-          },
-          { status: isQuota ? 402 : 500 }
-        );
+
+        try {
+          let deployKey: string;
+
+          if (project.convexDeploymentId) {
+            // Deployment exists but key was lost — create a new deploy key
+            const client = getConvexPlatformClient();
+            deployKey = await client.createDeployKey(project.convexDeploymentId);
+            await db.update(projects)
+              .set({ convexDeployKey: deployKey, updatedAt: new Date() })
+              .where(eq(projects.id, projectId));
+            project.convexDeployKey = deployKey;
+          } else {
+            // No Convex backend at all — provision one now
+            const convexProjectName = `ide-${project.id.slice(0, 8)}`;
+            const convex = await provisionConvexBackend(convexProjectName);
+            await db.update(projects)
+              .set({
+                convexProjectId: convex.projectId,
+                convexDeploymentId: convex.deploymentId,
+                convexDeployUrl: convex.deployUrl,
+                convexDeployKey: convex.deployKey,
+                updatedAt: new Date(),
+              })
+              .where(eq(projects.id, projectId));
+            project.convexDeployKey = convex.deployKey;
+          }
+        } catch (provisionErr) {
+          const msg = provisionErr instanceof Error ? provisionErr.message : String(provisionErr);
+          const isQuota = msg.includes('ProjectQuotaReached');
+          return NextResponse.json(
+            {
+              error: isQuota
+                ? 'Convex project quota reached (20/20). Delete unused projects or upgrade your Convex plan at https://www.convex.dev/plans to continue.'
+                : `Failed to provision Convex backend: ${msg}`,
+            },
+            { status: isQuota ? 402 : 500 }
+          );
+        }
       }
     }
 
@@ -120,7 +130,7 @@ export async function POST(
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${WORKER_AUTH_TOKEN}`,
-          'X-Convex-Deploy-Key': project.convexDeployKey,
+          'X-Convex-Deploy-Key': (project.userConvexDeployKey || project.convexDeployKey) ?? '',
         },
         body: zipBlob,
       });

@@ -14,7 +14,7 @@ class DevServerManagerImpl {
   private logs: string[] = [];
   private maxLines = 2000;
   private startedByTool = false;
-  private platform: 'web' | 'mobile' | null = null;
+  private platform: 'web' | 'mobile' | 'multiplatform' | null = null;
   private ready = false;
   private initialized = false;
 
@@ -33,13 +33,16 @@ class DevServerManagerImpl {
     }
   }
 
-  async detectPlatform(container: WebContainer): Promise<'web' | 'mobile'> {
+  async detectPlatform(container: WebContainer): Promise<'web' | 'mobile' | 'multiplatform'> {
     if (this.platform) return this.platform;
     try {
       const pkgRaw = await container.fs.readFile('/package.json', 'utf8');
       const pkg = JSON.parse(pkgRaw) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string>; scripts?: Record<string, string> };
       const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-      if (deps['expo'] || deps['expo-router']) {
+      if (deps['nativewind'] && deps['expo']) {
+        // NativeWind + Expo = multiplatform (universal template)
+        this.platform = 'multiplatform';
+      } else if (deps['expo'] || deps['expo-router']) {
         this.platform = 'mobile';
       } else {
         this.platform = 'web';
@@ -117,8 +120,8 @@ class DevServerManagerImpl {
       : undefined;
 
     try {
-      const proc = platform === 'mobile'
-        ? await container.spawn('pnpm', ['exec', 'expo', 'start', '--tunnel'], spawnOptions)
+      const proc = (platform === 'mobile' || platform === 'multiplatform')
+        ? await container.spawn('pnpm', ['exec', 'expo', 'start', '--web'], spawnOptions)
         : await container.spawn('pnpm', ['dev'], spawnOptions);
 
       this.process = proc as unknown as Proc;

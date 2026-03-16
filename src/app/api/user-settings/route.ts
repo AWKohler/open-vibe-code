@@ -19,6 +19,7 @@ export async function GET() {
       hasFireworksKey: Boolean(creds.fireworksApiKey),
       hasClaudeOAuth: Boolean(creds.claudeOAuthAccessToken),
       hasCodexOAuth: Boolean(creds.codexOAuthAccessToken),
+      hasConvexOAuth: Boolean(creds.convexOAuthAccessToken),
     });
   } catch (e) {
     console.error('GET /api/user-settings failed:', e);

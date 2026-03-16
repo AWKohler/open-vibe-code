@@ -9,7 +9,7 @@ import { checkDeviceSupport } from '@/lib/device';
 interface Props {
   projectId: string;
   initialPrompt?: string;
-  platform?: 'web' | 'mobile';
+  platform?: 'web' | 'mobile' | 'multiplatform';
 }
 
 /**

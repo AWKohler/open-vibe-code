@@ -4,13 +4,20 @@ import { getDb } from '@/db';
 import { projects } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { provisionConvexBackend } from '@/lib/convex-platform';
+import { getUserTierAndLimits } from '@/lib/tier';
 
 export async function GET(request: Request) {
   const { userId, redirectToSignIn } = await auth();
   const url = new URL(request.url);
   const prompt = url.searchParams.get('prompt')?.slice(0, 30000) ?? '';
   const visibility = url.searchParams.get('visibility') ?? 'public';
-  const platform = (url.searchParams.get('platform') === 'mobile' ? 'mobile' : 'web') as 'web' | 'mobile';
+  const platformParam = url.searchParams.get('platform');
+  const platform = (
+    platformParam === 'mobile' ? 'mobile' :
+    platformParam === 'multiplatform' ? 'multiplatform' :
+    'web'
+  ) as 'web' | 'mobile' | 'multiplatform';
+  const backendTypeParam = url.searchParams.get('backendType');
   const modelParam = url.searchParams.get('model');
   const model = (
     modelParam === 'gpt-5.3-codex' ? 'gpt-5.3-codex' :
@@ -41,13 +48,18 @@ export async function GET(request: Request) {
       : prompt?.trim()
         ? prompt.slice(0, 48)
         : 'New Project';
+
+    // Determine backend type from URL param
+    const backendType = backendTypeParam === 'user' ? 'user' : 'platform';
+
     const [project] = await db
       .insert(projects)
-      .values({ name, userId, platform, model })
+      .values({ name, userId, platform, model, backendType })
       .returning();
 
-    // Provision a Convex backend for all projects (web and mobile)
-    {
+    // Only provision platform Convex for paid users and when not using user backend
+    const limits = await getUserTierAndLimits(userId);
+    if (limits.tier !== 'free' && backendType !== 'user') {
       try {
         const convexProjectName = `ide-${project.id.slice(0, 8)}`;
         const convex = await provisionConvexBackend(convexProjectName);

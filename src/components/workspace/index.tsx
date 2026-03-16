@@ -47,7 +47,7 @@ type WorkspaceView = "code" | "preview" | "database";
 interface WorkspaceProps {
   projectId: string;
   initialPrompt?: string;
-  platform?: "web" | "mobile";
+  platform?: "web" | "mobile" | "multiplatform";
 }
 
 export function Workspace({
@@ -85,7 +85,7 @@ export function Workspace({
   const [hydrating, setHydrating] = useState(true);
   const [initializationComplete, setInitializationComplete] = useState(false);
   const [expUrl, setExpUrl] = useState<string | null>(null);
-  const [platform, setPlatform] = useState<"web" | "mobile">(
+  const [platform, setPlatform] = useState<"web" | "mobile" | "multiplatform">(
     initialPlatform ?? "web",
   );
   const [cloudSyncStatus, setCloudSyncStatus] = useState<{
@@ -145,7 +145,7 @@ export function Workspace({
           const proj = await res.json();
           if (
             !initialPlatform &&
-            (proj?.platform === "mobile" || proj?.platform === "web")
+            (proj?.platform === "mobile" || proj?.platform === "web" || proj?.platform === "multiplatform")
           ) {
             setPlatform(proj.platform);
           }
@@ -788,7 +788,16 @@ export function Workspace({
           // No backup found - mount template (normal for new projects)
           console.log(`📦 No backup found, mounting template...`);
 
-          if (platform === "mobile") {
+          if (platform === "multiplatform") {
+            // Download Universal (Expo + NativeWind + Convex) template from GitHub
+            console.log("📥 Downloading Universal multiplatform template from GitHub...");
+            await downloadRepoToWebContainer(container, {
+              owner: "AWKohler",
+              repo: "universal-native-convex-template",
+              ref: "main",
+            });
+            console.log("✅ Multiplatform template downloaded successfully");
+          } else if (platform === "mobile") {
             // Download React Native + Convex template from GitHub
             console.log("📥 Downloading React Native + Convex template from GitHub...");
             await downloadRepoToWebContainer(container, {
@@ -1465,6 +1474,7 @@ export function Workspace({
                   setCloudflareProjectName(null);
                   setCloudflareDeploymentUrl(null);
                 }}
+                platform={platform}
               />
             </div>
           </div>

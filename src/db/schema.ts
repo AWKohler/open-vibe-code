@@ -4,7 +4,7 @@ export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   userId: text('user_id').notNull(), // Clerk user id
-  platform: text('platform').notNull().default('web'), // 'web' | 'mobile'
+  platform: text('platform').notNull().default('web'), // 'web' | 'mobile' | 'multiplatform'
   // Preferred model for this project: 'gpt-5.3-codex' | 'gpt-5.4' | 'claude-sonnet-4.6' | 'claude-opus-4.6' | 'fireworks-minimax-m2p5' | 'fireworks-glm-5'
   model: text('model').notNull().default('gpt-5.3-codex'),
   // Snapshot URLs for project thumbnails and HTML captures
@@ -13,7 +13,7 @@ export const projects = pgTable('projects', {
   // UploadThing file keys for deletion (format: "fileKey" from uploadthing)
   thumbnailKey: text('thumbnail_key'),
   htmlSnapshotKey: text('html_snapshot_key'),
-  // Convex backend integration (for web projects)
+  // Convex backend integration (for web and multiplatform projects)
   convexProjectId: text('convex_project_id'),       // Convex platform project ID
   convexDeploymentId: text('convex_deployment_id'), // Deployment name (e.g., "happy-otter-123")
   convexDeployUrl: text('convex_deploy_url'),       // VITE_CONVEX_URL value
@@ -23,6 +23,10 @@ export const projects = pgTable('projects', {
   githubRepoName: text('github_repo_name'),           // Repository name
   githubDefaultBranch: text('github_default_branch').default('main'), // Default branch
   githubLastPushedSha: text('github_last_pushed_sha'), // Last commit SHA pushed to GitHub
+  // User-managed Convex backend (BYO Convex)
+  userConvexUrl: text('user_convex_url'),
+  userConvexDeployKey: text('user_convex_deploy_key'),
+  backendType: text('backend_type').notNull().default('platform'), // 'platform' | 'user'
   // Cloudflare Pages deployment
   cloudflareProjectName: text('cloudflare_project_name'),
   cloudflareDeploymentUrl: text('cloudflare_deployment_url'),
@@ -87,6 +91,10 @@ export const userSettings = pgTable('user_settings', {
   githubAccessToken: text('github_access_token'),
   githubUsername: text('github_username'),
   githubAvatarUrl: text('github_avatar_url'),
+  // Convex OAuth
+  convexOAuthAccessToken: text('convex_oauth_access_token'),
+  convexOAuthRefreshToken: text('convex_oauth_refresh_token'),
+  convexOAuthExpiresAt: bigint('convex_oauth_expires_at', { mode: 'number' }),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (t) => ({

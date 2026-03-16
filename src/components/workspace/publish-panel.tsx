@@ -14,6 +14,10 @@ import {
   Trash2,
   RefreshCw,
   AlertCircle,
+  Smartphone,
+  Apple,
+  Play,
+  Hammer,
 } from "lucide-react";
 
 type PublishState = "idle" | "building" | "published" | "error";
@@ -28,6 +32,7 @@ interface PublishPanelProps {
   cloudflareDeploymentUrl: string | null;
   onPublished: (name: string, url: string) => void;
   onUnpublished: () => void;
+  platform?: "web" | "mobile" | "multiplatform";
 }
 
 /** Recursively read all files under a directory as base64 strings */
@@ -71,6 +76,7 @@ export function PublishPanel({
   cloudflareDeploymentUrl,
   onPublished,
   onUnpublished,
+  platform = "web",
 }: PublishPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [coords, setCoords] = useState({ top: 0, right: 0 });
@@ -137,9 +143,10 @@ export function PublishPanel({
     setErrorOutput("");
 
     try {
-      // 1. Run build
+      // 1. Run build — multiplatform uses build:web (expo export --platform web)
       setStatusText("Building project...");
-      const buildProcess = await webcontainer.spawn("pnpm", ["run", "build"]);
+      const buildCmd = platform === "multiplatform" ? "build:web" : "build";
+      const buildProcess = await webcontainer.spawn("pnpm", ["run", buildCmd]);
 
       let buildOutput = "";
       const reader = buildProcess.output.getReader();
@@ -272,7 +279,7 @@ export function PublishPanel({
               state === "published" ? "text-green-500" : "text-muted opacity-60"
             )}
           />
-          <span className="text-sm font-semibold">Publish</span>
+          <span className="text-sm font-semibold">{platform === "multiplatform" ? "Deploy" : "Publish"}</span>
         </div>
         {state === "published" && (
           <span className="text-[10px] text-green-600 dark:text-green-400 font-medium bg-green-500/10 px-2 py-0.5 rounded-full">
@@ -289,9 +296,11 @@ export function PublishPanel({
               <Globe className="w-6 h-6 text-muted" />
             </div>
             <div>
-              <p className="text-sm font-medium">Publish to the web</p>
+              <p className="text-sm font-medium">{platform === "multiplatform" ? "Deploy Web Version" : "Publish to the web"}</p>
               <p className="text-xs text-muted mt-1 leading-relaxed">
-                Build and deploy your project to a live URL on Cloudflare Pages.
+                {platform === "multiplatform"
+                  ? "Export and deploy the web version of your app to Cloudflare Pages."
+                  : "Build and deploy your project to a live URL on Cloudflare Pages."}
               </p>
             </div>
             <Button
@@ -450,6 +459,57 @@ export function PublishPanel({
           </div>
         )}
       </div>
+
+      {/* Native Builds Section (multiplatform only) */}
+      {platform === "multiplatform" && (
+        <div className="border-t border-border">
+          <div className="px-4 py-3 border-b border-border/50">
+            <div className="flex items-center gap-2">
+              <Smartphone className="w-4 h-4 text-muted opacity-60" />
+              <span className="text-sm font-semibold">Native Builds</span>
+              <span className="text-[10px] text-muted bg-soft px-1.5 py-0.5 rounded-full ml-auto">Coming Soon</span>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 px-4 py-3">
+            {/* iOS Build */}
+            <button
+              type="button"
+              disabled
+              className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg/50 opacity-60 cursor-not-allowed"
+            >
+              <div className="w-8 h-8 rounded-lg bg-neutral-900 flex items-center justify-center shrink-0">
+                <Apple size={16} className="text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <div className="text-xs font-medium text-fg">iOS Build</div>
+                <div className="text-[10px] text-muted">Compile for App Store</div>
+              </div>
+              <Hammer size={14} className="text-muted" />
+            </button>
+
+            {/* Android Build */}
+            <button
+              type="button"
+              disabled
+              className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg/50 opacity-60 cursor-not-allowed"
+            >
+              <div className="w-8 h-8 rounded-lg bg-green-600 flex items-center justify-center shrink-0">
+                <Play size={16} className="text-white" />
+              </div>
+              <div className="flex-1 text-left">
+                <div className="text-xs font-medium text-fg">Android Build</div>
+                <div className="text-[10px] text-muted">Compile for Play Store</div>
+              </div>
+              <Hammer size={14} className="text-muted" />
+            </button>
+
+            <p className="text-[10px] text-muted text-center leading-relaxed mt-1">
+              Native builds will be available in a future update.
+              Web deployment above is fully functional.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 

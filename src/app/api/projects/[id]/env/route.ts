@@ -36,20 +36,21 @@ export async function GET(
     isSecret: false;
   }> = [];
 
-  if (project.convexDeployUrl) {
+  const effectiveConvexUrl = project.userConvexUrl || project.convexDeployUrl;
+  if (effectiveConvexUrl) {
     // Inject the appropriate env var based on platform
     // Vite uses VITE_ prefix, Expo uses EXPO_PUBLIC_ prefix
-    if (project.platform === 'mobile') {
+    if (project.platform === 'mobile' || project.platform === 'multiplatform') {
       systemEnvVars.push({
         key: 'EXPO_PUBLIC_CONVEX_URL',
-        value: project.convexDeployUrl,
+        value: effectiveConvexUrl,
         isSystem: true,
         isSecret: false,
       });
     } else {
       systemEnvVars.push({
         key: 'VITE_CONVEX_URL',
-        value: project.convexDeployUrl,
+        value: effectiveConvexUrl,
         isSystem: true,
         isSecret: false,
       });

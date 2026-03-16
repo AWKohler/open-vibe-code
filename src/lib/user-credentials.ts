@@ -36,6 +36,10 @@ export interface UserCredentials {
   // Display (non-sensitive, kept in Neon but mirrored here for convenience)
   githubUsername: string | null;
   githubAvatarUrl: string | null;
+  // Convex OAuth
+  convexOAuthAccessToken: string | null;
+  convexOAuthRefreshToken: string | null;
+  convexOAuthExpiresAt: number | null;
 }
 
 const CACHE_TTL = 300; // 5 minutes
@@ -88,6 +92,9 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
           githubAccessToken: row.githubAccessToken ?? null,
           githubUsername: row.githubUsername ?? null,
           githubAvatarUrl: row.githubAvatarUrl ?? null,
+          convexOAuthAccessToken: row.convexOAuthAccessToken ?? null,
+          convexOAuthRefreshToken: row.convexOAuthRefreshToken ?? null,
+          convexOAuthExpiresAt: row.convexOAuthExpiresAt ?? null,
         };
       }
     } catch {
@@ -110,6 +117,9 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
     githubAccessToken: (meta.githubAccessToken ?? neon.githubAccessToken) ?? null,
     githubUsername: (meta.githubUsername ?? neon.githubUsername) ?? null,
     githubAvatarUrl: (meta.githubAvatarUrl ?? neon.githubAvatarUrl) ?? null,
+    convexOAuthAccessToken: (meta.convexOAuthAccessToken ?? neon.convexOAuthAccessToken) ?? null,
+    convexOAuthRefreshToken: (meta.convexOAuthRefreshToken ?? neon.convexOAuthRefreshToken) ?? null,
+    convexOAuthExpiresAt: (meta.convexOAuthExpiresAt ?? neon.convexOAuthExpiresAt) ?? null,
   };
 
   await redis.setex(cacheKey(userId), CACHE_TTL, creds);

@@ -46,6 +46,8 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
   });
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState(false);
   const [hasCodexOAuth, setHasCodexOAuth] = useState(false);
+  const [hasConvexOAuth, setHasConvexOAuth] = useState(false);
+  const [convexConnecting, setConvexConnecting] = useState(false);
 
   // Codex OAuth device flow state
   const [codexOAuthStep, setCodexOAuthStep] = useState<'idle' | 'polling' | 'success'>('idle');
@@ -107,6 +109,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
             });
             setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
             setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
+            setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
           }
         }
       } catch {
@@ -308,6 +311,31 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
     }
   };
 
+  // ── Convex OAuth ──────────────────────────────────────────────────────────
+
+  const startConvexOAuth = async () => {
+    setConvexConnecting(true);
+    try {
+      const res = await fetch('/api/oauth/convex/start?return_to=/');
+      const data = await res.json();
+      if (data.authUrl) window.location.href = data.authUrl;
+    } catch {
+      toast({ title: 'Error', description: 'Failed to start Convex authentication.' });
+    } finally {
+      setConvexConnecting(false);
+    }
+  };
+
+  const disconnectConvexOAuth = async () => {
+    try {
+      await fetch('/api/oauth/convex/disconnect', { method: 'POST' });
+      setHasConvexOAuth(false);
+      toast({ title: 'Disconnected', description: 'Convex account disconnected.' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to disconnect.' });
+    }
+  };
+
   if (!open) return null;
 
   const handleClose = () => {
@@ -446,6 +474,43 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                   <div className="py-8 text-center text-sm text-muted">Loading…</div>
                 ) : (
                   <div className="space-y-8">
+
+                    {/* ── Convex OAuth section ── */}
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-fg">Convex Account</h3>
+                          <p className="text-xs text-muted mt-0.5">
+                            Connect your Convex account to use your own backend projects.
+                            Required for free-plan projects.
+                          </p>
+                        </div>
+                        {hasConvexOAuth && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2.5 py-1 text-xs font-medium text-green-600 border border-green-500/30 whitespace-nowrap">
+                            <CheckCircle2 className="h-3 w-3" /> Connected
+                          </span>
+                        )}
+                      </div>
+
+                      {!hasConvexOAuth ? (
+                        <button
+                          onClick={startConvexOAuth}
+                          disabled={convexConnecting}
+                          className="inline-flex items-center gap-2 rounded-lg border border-border bg-bg px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-surface transition disabled:opacity-50"
+                        >
+                          {convexConnecting ? (
+                            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Connecting&hellip;</>
+                          ) : 'Connect Convex Account'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={disconnectConvexOAuth}
+                          className="inline-flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/15 px-3.5 py-2 text-sm font-medium text-red-500 hover:bg-red-500/25 transition"
+                        >
+                          Disconnect
+                        </button>
+                      )}
+                    </div>
 
                     {/* ── ChatGPT Codex OAuth section ── */}
                     <div>

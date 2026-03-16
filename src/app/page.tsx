@@ -11,7 +11,7 @@ import {
   useUser,
 } from "@clerk/nextjs";
 import { cn } from "@/lib/utils";
-import { ArrowUp, Plus, Smartphone, Laptop, Cog, ImagePlus, X as IconX } from "lucide-react";
+import { ArrowUp, Plus, Smartphone, Laptop, Cog, ImagePlus, X as IconX, Monitor, KeyRound, ChevronDown, Database, ArrowRight, Check } from "lucide-react";
 import { SettingsModal } from "@/components/settings/SettingsModal";
 import { useToast } from "@/components/ui/toast";
 import { ModelSelector } from "@/components/ui/ModelSelector";
@@ -33,7 +33,7 @@ export default function Home() {
   const router = useRouter();
   const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState("");
-  const [platform, setPlatform] = useState<"web" | "mobile">("web");
+  const [platform, setPlatform] = useState<"web" | "mobile" | "multiplatform">("web");
   const [model, setModel] = useState<ModelId>("fireworks-minimax-m2p5");
   const { toast } = useToast();
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
@@ -43,10 +43,17 @@ export default function Home() {
   const [hasCodexOAuth, setHasCodexOAuth] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
   const [userTier, setUserTier] = useState<'free' | 'pro' | 'max'>('free');
+  const [hasConvexOAuth, setHasConvexOAuth] = useState<boolean | null>(null);
+  const [convexBackendType, setConvexBackendType] = useState<'platform' | 'user'>('platform');
+  const [showConvexSelector, setShowConvexSelector] = useState(false);
+  const [convexConnecting, setConvexConnecting] = useState(false);
+  const convexSelectorRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState<'usage' | 'connections' | 'subscription'>('usage');
   const [showAuthDialog, setShowAuthDialog] = useState(false);
-  const [showNameDialog, setShowNameDialog] = useState(false);
+  // Stepped project-creation modal: null = hidden, 'convex' = connect step, 'name' = naming step
+  const [projectStep, setProjectStep] = useState<null | 'convex' | 'name'>(null);
+  const [projectQuotaLeft, setProjectQuotaLeft] = useState<number | null>(null);
   const [pendingImages, setPendingImages] = useState<LandingPendingImage[]>([]);
   const [showPlusPopover, setShowPlusPopover] = useState(false);
   const plusButtonRef = useRef<HTMLDivElement>(null);
@@ -176,24 +183,22 @@ export default function Home() {
       ? prompt.trim().slice(0, 48)
       : "New Project";
     params.set("name", defaultName);
-    const target = `/start?${params.toString()}`;
-    if (authed) {
-      setPendingParams(params);
-      setProjectName(defaultName);
-      if (typeof window !== "undefined") {
-        localStorage.setItem(PENDING_PARAMS_KEY, params.toString());
-        localStorage.setItem(PENDING_NAME_KEY, defaultName);
-      }
-      setShowNameDialog(true);
-    } else {
-      setPendingParams(params);
-      setProjectName(defaultName);
-      if (typeof window !== "undefined") {
-        localStorage.setItem(PENDING_PARAMS_KEY, params.toString());
-        localStorage.setItem(PENDING_NAME_KEY, defaultName);
-      }
-      setShowAuthDialog(true);
+
+    setPendingParams(params);
+    setProjectName(defaultName);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(PENDING_PARAMS_KEY, params.toString());
+      localStorage.setItem(PENDING_NAME_KEY, defaultName);
     }
+
+    if (!authed) {
+      setShowAuthDialog(true);
+      return;
+    }
+
+    // Determine the first step in the project-creation modal
+    const needsConvexStep = (userTier === 'free' || convexBackendType === 'user') && !hasConvexOAuth;
+    setProjectStep(needsConvexStep ? 'convex' : 'name');
   };
 
   const handleCreateProject = async () => {
@@ -204,12 +209,13 @@ export default function Home() {
       ? projectName.trim().slice(0, 48)
       : "New Project";
     params.set("name", chosenName);
-    setShowNameDialog(false);
+    setProjectStep(null);
     setPendingParams(null);
     if (typeof window !== "undefined") {
       localStorage.removeItem(PENDING_PARAMS_KEY);
       localStorage.removeItem(PENDING_NAME_KEY);
     }
+    if (convexBackendType === 'user') params.set('backendType', 'user');
     // Serialize pending images to sessionStorage for AgentPanel to pick up
     if (pendingImages.length > 0) {
       try {
@@ -247,8 +253,8 @@ export default function Home() {
     }
   };
 
-  const closeNameDialog = () => {
-    setShowNameDialog(false);
+  const closeProjectModal = () => {
+    setProjectStep(null);
     setPendingParams(null);
     if (typeof window !== "undefined") {
       localStorage.removeItem(PENDING_PARAMS_KEY);
@@ -270,11 +276,16 @@ export default function Home() {
         setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
         setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
         setHasFireworksKey(Boolean(data?.hasFireworksKey));
+        setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
       }
       if (budgetRes.ok) {
         const data = await budgetRes.json();
         if (data?.tier === 'pro' || data?.tier === 'max') {
           setUserTier(data.tier as 'pro' | 'max');
+        }
+        // Track remaining managed-convex quota for the selector
+        if (typeof data?.convexProjectsLeft === 'number') {
+          setProjectQuotaLeft(data.convexProjectsLeft);
         }
       }
     } catch {}
@@ -286,6 +297,7 @@ export default function Home() {
       setHasAnthropicKey(null);
       setHasMoonshotKey(null);
       setHasFireworksKey(null);
+      setHasConvexOAuth(null);
       return;
     }
     void fetchUserSettings();
@@ -297,6 +309,54 @@ export default function Home() {
     window.addEventListener('settings-closed', handler);
     return () => window.removeEventListener('settings-closed', handler);
   }, [isSignedIn, fetchUserSettings]);
+
+  // Handle convex_connected URL param (redirect back from Convex OAuth)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('convex_connected') === '1') {
+      setHasConvexOAuth(true);
+      // Clean URL
+      params.delete('convex_connected');
+      const newSearch = params.toString();
+      window.history.replaceState({}, '', newSearch ? `/?${newSearch}` : '/');
+      // If there are pending params (user was mid-flow), go straight to name step
+      const stored = localStorage.getItem(PENDING_PARAMS_KEY);
+      if (stored) {
+        const storedName = localStorage.getItem(PENDING_NAME_KEY) ?? 'New Project';
+        setPendingParams(new URLSearchParams(stored));
+        setProjectName(storedName);
+        setProjectStep('name');
+      }
+    }
+  }, []); // run once on mount
+
+  // Close Convex selector on outside click
+  useEffect(() => {
+    if (!showConvexSelector) return;
+    const handler = (e: MouseEvent) => {
+      if (convexSelectorRef.current && !convexSelectorRef.current.contains(e.target as Node)) {
+        setShowConvexSelector(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showConvexSelector]);
+
+  const handleConnectConvex = async () => {
+    setConvexConnecting(true);
+    try {
+      const res = await fetch('/api/oauth/convex/start?return_to=/');
+      const data = await res.json();
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to start Convex authentication.' });
+    } finally {
+      setConvexConnecting(false);
+    }
+  };
 
   useEffect(() => {
     if (!pendingParams && typeof window !== "undefined") {
@@ -312,7 +372,7 @@ export default function Home() {
           const resolved = storedModel === 'gpt-5.2' ? 'gpt-5.3-codex' : storedModel;
           setModel(resolved as ModelId);
         }
-        if (storedPlatform === "web" || (storedPlatform === "mobile" && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP)) {
+        if (storedPlatform === "web" || (storedPlatform === "mobile" && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP) || (storedPlatform === "multiplatform" && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP)) {
           setPlatform(storedPlatform);
         }
         if (storedName) setProjectName(storedName);
@@ -320,9 +380,13 @@ export default function Home() {
     }
     if (isSignedIn && pendingParams) {
       setShowAuthDialog(false);
-      setShowNameDialog(true);
+      // Determine if Convex step is needed before jumping to name step
+      // Note: userTier/hasConvexOAuth may not be loaded yet — the name step
+      // is a safe default; the user can always go back if Convex is needed.
+      const needsConvex = (userTier === 'free' || convexBackendType === 'user') && !hasConvexOAuth;
+      setProjectStep(needsConvex ? 'convex' : 'name');
     }
-  }, [isSignedIn, pendingParams]);
+  }, [isSignedIn, pendingParams, userTier, convexBackendType, hasConvexOAuth]);
 
   return (
     <>
@@ -507,13 +571,13 @@ export default function Home() {
                         {process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP && (
                           <button
                             type="button"
-                            onClick={() => setPlatform(platform === "web" ? "mobile" : "web")}
+                            onClick={() => setPlatform(platform === "web" ? "multiplatform" : platform === "multiplatform" ? "mobile" : "web")}
                             className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition"
                             title="Toggle platform"
                           >
-                            {platform === "web" ? <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
-                            <span className="hidden sm:inline">{platform === "web" ? "Web" : "Mobile App (Experimental)"}</span>
-                            <span className="sm:hidden">{platform === "web" ? "Web" : "Mobile"}</span>
+                            {platform === "web" ? <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : platform === "multiplatform" ? <Monitor className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+                            <span className="hidden sm:inline">{platform === "web" ? "Web" : platform === "multiplatform" ? "Multiplatform" : "Mobile App (Experimental)"}</span>
+                            <span className="sm:hidden">{platform === "web" ? "Web" : platform === "multiplatform" ? "Multi" : "Mobile"}</span>
                           </button>
                         )}
                         <ModelSelector
@@ -529,6 +593,58 @@ export default function Home() {
                             });
                           }}
                         />
+                        {isSignedIn && (userTier === 'pro' || userTier === 'max') && (
+                          <div ref={convexSelectorRef} className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setShowConvexSelector(v => !v)}
+                              className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition"
+                              title="Backend type"
+                            >
+                              {convexBackendType === 'platform' ? (
+                                <img src="/convex-color.svg" className="h-3.5 w-3.5" alt="" />
+                              ) : (
+                                <KeyRound className="h-3.5 w-3.5" />
+                              )}
+                              <span className="hidden sm:inline">{convexBackendType === 'platform' ? 'Managed' : 'Your Convex'}</span>
+                              <ChevronDown className="h-3 w-3 opacity-60" />
+                            </button>
+                            {showConvexSelector && (
+                              <div className="absolute bottom-full mb-2 left-0 w-60 rounded-xl border border-border bg-surface shadow-lg overflow-hidden z-20">
+                                <button
+                                  type="button"
+                                  onClick={() => { setConvexBackendType('platform'); setShowConvexSelector(false); }}
+                                  className={cn(
+                                    "flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left",
+                                    convexBackendType === 'platform' ? "bg-elevated" : "hover:bg-elevated"
+                                  )}
+                                >
+                                  <img src="/convex-color.svg" className="h-4 w-4 mt-0.5 shrink-0" alt="" />
+                                  <div>
+                                    <div className="font-medium text-[var(--sand-text)]">Botflow Managed</div>
+                                    <div className="text-xs text-neutral-400 mt-0.5">We handle infrastructure &amp; scaling</div>
+                                  </div>
+                                  {convexBackendType === 'platform' && <Check className="h-4 w-4 text-neutral-900 ml-auto mt-0.5 shrink-0" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setConvexBackendType('user'); setShowConvexSelector(false); }}
+                                  className={cn(
+                                    "flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left border-t border-border",
+                                    convexBackendType === 'user' ? "bg-elevated" : "hover:bg-elevated"
+                                  )}
+                                >
+                                  <KeyRound className="h-4 w-4 mt-0.5 shrink-0 text-[var(--sand-text)]" />
+                                  <div>
+                                    <div className="font-medium text-[var(--sand-text)]">Bring Your Own Convex</div>
+                                    <div className="text-xs text-neutral-400 mt-0.5">Will require authentication</div>
+                                  </div>
+                                  {convexBackendType === 'user' && <Check className="h-4 w-4 text-neutral-900 ml-auto mt-0.5 shrink-0" />}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Send button */}
@@ -657,11 +773,11 @@ export default function Home() {
 
       {showAuthDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-semibold text-neutral-900">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-bg p-6 shadow-xl">
+            <h2 className="text-xl font-semibold text-foreground">
               Sign in to start building
             </h2>
-            <p className="mt-2 text-sm text-neutral-600">
+            <p className="mt-2 text-sm text-muted">
               Sign in or sign up to create your project workspace. You&apos;ll
               be able to name it on the next step.
             </p>
@@ -670,13 +786,13 @@ export default function Home() {
                 mode="modal"
                 appearance={landingSignInModalAppearance}
               >
-                <button className="inline-flex flex-1 items-center justify-center rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white shadow hover:opacity-90 transition">
+                <button className="inline-flex flex-1 items-center justify-center rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition">
                   Sign in / Sign up
                 </button>
               </SignInButton>
               <button
                 onClick={closeAuthDialog}
-                className="inline-flex flex-1 items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-neutral-50 transition"
+                className="inline-flex flex-1 items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-muted shadow-sm hover:bg-surface transition"
               >
                 Cancel
               </button>
@@ -685,40 +801,200 @@ export default function Home() {
         </div>
       )}
 
-      {showNameDialog && (
+      {/* ── Stepped project-creation modal (Convex → Name) ── */}
+      {projectStep !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-          <div className="w-full max-w-md rounded-2xl border border-border bg-white p-6 shadow-xl">
-            <h2 className="text-xl font-semibold text-neutral-900">
-              Name your project
-            </h2>
-            <p className="mt-2 text-sm text-neutral-600">
-              Give your project a short name so it&apos;s easy to find later.
-            </p>
-            <div className="mt-4">
-              <input
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateProject();
-                }}
-                placeholder="My new project"
-                className="w-full rounded-xl border border-border bg-white px-3.5 py-2.5 text-sm text-neutral-900 shadow-sm outline-none focus:ring-2 focus:ring-black/10"
-              />
-            </div>
-            <div className="mt-6 flex flex-col sm:flex-row gap-3">
-              <button
-                onClick={handleCreateProject}
-                className="inline-flex flex-1 items-center justify-center rounded-xl bg-black px-4 py-2.5 text-sm font-medium text-white shadow hover:opacity-90 transition"
-              >
-                Continue to workspace
-              </button>
-              <button
-                onClick={closeNameDialog}
-                className="inline-flex flex-1 items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-neutral-50 transition"
-              >
-                Cancel
-              </button>
-            </div>
+          <div className="w-full max-w-md rounded-2xl border border-border bg-bg shadow-xl overflow-hidden">
+
+            {/* ── Step: Convex backend ── */}
+            {projectStep === 'convex' && (() => {
+              const isPaid = userTier === 'pro' || userTier === 'max';
+              const managedQuotaHit = isPaid && projectQuotaLeft !== null && projectQuotaLeft <= 0;
+              return (
+                <>
+                  <div className="px-6 pt-6 pb-3">
+                    <h2 className="text-xl font-semibold text-foreground">Connect your backend</h2>
+                    <p className="mt-1.5 text-sm text-muted">
+                      {isPaid
+                        ? 'Choose how to host the Convex backend for this project.'
+                        : 'Botflow uses Convex for your backend. Connect your free Convex account to continue.'}
+                    </p>
+                  </div>
+
+                  <div className="px-6 pb-6 space-y-3">
+                    {/* BYO option */}
+                    <div className={cn(
+                      "relative rounded-xl border-2 p-4 transition-all",
+                      hasConvexOAuth ? "border-green-500/60 bg-green-500/5" : "border-foreground/20 bg-soft"
+                    )}>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground">
+                          <KeyRound className="h-4 w-4 text-bg" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">Your Convex Account</span>
+                            {hasConvexOAuth && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-700 border border-green-500/30">
+                                <Check className="h-3 w-3" /> Connected
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted">
+                            Connect your free Convex account — projects live in your dashboard, no lock-in.
+                          </p>
+                          {!hasConvexOAuth && (
+                            <a
+                              href="https://dashboard.convex.dev"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-muted hover:text-foreground mt-1"
+                            >
+                              Don&apos;t have an account? Sign up free at convex.dev
+                              <ArrowRight className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+
+                      {!hasConvexOAuth && (
+                        <button
+                          onClick={handleConnectConvex}
+                          disabled={convexConnecting}
+                          className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-60 transition"
+                        >
+                          {convexConnecting ? (
+                            <><div className="h-4 w-4 animate-spin rounded-full border-2 border-bg/30 border-t-bg" /> Connecting&hellip;</>
+                          ) : (
+                            'Sign in with Convex'
+                          )}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Platform-managed option */}
+                    {isPaid ? (
+                      /* Paid users: selectable option (greyed only if quota hit) */
+                      <button
+                        type="button"
+                        disabled={managedQuotaHit}
+                        onClick={() => {
+                          setConvexBackendType('platform');
+                          setProjectStep('name');
+                        }}
+                        className={cn(
+                          "relative w-full rounded-xl border p-4 text-left transition-all",
+                          managedQuotaHit
+                            ? "border-border bg-soft opacity-50 cursor-not-allowed"
+                            : "border-border bg-soft hover:border-foreground/30 hover:bg-elevated cursor-pointer"
+                        )}
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated">
+                            <img src="/convex-color.svg" className="h-4 w-4" alt="" />
+                          </div>
+                          <div>
+                            <span className="text-sm font-semibold text-foreground">Botflow Managed</span>
+                            <span className="ml-1.5 text-xs text-muted font-normal">(Recommended)</span>
+                            <p className="mt-0.5 text-xs text-muted">
+                              We handle the infrastructure, backups, and scaling. Instant setup.
+                            </p>
+                            {managedQuotaHit && (
+                              <p className="mt-1 text-xs text-amber-600 font-medium">
+                                You&apos;ve reached your managed project limit. Delete a project or upgrade your plan.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    ) : (
+                      /* Free users: greyed out with Upgrade badge */
+                      <div className="relative rounded-xl border border-border bg-soft p-4 opacity-50 cursor-not-allowed">
+                        <div className="absolute -top-2.5 right-3">
+                          <span className="inline-flex items-center rounded-full bg-foreground px-2.5 py-0.5 text-xs font-semibold text-bg">
+                            Upgrade to Pro
+                          </span>
+                        </div>
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated">
+                            <Database className="h-4 w-4 text-muted" />
+                          </div>
+                          <div>
+                            <span className="text-sm font-semibold text-muted">Botflow Managed (Recommended)</span>
+                            <p className="mt-0.5 text-xs text-muted">
+                              We handle the infrastructure, backups, and scaling. Instant setup.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Footer buttons */}
+                    <div className="flex gap-3 pt-1">
+                      {hasConvexOAuth && (
+                        <button
+                          onClick={() => {
+                            setConvexBackendType('user');
+                            setProjectStep('name');
+                          }}
+                          className="flex-1 inline-flex items-center justify-center rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition"
+                        >
+                          Continue
+                          <ArrowRight className="ml-1.5 h-4 w-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={closeProjectModal}
+                        className={cn(
+                          "inline-flex items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-muted shadow-sm hover:bg-surface transition",
+                          hasConvexOAuth ? "" : "flex-1"
+                        )}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* ── Step: Project name ── */}
+            {projectStep === 'name' && (
+              <div className="p-6">
+                <h2 className="text-xl font-semibold text-foreground">
+                  Name your project
+                </h2>
+                <p className="mt-2 text-sm text-muted">
+                  Give your project a short name so it&apos;s easy to find later.
+                </p>
+                <div className="mt-4">
+                  <input
+                    value={projectName}
+                    onChange={(e) => setProjectName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCreateProject();
+                    }}
+                    placeholder="My new project"
+                    className="w-full rounded-xl border border-border bg-bg px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none focus:ring-2 focus:ring-foreground/10"
+                    autoFocus
+                  />
+                </div>
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={handleCreateProject}
+                    className="flex-1 inline-flex items-center justify-center rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition"
+                  >
+                    Continue to workspace
+                  </button>
+                  <button
+                    onClick={closeProjectModal}
+                    className="inline-flex items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-muted shadow-sm hover:bg-surface transition"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

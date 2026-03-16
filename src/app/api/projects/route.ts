@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, platform, model } = body as {
       name?: string;
-      platform?: 'web' | 'mobile';
+      platform?: 'web' | 'mobile' | 'multiplatform';
       model?:
         | 'gpt-5.3-codex'
         | 'gpt-5.4'

@@ -8,7 +8,7 @@ import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 
-import { SYSTEM_PROMPT_WEB, SYSTEM_PROMPT_MOBILE } from "@/lib/agent/prompts";
+import { SYSTEM_PROMPT_WEB, SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM } from "@/lib/agent/prompts";
 import { MODEL_CONFIGS, resolveModelId, type ModelId } from "@/lib/agent/models";
 import { agentLog, generateRequestId, setRequestId } from "@/lib/agent/logger";
 import { classifyError, formatErrorResponse } from "@/lib/agent/errors";
@@ -504,7 +504,7 @@ export async function POST(req: Request) {
       messages,
       projectId,
       platform,
-    }: { messages: unknown; projectId?: string; platform?: "web" | "mobile" } =
+    }: { messages: unknown; projectId?: string; platform?: "web" | "mobile" | "multiplatform" } =
       await req.json();
 
     const db = getDb();
@@ -529,7 +529,7 @@ export async function POST(req: Request) {
     const creds = await getUserCredentials(userId);
 
     const modelConfig = MODEL_CONFIGS[selectedModel];
-    const systemPrompt = platform === "mobile" ? SYSTEM_PROMPT_MOBILE : SYSTEM_PROMPT_WEB;
+    const systemPrompt = platform === "mobile" ? SYSTEM_PROMPT_MOBILE : platform === "multiplatform" ? SYSTEM_PROMPT_MULTIPLATFORM : SYSTEM_PROMPT_WEB;
     const tools = getTools();
 
     // ── Tier enforcement for server-key models ──────────────────────────────

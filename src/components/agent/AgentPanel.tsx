@@ -22,7 +22,7 @@ import type { AgentErrorType } from '@/lib/agent/errors';
 import { processImageForUpload } from '@/lib/image-processing';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 
-type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: 'web' | 'mobile' };
+type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: 'web' | 'mobile' | 'multiplatform' };
 
 interface PendingImage {
   id: string;

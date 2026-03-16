@@ -16,7 +16,7 @@ export default async function WorkspacePage({
   const { id: projectId } = await params;
   const searchParamsResolved = searchParams ? await searchParams : {};
   const initialPrompt = typeof searchParamsResolved.prompt === 'string' ? searchParamsResolved.prompt : undefined;
-  const platform = typeof searchParamsResolved.platform === 'string' ? (searchParamsResolved.platform as 'web' | 'mobile') : undefined;
+  const platform = typeof searchParamsResolved.platform === 'string' ? (searchParamsResolved.platform as 'web' | 'mobile' | 'multiplatform') : undefined;
 
   if (!userId) {
     return redirectToSignIn({ returnBackUrl: `/workspace/${projectId}` });

@@ -57,9 +57,10 @@ export async function GET(request: Request) {
       .values({ name, userId, platform, model, backendType })
       .returning();
 
-    // Only provision platform Convex for paid users and when not using user backend
+    // Only provision platform Convex when allowed and not using user backend
     const limits = await getUserTierAndLimits(userId);
-    if (limits.tier !== 'free' && backendType !== 'user') {
+    const cloudConvexForAll = process.env.ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+    if ((cloudConvexForAll || limits.tier !== 'free') && backendType !== 'user') {
       try {
         const convexProjectName = `ide-${project.id.slice(0, 8)}`;
         const convex = await provisionConvexBackend(convexProjectName);

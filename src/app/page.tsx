@@ -197,7 +197,8 @@ export default function Home() {
     }
 
     // Determine the first step in the project-creation modal
-    const needsConvexStep = (userTier === 'free' || convexBackendType === 'user') && !hasConvexOAuth;
+    const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+    const needsConvexStep = ((!cloudForAll && userTier === 'free') || convexBackendType === 'user') && !hasConvexOAuth;
     setProjectStep(needsConvexStep ? 'convex' : 'name');
   };
 
@@ -383,7 +384,8 @@ export default function Home() {
       // Determine if Convex step is needed before jumping to name step
       // Note: userTier/hasConvexOAuth may not be loaded yet — the name step
       // is a safe default; the user can always go back if Convex is needed.
-      const needsConvex = (userTier === 'free' || convexBackendType === 'user') && !hasConvexOAuth;
+      const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+      const needsConvex = ((!cloudForAll && userTier === 'free') || convexBackendType === 'user') && !hasConvexOAuth;
       setProjectStep(needsConvex ? 'convex' : 'name');
     }
   }, [isSignedIn, pendingParams, userTier, convexBackendType, hasConvexOAuth]);
@@ -593,7 +595,7 @@ export default function Home() {
                             });
                           }}
                         />
-                        {isSignedIn && (userTier === 'pro' || userTier === 'max') && (
+                        {isSignedIn && (userTier === 'pro' || userTier === 'max' || process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true') && (
                           <div ref={convexSelectorRef} className="relative shrink-0">
                             <button
                               type="button"
@@ -808,7 +810,8 @@ export default function Home() {
 
             {/* ── Step: Convex backend ── */}
             {projectStep === 'convex' && (() => {
-              const isPaid = userTier === 'pro' || userTier === 'max';
+              const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+              const isPaid = userTier === 'pro' || userTier === 'max' || cloudForAll;
               const managedQuotaHit = isPaid && projectQuotaLeft !== null && projectQuotaLeft <= 0;
               return (
                 <>

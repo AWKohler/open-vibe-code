@@ -240,6 +240,12 @@ class IndexedDBStorage {
           const fullPath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
           
           if (entry.isDirectory()) {
+            // Skip directories that are never saved — avoids reading thousands of
+            // node_modules files (e.g. lucide-react has 1400+ icon files) which
+            // makes saveProjectStateNow very slow and causes concurrent-save races.
+            if (entry.name === 'node_modules' || entry.name === '.git') {
+              continue;
+            }
             files[fullPath] = { type: 'folder' };
             await processDirectory(fullPath);
           } else {

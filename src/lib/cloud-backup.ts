@@ -342,6 +342,11 @@ export class CloudBackupManager {
           const fullPath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
 
           if (entry.isDirectory()) {
+            // Skip directories that are never backed up — avoids reading thousands
+            // of node_modules files which makes cloud sync extremely slow.
+            if (entry.name === 'node_modules' || entry.name === '.git') {
+              continue;
+            }
             files.push({
               id: fullPath,
               projectId: '',

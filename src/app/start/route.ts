@@ -5,6 +5,7 @@ import { projects } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { provisionConvexBackend } from '@/lib/convex-platform';
 import { getUserTierAndLimits } from '@/lib/tier';
+import { getUserCredentials } from '@/lib/user-credentials';
 
 export async function GET(request: Request) {
   const { userId, redirectToSignIn } = await auth();
@@ -57,39 +58,109 @@ export async function GET(request: Request) {
       .values({ name, userId, platform, model, backendType })
       .returning();
 
-    // Only provision platform Convex when allowed and not using user backend
-    const limits = await getUserTierAndLimits(userId);
-    const cloudConvexForAll = process.env.ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
-    if ((cloudConvexForAll || limits.tier !== 'free') && backendType !== 'user') {
+    if (backendType === 'user') {
+      // BYOC: provision in the user's own Convex account via their OAuth token
       try {
-        const convexProjectName = `ide-${project.id.slice(0, 8)}`;
-        const convex = await provisionConvexBackend(convexProjectName);
+        const creds = await getUserCredentials(userId);
+        if (creds.convexOAuthAccessToken) {
+          const CONVEX_API = 'https://api.convex.dev/v1';
+          const oauthHeaders = {
+            'Authorization': `Bearer ${creds.convexOAuthAccessToken}`,
+            'Content-Type': 'application/json',
+          };
 
-        // Update project with Convex details
-        await db.update(projects)
-          .set({
-            convexProjectId: convex.projectId,
-            convexDeploymentId: convex.deploymentId,
-            convexDeployUrl: convex.deployUrl,
-            convexDeployKey: convex.deployKey,
-            updatedAt: new Date(),
-          })
-          .where(eq(projects.id, project.id));
+          // Get user's teams
+          const teamsRes = await fetch(`${CONVEX_API}/teams`, { headers: oauthHeaders });
+          if (!teamsRes.ok) throw new Error(`Failed to get teams: ${teamsRes.status}`);
+          const teams = await teamsRes.json() as Array<{ id: number }>;
+          if (!teams.length) throw new Error('No Convex teams found');
+          const team = teams[0];
 
-        console.log(`Convex backend provisioned for project ${project.id}: ${convex.deployUrl}`);
+          // Create project in user's team
+          const convexProjectName = `bf-${name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20)}`;
+          const createRes = await fetch(`${CONVEX_API}/teams/${team.id}/create_project`, {
+            method: 'POST',
+            headers: oauthHeaders,
+            body: JSON.stringify({ projectName: convexProjectName, deploymentType: 'prod' }),
+          });
+          if (!createRes.ok) {
+            const errText = await createRes.text();
+            throw new Error(`Failed to create project: ${createRes.status} ${errText}`);
+          }
+
+          const createData = await createRes.json();
+          const deployment = createData.prodDeployment || createData.deployment || createData;
+          const createdProject = createData.project || createData;
+          const deploymentName = deployment.name || deployment.deploymentName;
+          const deploymentUrl = `https://${deploymentName}.convex.cloud`;
+          const convexProjectId = String(createdProject.id || createdProject.projectId);
+
+          // Create deploy key
+          const keyRes = await fetch(`${CONVEX_API}/deployments/${deploymentName}/create_deploy_key`, {
+            method: 'POST',
+            headers: oauthHeaders,
+            body: JSON.stringify({ name: `botflow-${Date.now()}` }),
+          });
+          if (!keyRes.ok) throw new Error(`Failed to create deploy key: ${keyRes.status}`);
+          const keyData = await keyRes.json();
+          const deployKey = keyData.key || keyData.deployKey || keyData.accessToken || '';
+
+          await db.update(projects)
+            .set({
+              userConvexUrl: deploymentUrl,
+              userConvexDeployKey: deployKey,
+              convexProjectId,
+              convexDeploymentId: deploymentName,
+              convexDeployUrl: deploymentUrl,
+              backendType: 'user',
+              updatedAt: new Date(),
+            })
+            .where(eq(projects.id, project.id));
+
+          console.log(`BYOC Convex provisioned for project ${project.id} in user's account: ${deploymentUrl}`);
+        } else {
+          console.error('BYOC requested but no Convex OAuth token found for user');
+        }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (msg.includes('ProjectQuotaReached')) {
-          // Quota reached — redirect with a visible error rather than silently
-          // creating a project with no backend.
-          console.error('Convex quota reached, cannot create project:', msg);
+          console.error('User Convex quota reached:', msg);
           const errUrl = new URL('/', request.url);
           errUrl.searchParams.set('error', 'convex_quota');
           return NextResponse.redirect(errUrl);
         }
-        // For other provisioning errors, allow the project to be created without
-        // a Convex backend — the deploy route will retry provisioning on first deploy.
-        console.error('Failed to provision Convex backend:', error);
+        console.error('Failed to provision BYOC Convex backend:', error);
+      }
+    } else {
+      // Platform-managed: provision under our account
+      const limits = await getUserTierAndLimits(userId);
+      const cloudConvexForAll = process.env.ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+      if (cloudConvexForAll || limits.tier !== 'free') {
+        try {
+          const convexProjectName = `ide-${project.id.slice(0, 8)}`;
+          const convex = await provisionConvexBackend(convexProjectName);
+
+          await db.update(projects)
+            .set({
+              convexProjectId: convex.projectId,
+              convexDeploymentId: convex.deploymentId,
+              convexDeployUrl: convex.deployUrl,
+              convexDeployKey: convex.deployKey,
+              updatedAt: new Date(),
+            })
+            .where(eq(projects.id, project.id));
+
+          console.log(`Convex backend provisioned for project ${project.id}: ${convex.deployUrl}`);
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          if (msg.includes('ProjectQuotaReached')) {
+            console.error('Convex quota reached, cannot create project:', msg);
+            const errUrl = new URL('/', request.url);
+            errUrl.searchParams.set('error', 'convex_quota');
+            return NextResponse.redirect(errUrl);
+          }
+          console.error('Failed to provision Convex backend:', error);
+        }
       }
     }
 

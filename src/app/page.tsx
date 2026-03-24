@@ -321,6 +321,8 @@ export default function Home() {
       params.delete('convex_connected');
       const newSearch = params.toString();
       window.history.replaceState({}, '', newSearch ? `/?${newSearch}` : '/');
+      // User came back from Convex OAuth — they chose BYOC
+      setConvexBackendType('user');
       // If there are pending params (user was mid-flow), go straight to name step
       const stored = localStorage.getItem(PENDING_PARAMS_KEY);
       if (stored) {

@@ -216,7 +216,7 @@ export default function Home() {
       localStorage.removeItem(PENDING_PARAMS_KEY);
       localStorage.removeItem(PENDING_NAME_KEY);
     }
-    if (convexBackendType === 'user') params.set('backendType', 'user');
+    if (convexBackendType === 'user' || params.get('backendType') === 'user') params.set('backendType', 'user');
     // Serialize pending images to sessionStorage for AgentPanel to pick up
     if (pendingImages.length > 0) {
       try {
@@ -323,11 +323,16 @@ export default function Home() {
       window.history.replaceState({}, '', newSearch ? `/?${newSearch}` : '/');
       // User came back from Convex OAuth — they chose BYOC
       setConvexBackendType('user');
-      // If there are pending params (user was mid-flow), go straight to name step
+      // If there are pending params (user was mid-flow), go straight to name step.
+      // Bake backendType=user into the stored params so handleCreateProject picks it
+      // up regardless of React state timing.
       const stored = localStorage.getItem(PENDING_PARAMS_KEY);
       if (stored) {
+        const restoredParams = new URLSearchParams(stored);
+        restoredParams.set('backendType', 'user');
+        localStorage.setItem(PENDING_PARAMS_KEY, restoredParams.toString());
         const storedName = localStorage.getItem(PENDING_NAME_KEY) ?? 'New Project';
-        setPendingParams(new URLSearchParams(stored));
+        setPendingParams(restoredParams);
         setProjectName(storedName);
         setProjectStep('name');
       }

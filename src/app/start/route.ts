@@ -69,12 +69,19 @@ export async function GET(request: Request) {
             'Content-Type': 'application/json',
           };
 
-          // Get user's teams
-          const teamsRes = await fetch(`${CONVEX_API}/teams`, { headers: oauthHeaders });
-          if (!teamsRes.ok) throw new Error(`Failed to get teams: ${teamsRes.status}`);
-          const teams = await teamsRes.json() as Array<{ id: number }>;
-          if (!teams.length) throw new Error('No Convex teams found');
-          const team = teams[0];
+          // Get the team this OAuth token is scoped to
+          // The token is team-scoped (issued via /oauth/authorize/team),
+          // so /v1/get_team returns the single team it belongs to.
+          const teamRes = await fetch(`${CONVEX_API}/get_team`, {
+            method: 'POST',
+            headers: oauthHeaders,
+            body: JSON.stringify({}),
+          });
+          if (!teamRes.ok) {
+            const errText = await teamRes.text();
+            throw new Error(`Failed to get team: ${teamRes.status} ${errText}`);
+          }
+          const team = await teamRes.json() as { id: number };
 
           // Create project in user's team
           const convexProjectName = `bf-${name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20)}`;

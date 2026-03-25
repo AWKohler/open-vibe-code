@@ -35,19 +35,20 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    // Step 1: get user's teams
-    const teamsRes = await fetch(`${CONVEX_API_BASE}/teams`, { headers });
-    if (!teamsRes.ok) {
-      if (teamsRes.status === 401) {
+    // Step 1: get the team this OAuth token is scoped to
+    const teamRes = await fetch(`${CONVEX_API_BASE}/get_team`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({}),
+    });
+    if (!teamRes.ok) {
+      if (teamRes.status === 401) {
         return NextResponse.json({ error: 'convex_token_revoked', message: 'Your Convex connection has expired. Please reconnect.' }, { status: 401 });
       }
-      throw new Error(`Failed to get teams: ${teamsRes.status}`);
+      const errText = await teamRes.text();
+      throw new Error(`Failed to get team: ${teamRes.status} ${errText}`);
     }
-    const teamsData = await teamsRes.json() as Array<{ id: number; slug: string; name: string }>;
-    if (!teamsData.length) {
-      return NextResponse.json({ error: 'No Convex teams found. Please create a team at dashboard.convex.dev.' }, { status: 400 });
-    }
-    const team = teamsData[0];
+    const team = await teamRes.json() as { id: number; slug: string; name: string };
 
     // Step 2: create a project in user's team
     const convexProjectName = projectName ? `bf-${projectName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20)}` : `bf-${projectId.slice(0, 8)}`;

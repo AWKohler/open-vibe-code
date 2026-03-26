@@ -40,23 +40,31 @@ export async function POST(req: NextRequest) {
     let teamSlug: string | null = creds.convexTeamId ?? null;
 
     if (!teamSlug) {
-      const teamsRes = await fetch(`${CONVEX_API}/teams`, {
-        method: 'GET',
-        headers,
-      });
-      if (teamsRes.status === 401) {
-        return NextResponse.json({ error: 'convex_token_revoked', message: 'Your Convex connection has expired. Please reconnect.' }, { status: 401 });
-      }
-      if (!teamsRes.ok) {
-        const errText = await teamsRes.text();
-        throw new Error(`Failed to get teams: ${teamsRes.status} ${errText}`);
-      }
+      // Team-scoped OAuth tokens have format: "team:<slug>|<jwt>"
+      const tokenStr = creds.convexOAuthAccessToken!;
+      const teamMatch = tokenStr.match(/^team:([^|]+)\|/);
+      if (teamMatch) {
+        teamSlug = teamMatch[1];
+      } else {
+        // Fallback: try GET /api/teams (works for user-level tokens)
+        const teamsRes = await fetch(`${CONVEX_API}/teams`, {
+          method: 'GET',
+          headers,
+        });
+        if (teamsRes.status === 401) {
+          return NextResponse.json({ error: 'convex_token_revoked', message: 'Your Convex connection has expired. Please reconnect.' }, { status: 401 });
+        }
+        if (!teamsRes.ok) {
+          const errText = await teamsRes.text();
+          throw new Error(`Failed to get teams: ${teamsRes.status} ${errText}`);
+        }
 
-      const teams = await teamsRes.json() as Array<{ id: number; slug: string; name: string }>;
-      if (teams.length === 0) {
-        throw new Error('No teams found for this Convex account');
+        const teams = await teamsRes.json() as Array<{ id: number; slug: string; name: string }>;
+        if (teams.length === 0) {
+          throw new Error('No teams found for this Convex account');
+        }
+        teamSlug = teams[0].slug;
       }
-      teamSlug = teams[0].slug;
       await setUserCredentials(userId, { convexTeamId: teamSlug });
     }
 

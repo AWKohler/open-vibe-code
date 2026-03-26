@@ -75,26 +75,35 @@ export async function GET(request: Request) {
           };
 
           // Step 1: Get the team slug
+          // Team-scoped OAuth tokens have format: "team:<slug>|<jwt>"
           let teamSlug: string | null = creds.convexTeamId ?? null;
 
           if (!teamSlug) {
-            console.log('[START] No stored team slug, fetching GET /api/teams...');
-            const teamsRes = await fetch(`${CONVEX_API}/teams`, {
-              method: 'GET',
-              headers: oauthHeaders,
-            });
-            const teamsResText = await teamsRes.text();
-            console.log(`[START] GET /api/teams response: status=${teamsRes.status}, body=${teamsResText.slice(0, 500)}`);
+            const tokenStr = creds.convexOAuthAccessToken!;
+            const teamMatch = tokenStr.match(/^team:([^|]+)\|/);
+            if (teamMatch) {
+              teamSlug = teamMatch[1];
+              console.log(`[START] Extracted team slug from token: ${teamSlug}`);
+            } else {
+              // Fallback: try GET /api/teams (works for user-level tokens)
+              console.log('[START] Token not team-prefixed, trying GET /api/teams...');
+              const teamsRes = await fetch(`${CONVEX_API}/teams`, {
+                method: 'GET',
+                headers: oauthHeaders,
+              });
+              const teamsResText = await teamsRes.text();
+              console.log(`[START] GET /api/teams response: status=${teamsRes.status}, body=${teamsResText.slice(0, 500)}`);
 
-            if (!teamsRes.ok) {
-              throw new Error(`Failed to get teams: ${teamsRes.status} ${teamsResText}`);
-            }
+              if (!teamsRes.ok) {
+                throw new Error(`Failed to get teams: ${teamsRes.status} ${teamsResText}`);
+              }
 
-            const teams = JSON.parse(teamsResText) as Array<{ id: number; slug: string; name: string }>;
-            if (teams.length === 0) {
-              throw new Error('No teams found for this Convex account');
+              const teams = JSON.parse(teamsResText) as Array<{ id: number; slug: string; name: string }>;
+              if (teams.length === 0) {
+                throw new Error('No teams found for this Convex account');
+              }
+              teamSlug = teams[0].slug;
             }
-            teamSlug = teams[0].slug;
 
             // Store for future use
             await setUserCredentials(userId, { convexTeamId: teamSlug });

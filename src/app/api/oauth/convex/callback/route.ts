@@ -44,18 +44,27 @@ export async function GET(req: NextRequest) {
       body: body.toString(),
     });
 
-    const tokenData = await tokenRes.json() as { access_token?: string; error?: string };
+    const tokenData = await tokenRes.json() as Record<string, unknown>;
+    console.log('[Convex OAuth] Token response keys:', Object.keys(tokenData));
+    console.log('[Convex OAuth] Full token response (redacted):', JSON.stringify({
+      ...tokenData,
+      access_token: tokenData.access_token ? `${String(tokenData.access_token).slice(0, 20)}...` : undefined,
+    }));
 
     if (!tokenData.access_token) {
       console.error('Convex token exchange failed:', tokenData);
       return NextResponse.redirect(`${origin}${returnTo}?convex_error=token_exchange`);
     }
 
+    const teamId = tokenData.team_id ?? tokenData.teamId ?? null;
+    console.log('[Convex OAuth] Extracted team_id:', teamId);
+
     await setUserCredentials(userId, {
-      convexOAuthAccessToken: tokenData.access_token,
+      convexOAuthAccessToken: String(tokenData.access_token),
       // Convex doesn't return refresh tokens in the standard flow
       convexOAuthRefreshToken: null,
       convexOAuthExpiresAt: null,
+      ...(teamId ? { convexTeamId: String(teamId) } : {}),
     });
 
     return NextResponse.redirect(`${origin}${returnTo}?convex_connected=1`);

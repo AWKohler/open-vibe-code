@@ -40,6 +40,7 @@ export interface UserCredentials {
   convexOAuthAccessToken: string | null;
   convexOAuthRefreshToken: string | null;
   convexOAuthExpiresAt: number | null;
+  convexTeamId: string | null;
 }
 
 const CACHE_TTL = 300; // 5 minutes
@@ -120,6 +121,7 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
     convexOAuthAccessToken: (meta.convexOAuthAccessToken ?? neon.convexOAuthAccessToken) ?? null,
     convexOAuthRefreshToken: (meta.convexOAuthRefreshToken ?? neon.convexOAuthRefreshToken) ?? null,
     convexOAuthExpiresAt: (meta.convexOAuthExpiresAt ?? neon.convexOAuthExpiresAt) ?? null,
+    convexTeamId: (meta.convexTeamId as string | null) ?? null,
   };
 
   await redis.setex(cacheKey(userId), CACHE_TTL, creds);

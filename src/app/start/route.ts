@@ -5,7 +5,7 @@ import { projects } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { provisionConvexBackend } from '@/lib/convex-platform';
 import { getUserTierAndLimits } from '@/lib/tier';
-import { getUserCredentials } from '@/lib/user-credentials';
+import { getUserCredentials, setUserCredentials } from '@/lib/user-credentials';
 
 export async function GET(request: Request) {
   const { userId, redirectToSignIn } = await auth();
@@ -52,6 +52,7 @@ export async function GET(request: Request) {
 
     // Determine backend type from URL param
     const backendType = backendTypeParam === 'user' ? 'user' : 'platform';
+    console.log(`[START] backendTypeParam=${backendTypeParam}, resolved backendType=${backendType}, userId=${userId}`);
 
     const [project] = await db
       .insert(projects)
@@ -60,8 +61,10 @@ export async function GET(request: Request) {
 
     if (backendType === 'user') {
       // BYOC: provision in the user's own Convex account via their OAuth token
+      console.log(`[START] BYOC branch entered for project ${project.id}`);
       try {
         const creds = await getUserCredentials(userId);
+        console.log(`[START] OAuth token present: ${!!creds.convexOAuthAccessToken}, token prefix: ${creds.convexOAuthAccessToken?.slice(0, 20)}..., stored teamId: ${creds.convexTeamId}`);
         if (creds.convexOAuthAccessToken) {
           const CONVEX_API = 'https://api.convex.dev/v1';
           const oauthHeaders = {
@@ -69,23 +72,54 @@ export async function GET(request: Request) {
             'Content-Type': 'application/json',
           };
 
-          // Get the team this OAuth token is scoped to
-          // The token is team-scoped (issued via /oauth/authorize/team),
-          // so /v1/get_team returns the single team it belongs to.
-          const teamRes = await fetch(`${CONVEX_API}/get_team`, {
-            method: 'POST',
-            headers: oauthHeaders,
-            body: JSON.stringify({}),
-          });
-          if (!teamRes.ok) {
-            const errText = await teamRes.text();
-            throw new Error(`Failed to get team: ${teamRes.status} ${errText}`);
+          // Get the team ID — try stored value first, then API endpoints
+          let teamId: number | null = creds.convexTeamId ? Number(creds.convexTeamId) : null;
+
+          if (!teamId) {
+            // Try POST /v1/get_team (team-scoped OAuth tokens)
+            console.log('[START] No stored teamId, trying POST /v1/get_team...');
+            const teamRes = await fetch(`${CONVEX_API}/get_team`, {
+              method: 'POST',
+              headers: oauthHeaders,
+              body: JSON.stringify({}),
+            });
+            const teamResText = await teamRes.text();
+            console.log(`[START] get_team response: status=${teamRes.status}, body=${teamResText.slice(0, 500)}`);
+
+            if (teamRes.ok) {
+              const teamData = JSON.parse(teamResText) as { id?: number; teamId?: number };
+              teamId = teamData.id ?? teamData.teamId ?? null;
+            }
+
+            if (!teamId) {
+              // Try GET /v1/teams (personal access tokens)
+              console.log('[START] get_team failed, trying GET /v1/teams...');
+              const teamsRes = await fetch(`${CONVEX_API}/teams`, {
+                method: 'GET',
+                headers: oauthHeaders,
+              });
+              const teamsResText = await teamsRes.text();
+              console.log(`[START] GET /v1/teams response: status=${teamsRes.status}, body=${teamsResText.slice(0, 500)}`);
+
+              if (teamsRes.ok) {
+                const teams = JSON.parse(teamsResText) as Array<{ id: number }>;
+                if (teams.length > 0) teamId = teams[0].id;
+              }
+            }
+
+            if (!teamId) {
+              throw new Error('Could not determine Convex team ID from OAuth token. Tried POST /v1/get_team and GET /v1/teams.');
+            }
+
+            // Store for future use
+            await setUserCredentials(userId, { convexTeamId: String(teamId) });
           }
-          const team = await teamRes.json() as { id: number };
+
+          console.log(`[START] Using Team ID: ${teamId}`);
 
           // Create project in user's team
           const convexProjectName = `bf-${name.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20)}`;
-          const createRes = await fetch(`${CONVEX_API}/teams/${team.id}/create_project`, {
+          const createRes = await fetch(`${CONVEX_API}/teams/${teamId}/create_project`, {
             method: 'POST',
             headers: oauthHeaders,
             body: JSON.stringify({ projectName: convexProjectName, deploymentType: 'prod' }),
@@ -96,6 +130,7 @@ export async function GET(request: Request) {
           }
 
           const createData = await createRes.json();
+          console.log(`[START] create_project response:`, JSON.stringify(createData).slice(0, 500));
           const deployment = createData.prodDeployment || createData.deployment || createData;
           const createdProject = createData.project || createData;
           const deploymentName = deployment.name || deployment.deploymentName;
@@ -124,24 +159,26 @@ export async function GET(request: Request) {
             })
             .where(eq(projects.id, project.id));
 
-          console.log(`BYOC Convex provisioned for project ${project.id} in user's account: ${deploymentUrl}`);
+          console.log(`[START] BYOC Convex provisioned for project ${project.id} in user's account: ${deploymentUrl}`);
         } else {
-          console.error('BYOC requested but no Convex OAuth token found for user');
+          console.error('[START] BYOC requested but no Convex OAuth token found for user');
         }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (msg.includes('ProjectQuotaReached')) {
-          console.error('User Convex quota reached:', msg);
+          console.error('[START] User Convex quota reached:', msg);
           const errUrl = new URL('/', request.url);
           errUrl.searchParams.set('error', 'convex_quota');
           return NextResponse.redirect(errUrl);
         }
-        console.error('Failed to provision BYOC Convex backend:', error);
+        console.error('[START] BYOC provisioning FAILED:', error);
       }
     } else {
       // Platform-managed: provision under our account
+      console.log(`[START] Platform branch entered for project ${project.id}`);
       const limits = await getUserTierAndLimits(userId);
       const cloudConvexForAll = process.env.ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+      console.log(`[START] tier=${limits.tier}, cloudConvexForAll=${cloudConvexForAll}`);
       if (cloudConvexForAll || limits.tier !== 'free') {
         try {
           const convexProjectName = `ide-${project.id.slice(0, 8)}`;

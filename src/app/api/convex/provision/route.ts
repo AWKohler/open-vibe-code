@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getDb } from '@/db';
 import { projects } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
-import { getUserCredentials } from '@/lib/user-credentials';
+import { getUserCredentials, setUserCredentials } from '@/lib/user-credentials';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -36,23 +36,42 @@ export async function POST(req: NextRequest) {
 
   try {
     // Step 1: get the team this OAuth token is scoped to
-    const teamRes = await fetch(`${CONVEX_API_BASE}/get_team`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({}),
-    });
-    if (!teamRes.ok) {
-      if (teamRes.status === 401) {
+    let teamId: number | null = creds.convexTeamId ? Number(creds.convexTeamId) : null;
+
+    if (!teamId) {
+      // Try POST /v1/get_team
+      const teamRes = await fetch(`${CONVEX_API_BASE}/get_team`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({}),
+      });
+      if (teamRes.ok) {
+        const teamData = await teamRes.json() as { id?: number; teamId?: number };
+        teamId = teamData.id ?? teamData.teamId ?? null;
+      } else if (teamRes.status === 401) {
         return NextResponse.json({ error: 'convex_token_revoked', message: 'Your Convex connection has expired. Please reconnect.' }, { status: 401 });
       }
-      const errText = await teamRes.text();
-      throw new Error(`Failed to get team: ${teamRes.status} ${errText}`);
+
+      if (!teamId) {
+        // Try GET /v1/teams
+        const teamsRes = await fetch(`${CONVEX_API_BASE}/teams`, { method: 'GET', headers });
+        if (teamsRes.ok) {
+          const teams = await teamsRes.json() as Array<{ id: number }>;
+          if (teams.length > 0) teamId = teams[0].id;
+        }
+      }
+
+      if (!teamId) {
+        throw new Error('Could not determine Convex team ID from OAuth token');
+      }
+
+      // Store for future use
+      await setUserCredentials(userId, { convexTeamId: String(teamId) });
     }
-    const team = await teamRes.json() as { id: number; slug: string; name: string };
 
     // Step 2: create a project in user's team
     const convexProjectName = projectName ? `bf-${projectName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20)}` : `bf-${projectId.slice(0, 8)}`;
-    const createRes = await fetch(`${CONVEX_API_BASE}/teams/${team.id}/create_project`, {
+    const createRes = await fetch(`${CONVEX_API_BASE}/teams/${teamId}/create_project`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ projectName: convexProjectName, deploymentType: 'prod' }),

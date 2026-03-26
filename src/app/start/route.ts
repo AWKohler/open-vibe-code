@@ -131,42 +131,31 @@ export async function GET(request: Request) {
             projectSlug?: string;
             teamSlug?: string;
             projectsRemaining?: number;
+            deploymentName?: string;
+            prodUrl?: string;
+            adminKey?: string;
+            projectId?: number;
+            teamId?: number;
           };
-          console.log(`[START] create_project response:`, JSON.stringify(createData).slice(0, 500));
+          console.log(`[START] create_project response:`, JSON.stringify({
+            ...createData,
+            adminKey: createData.adminKey ? `${createData.adminKey.slice(0, 30)}...` : null,
+          }).slice(0, 500));
 
           const projectSlug = createData.projectSlug;
           if (!projectSlug) {
             throw new Error('No projectSlug in create_project response: ' + JSON.stringify(createData));
           }
 
-          // Step 3: Provision a prod deployment and get admin key
-          const provisionRes = await fetch(`${CONVEX_API}/deployment/provision_and_authorize`, {
-            method: 'POST',
-            headers: oauthHeaders,
-            body: JSON.stringify({
-              teamSlug,
-              projectSlug,
-              deploymentType: 'prod',
-            }),
-          });
-          if (!provisionRes.ok) {
-            const errText = await provisionRes.text();
-            throw new Error(`Failed to provision deployment: ${provisionRes.status} ${errText}`);
+          // create_project with deploymentType already provisions the deployment
+          // and returns adminKey, deploymentName, and prodUrl directly
+          const deploymentName = createData.deploymentName;
+          const deploymentUrl = createData.prodUrl || `https://${deploymentName}.convex.cloud`;
+          const deployKey = createData.adminKey || '';
+
+          if (!deployKey) {
+            throw new Error('No adminKey in create_project response');
           }
-
-          const provisionData = await provisionRes.json() as {
-            adminKey?: string;
-            url?: string;
-            deploymentName?: string;
-          };
-          console.log(`[START] provision_and_authorize response:`, JSON.stringify({
-            ...provisionData,
-            adminKey: provisionData.adminKey ? `${provisionData.adminKey.slice(0, 20)}...` : null,
-          }).slice(0, 500));
-
-          const deploymentName = provisionData.deploymentName;
-          const deploymentUrl = provisionData.url || `https://${deploymentName}.convex.cloud`;
-          const deployKey = provisionData.adminKey || '';
 
           await db.update(projects)
             .set({

@@ -92,6 +92,9 @@ export async function POST(req: NextRequest) {
       projectSlug?: string;
       teamSlug?: string;
       projectsRemaining?: number;
+      deploymentName?: string;
+      prodUrl?: string;
+      adminKey?: string;
     };
 
     const projectSlug = createData.projectSlug;
@@ -99,31 +102,10 @@ export async function POST(req: NextRequest) {
       throw new Error('No projectSlug in create_project response: ' + JSON.stringify(createData));
     }
 
-    // Step 3: provision deployment and get admin key
-    const provisionRes = await fetch(`${CONVEX_API}/deployment/provision_and_authorize`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        teamSlug,
-        projectSlug,
-        deploymentType: 'prod',
-      }),
-    });
-
-    if (!provisionRes.ok) {
-      const errText = await provisionRes.text();
-      throw new Error(`Failed to provision deployment: ${provisionRes.status} ${errText}`);
-    }
-
-    const provisionData = await provisionRes.json() as {
-      adminKey?: string;
-      url?: string;
-      deploymentName?: string;
-    };
-
-    const deploymentName = provisionData.deploymentName || '';
-    const deploymentUrl = provisionData.url || `https://${deploymentName}.convex.cloud`;
-    const deployKey = provisionData.adminKey || '';
+    // create_project with deploymentType already provisions the deployment
+    const deploymentName = createData.deploymentName || '';
+    const deploymentUrl = createData.prodUrl || `https://${deploymentName}.convex.cloud`;
+    const deployKey = createData.adminKey || '';
 
     // Step 4: update the project
     await db.update(projects)

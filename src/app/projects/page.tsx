@@ -228,7 +228,7 @@ export default function ProjectsPage() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {projects.map((project) => {
-                    const hasDatabase = Boolean(project.convexDeployUrl && project.convexDeployKey);
+                    const hasDatabase = Boolean((project.userConvexUrl || project.convexDeployUrl) && (project.userConvexDeployKey || project.convexDeployKey));
                     const thumbnailFailed = Boolean(thumbnailErrors[project.id]);
 
                     return (

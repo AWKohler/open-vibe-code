@@ -20,15 +20,18 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  if (!proj.convexDeployUrl || !proj.convexDeployKey) {
+  // Resolve Convex URL and key — prefer user (BYOC) fields, fall back to platform fields
+  const deploymentUrl = proj.userConvexUrl || proj.convexDeployUrl;
+  const adminKey = proj.userConvexDeployKey || proj.convexDeployKey;
+  const deploymentName = proj.convexDeploymentId;
+
+  if (!deploymentUrl || !adminKey) {
     return NextResponse.json({ error: 'No Convex backend for this project' }, { status: 404 });
   }
 
-  // The deploy key returned by Convex's create_deploy_key endpoint is an admin key —
-  // it's already stored on the project at provisioning time.
   return NextResponse.json({
-    deploymentUrl: proj.convexDeployUrl,
-    deploymentName: proj.convexDeploymentId,
-    adminKey: proj.convexDeployKey,
+    deploymentUrl,
+    deploymentName,
+    adminKey,
   });
 }

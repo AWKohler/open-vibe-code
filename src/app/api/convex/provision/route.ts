@@ -8,7 +8,8 @@ import { getUserCredentials, setUserCredentials } from '@/lib/user-credentials';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const CONVEX_API_BASE = 'https://api.convex.dev/v1';
+// OAuth tokens use the /api/ endpoints (CLI API), NOT /v1/ (Platform Management API)
+const CONVEX_API = 'https://api.convex.dev/api';
 
 export async function POST(req: NextRequest) {
   const { userId } = await auth();
@@ -35,46 +36,40 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    // Step 1: get the team this OAuth token is scoped to
-    let teamId: number | null = creds.convexTeamId ? Number(creds.convexTeamId) : null;
+    // Step 1: get the team slug
+    let teamSlug: string | null = creds.convexTeamId ?? null;
 
-    if (!teamId) {
-      // Try POST /v1/get_team
-      const teamRes = await fetch(`${CONVEX_API_BASE}/get_team`, {
-        method: 'POST',
+    if (!teamSlug) {
+      const teamsRes = await fetch(`${CONVEX_API}/teams`, {
+        method: 'GET',
         headers,
-        body: JSON.stringify({}),
       });
-      if (teamRes.ok) {
-        const teamData = await teamRes.json() as { id?: number; teamId?: number };
-        teamId = teamData.id ?? teamData.teamId ?? null;
-      } else if (teamRes.status === 401) {
+      if (teamsRes.status === 401) {
         return NextResponse.json({ error: 'convex_token_revoked', message: 'Your Convex connection has expired. Please reconnect.' }, { status: 401 });
       }
-
-      if (!teamId) {
-        // Try GET /v1/teams
-        const teamsRes = await fetch(`${CONVEX_API_BASE}/teams`, { method: 'GET', headers });
-        if (teamsRes.ok) {
-          const teams = await teamsRes.json() as Array<{ id: number }>;
-          if (teams.length > 0) teamId = teams[0].id;
-        }
+      if (!teamsRes.ok) {
+        const errText = await teamsRes.text();
+        throw new Error(`Failed to get teams: ${teamsRes.status} ${errText}`);
       }
 
-      if (!teamId) {
-        throw new Error('Could not determine Convex team ID from OAuth token');
+      const teams = await teamsRes.json() as Array<{ id: number; slug: string; name: string }>;
+      if (teams.length === 0) {
+        throw new Error('No teams found for this Convex account');
       }
-
-      // Store for future use
-      await setUserCredentials(userId, { convexTeamId: String(teamId) });
+      teamSlug = teams[0].slug;
+      await setUserCredentials(userId, { convexTeamId: teamSlug });
     }
 
     // Step 2: create a project in user's team
     const convexProjectName = projectName ? `bf-${projectName.toLowerCase().replace(/[^a-z0-9]/g, '-').slice(0, 20)}` : `bf-${projectId.slice(0, 8)}`;
-    const createRes = await fetch(`${CONVEX_API_BASE}/teams/${teamId}/create_project`, {
+    const createRes = await fetch(`${CONVEX_API}/create_project`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ projectName: convexProjectName, deploymentType: 'prod' }),
+      body: JSON.stringify({
+        team: teamSlug,
+        projectName: convexProjectName,
+        deploymentType: 'prod',
+      }),
     });
 
     if (!createRes.ok) {
@@ -85,35 +80,49 @@ export async function POST(req: NextRequest) {
       throw new Error(`Failed to create project: ${createRes.status} ${errText}`);
     }
 
-    const createData = await createRes.json();
-    const deployment = createData.prodDeployment || createData.deployment || createData;
-    const createdProject = createData.project || createData;
+    const createData = await createRes.json() as {
+      projectSlug?: string;
+      teamSlug?: string;
+      projectsRemaining?: number;
+    };
 
-    const deploymentName = deployment.name || deployment.deploymentName;
-    const deploymentUrl = `https://${deploymentName}.convex.cloud`;
-    const convexProjectId = String(createdProject.id || createdProject.projectId);
-
-    // Step 3: create a deploy key
-    const keyRes = await fetch(`${CONVEX_API_BASE}/deployments/${deploymentName}/create_deploy_key`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ name: `botflow-${Date.now()}` }),
-    });
-
-    if (!keyRes.ok) {
-      const errText = await keyRes.text();
-      throw new Error(`Failed to create deploy key: ${keyRes.status} ${errText}`);
+    const projectSlug = createData.projectSlug;
+    if (!projectSlug) {
+      throw new Error('No projectSlug in create_project response: ' + JSON.stringify(createData));
     }
 
-    const keyData = await keyRes.json();
-    const deployKey = keyData.key || keyData.deployKey || keyData.accessToken || '';
+    // Step 3: provision deployment and get admin key
+    const provisionRes = await fetch(`${CONVEX_API}/deployment/provision_and_authorize`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        teamSlug,
+        projectSlug,
+        deploymentType: 'prod',
+      }),
+    });
+
+    if (!provisionRes.ok) {
+      const errText = await provisionRes.text();
+      throw new Error(`Failed to provision deployment: ${provisionRes.status} ${errText}`);
+    }
+
+    const provisionData = await provisionRes.json() as {
+      adminKey?: string;
+      url?: string;
+      deploymentName?: string;
+    };
+
+    const deploymentName = provisionData.deploymentName || '';
+    const deploymentUrl = provisionData.url || `https://${deploymentName}.convex.cloud`;
+    const deployKey = provisionData.adminKey || '';
 
     // Step 4: update the project
     await db.update(projects)
       .set({
         userConvexUrl: deploymentUrl,
         userConvexDeployKey: deployKey,
-        convexProjectId,
+        convexProjectId: projectSlug,
         convexDeploymentId: deploymentName,
         convexDeployUrl: deploymentUrl,
         backendType: 'user',

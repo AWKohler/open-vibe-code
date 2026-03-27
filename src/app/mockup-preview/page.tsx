@@ -34,7 +34,9 @@ export default function MockupPreviewPage() {
               ],
             },
           ]}
-          previewSrc="/preview_mockup.html"
+          // previewSrc="/preview_mockup.html"
+          // previewSrc="/discover_events_preview.html"
+          previewSrc='component_gallery_preview.html'
           creditPct={47}
           agentWorking={true}
           defaultView="preview"

@@ -1,0 +1,838 @@
+'use client';
+
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
+import {
+  ArrowUp,
+  ArrowRight,
+  Cog,
+  Eye,
+  Database,
+  Github,
+  Globe,
+  Bot,
+  Layers,
+  Rocket,
+  Plus,
+  Monitor,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { WorkspaceMockup } from '@/components/landing/WorkspaceMockup';
+import { Convex } from '@/components/icons/convex';
+import { Anthropic } from '@/components/icons/anthropic';
+import { OpenAI } from '@/components/icons/openai';
+import { Instrument_Serif } from 'next/font/google';
+
+// ============================================================================
+// Font
+// ============================================================================
+
+const serif = Instrument_Serif({
+  weight: '400',
+  style: ['normal', 'italic'],
+  subsets: ['latin'],
+  display: 'swap',
+});
+
+// ============================================================================
+// Scroll reveal
+// ============================================================================
+
+function useInView(opts?: IntersectionObserverInit) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [inView, setInView] = useState(false);
+  useEffect(() => {
+    if (!ref.current || typeof IntersectionObserver === 'undefined') return;
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setInView(true);
+          obs.disconnect();
+        }
+      },
+      { threshold: 0.08, ...opts },
+    );
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return { ref, inView };
+}
+
+function Reveal({
+  children,
+  className,
+  delay = 0,
+}: {
+  children: ReactNode;
+  className?: string;
+  delay?: number;
+}) {
+  const { ref, inView } = useInView();
+  return (
+    <div
+      ref={ref}
+      className={cn(
+        'transition-all duration-700 ease-out',
+        inView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8',
+        className,
+      )}
+      style={{ transitionDelay: `${delay}ms` }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ============================================================================
+// Feature data
+// ============================================================================
+
+const features = [
+  {
+    icon: Bot,
+    title: 'AI agent that builds',
+    description:
+      'Describe your app in plain English. The agent writes code, creates database schemas, installs packages, and starts the dev server — autonomously.',
+  },
+  {
+    icon: Eye,
+    title: 'Live preview',
+    description:
+      'Watch your app update in real-time as the agent works. Switch between desktop, tablet, and mobile views instantly.',
+  },
+  {
+    icon: Database,
+    title: 'Real-time database',
+    description:
+      'Every project includes a Convex backend — real-time sync, serverless functions, and automatic scaling. Zero config.',
+  },
+  {
+    icon: Globe,
+    title: 'Deploy in one click',
+    description:
+      'Hit Publish and your app goes live on Cloudflare\'s global edge network. Shareable URL, instant.',
+  },
+  {
+    icon: Github,
+    title: 'GitHub built in',
+    description:
+      'Push to GitHub without leaving your workspace. Commit, push, pull — version control from the start.',
+  },
+  {
+    icon: Layers,
+    title: 'Your choice of AI',
+    description:
+      'Pick from GPT-5.3 Codex, Claude Opus, Claude Sonnet, and more. Use platform credits or bring your own keys.',
+  },
+];
+
+// ============================================================================
+// Steps data
+// ============================================================================
+
+const steps = [
+  {
+    num: '01',
+    title: 'Describe what you want',
+    description:
+      'Type a prompt describing your app. Attach screenshots or mockups for reference. The more detail you provide, the better the result.',
+  },
+  {
+    num: '02',
+    title: 'Watch the agent build',
+    description:
+      'The AI agent writes code, deploys your backend, and starts a live preview. Follow along in real-time — or grab a coffee.',
+  },
+  {
+    num: '03',
+    title: 'Ship it',
+    description:
+      'Review the result, request changes via chat, and publish with one click. Your app is live on the web.',
+  },
+];
+
+// ============================================================================
+// Main Page
+// ============================================================================
+
+export default function LandingV2() {
+  const router = useRouter();
+  const [prompt, setPrompt] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea
+  const handlePromptChange = useCallback(
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setPrompt(e.target.value);
+      const el = e.target;
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 300) + 'px';
+    },
+    [],
+  );
+
+  // Send prompt → redirect to main page with prompt param
+  const handleSend = useCallback(() => {
+    if (!prompt.trim()) return;
+    const params = new URLSearchParams({ prompt: prompt.trim() });
+    router.push(`/?${params.toString()}`);
+  }, [prompt, router]);
+
+  return (
+    <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen">
+      {/* ================================================================ */}
+      {/* NAV                                                              */}
+      {/* ================================================================ */}
+      <header className="sticky top-0 z-50 backdrop-blur-lg bg-[var(--sand-bg)]/80 border-b border-[var(--sand-border)]/50">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3">
+          <div className="flex items-center justify-between md:grid md:grid-cols-3">
+            {/* Logo */}
+            <a className="flex items-center gap-2.5" href="/">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/botflow-glyph.svg" alt="" className="h-8 w-8" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/brand/botflow-wordmark.svg"
+                alt="Botflow"
+                className="h-5 w-auto botflow-wordmark-invert"
+              />
+            </a>
+
+            {/* Center nav */}
+            <nav className="hidden md:flex items-center justify-center gap-8 text-sm">
+              <SignedIn>
+                <a href="/projects" className="font-medium hover:text-[var(--sand-accent)] transition">
+                  My Projects
+                </a>
+              </SignedIn>
+              <a href="/pricing" className="font-medium hover:text-[var(--sand-accent)] transition">
+                Pricing
+              </a>
+            </nav>
+
+            {/* Right */}
+            <div className="flex items-center justify-end gap-2">
+              <SignedOut>
+                <Link
+                  href="/sign-in"
+                  className="hidden sm:inline-flex items-center rounded-xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3.5 py-2 text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
+                >
+                  Log in
+                </Link>
+                <Link
+                  href="/sign-up"
+                  className="inline-flex items-center rounded-xl bg-[var(--sand-text)] text-[var(--sand-bg)] px-4 py-2 text-sm font-medium shadow-md hover:opacity-90 transition"
+                >
+                  Get started
+                </Link>
+              </SignedOut>
+              <SignedIn>
+                <Link
+                  href="/projects"
+                  className="hidden sm:inline-flex items-center rounded-xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3.5 py-2 text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
+                >
+                  Dashboard
+                </Link>
+                <UserButton afterSignOutUrl="/" />
+              </SignedIn>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* ================================================================ */}
+      {/* HERO                                                             */}
+      {/* ================================================================ */}
+      <section className="relative overflow-hidden">
+        {/* Gradient background */}
+        <div className="pointer-events-none absolute inset-0 -z-10 landing-gradient" />
+
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-20 sm:pt-28 pb-8 sm:pb-12">
+          <div className="max-w-3xl mx-auto text-center">
+            {/* Headline */}
+            <Reveal>
+              <h1
+                className={cn(
+                  serif.className,
+                  'text-5xl sm:text-6xl md:text-7xl lg:text-8xl tracking-tight leading-[1.05]',
+                )}
+              >
+                From idea to{' '}
+                <span className="relative">
+                  production
+                  <span
+                    className="absolute -bottom-1 left-0 right-0 h-[3px] rounded-full bg-[var(--sand-accent)] opacity-60"
+                    aria-hidden
+                  />
+                </span>
+                <br />
+                in one conversation
+              </h1>
+            </Reveal>
+
+            {/* Subheading */}
+            <Reveal delay={100}>
+              <p className="mt-6 text-lg sm:text-xl text-[var(--sand-text-muted)] max-w-2xl mx-auto leading-relaxed">
+                Botflow is an AI workspace that builds full-stack web apps from natural language.
+                Describe what you want, watch the agent code it, and deploy — all without leaving your browser.
+              </p>
+            </Reveal>
+
+            {/* Prompt box */}
+            <Reveal delay={200}>
+              <div className="w-full mt-8">
+                <div className="flex flex-col rounded-2xl sm:rounded-3xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] backdrop-blur-sm shadow-[0_2px_0_rgba(0,0,0,0.02),0_20px_60px_-20px_rgba(0,0,0,0.18)]">
+                  <textarea
+                    ref={textareaRef}
+                    placeholder="Ask Botflow to create a web app that..."
+                    className="w-full bg-transparent px-4 sm:px-5 pt-3 sm:pt-4 pb-2 text-sm sm:text-lg text-[var(--sand-text)] placeholder-[var(--sand-text-muted)] outline-none resize-none overflow-y-auto modern-scrollbar"
+                    aria-label="Generation prompt"
+                    style={{ minHeight: 96, maxHeight: 300 }}
+                    maxLength={30000}
+                    value={prompt}
+                    onChange={handlePromptChange}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                  />
+                  <div className="flex items-center justify-between gap-2 px-2.5 sm:px-3 pb-2.5 sm:pb-3 pt-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2">
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] shadow-sm hover:bg-[var(--sand-accent)]/10 transition"
+                        aria-label="Attach"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-2.5 py-1.5 text-xs sm:text-sm font-medium shadow-sm">
+                        <Monitor className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Web</span>
+                      </span>
+                    </div>
+                    <SignedIn>
+                      <button
+                        onClick={handleSend}
+                        disabled={!prompt.trim()}
+                        className={cn(
+                          'shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sand-text)] text-[var(--sand-bg)] shadow-md transition',
+                          !prompt.trim() ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
+                        )}
+                      >
+                        <ArrowUp className="h-5 w-5" />
+                      </button>
+                    </SignedIn>
+                    <SignedOut>
+                      <Link
+                        href="/sign-up"
+                        className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sand-text)] text-[var(--sand-bg)] shadow-md hover:opacity-80 transition"
+                      >
+                        <ArrowUp className="h-5 w-5" />
+                      </Link>
+                    </SignedOut>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
+
+            {/* Provider pills */}
+            <Reveal delay={300}>
+              <div className="mt-4 flex flex-col items-center gap-3">
+                <div className="flex items-center justify-center gap-2">
+                  <SignedOut>
+                    <Link
+                      href="/sign-up"
+                      className="inline-flex items-center gap-2 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3.5 py-1.5 text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
+                    >
+                      <Anthropic className="h-4 w-4 shrink-0" />
+                      Sign in with Claude
+                    </Link>
+                    <Link
+                      href="/sign-up"
+                      className="inline-flex items-center gap-2 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3.5 py-1.5 text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
+                    >
+                      <OpenAI className="h-4 w-4 shrink-0" />
+                      Sign in with ChatGPT
+                    </Link>
+                  </SignedOut>
+                  <SignedIn>
+                    <Link
+                      href="/projects"
+                      className="inline-flex items-center gap-2 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3.5 py-1.5 text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
+                    >
+                      Go to dashboard
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                  </SignedIn>
+                </div>
+                <p className="text-[var(--sand-text-muted)] text-sm leading-none flex items-center gap-0">
+                  Backend by
+                  <span className="inline-flex items-center align-middle -ml-3" style={{ height: '2.4em' }}>
+                    <Convex className="h-full w-auto opacity-60" />
+                  </span>
+                </p>
+              </div>
+            </Reveal>
+          </div>
+        </div>
+
+        {/* ============================================================== */}
+        {/* HERO MOCKUP                                                     */}
+        {/* ============================================================== */}
+        <Reveal delay={400}>
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-16 sm:pb-24">
+            <WorkspaceMockup
+              messages={[
+                {
+                  role: 'user',
+                  content:
+                    'Build me an event discovery app with a map, event cards, and category filters',
+                },
+                {
+                  role: 'assistant',
+                  content:
+                    "I'll create a modern event discovery app with interactive map, filterable cards, and location-based search.",
+                  toolCalls: [
+                    { name: 'writeFile', done: true },
+                    { name: 'writeFile', done: true },
+                    { name: 'writeFile', done: true },
+                    { name: 'writeFile', done: true },
+                    { name: 'convexDeploy', done: true },
+                    { name: 'startDevServer', done: true },
+                  ],
+                },
+                {
+                  role: 'assistant',
+                  content:
+                    'Your event discovery app is live! Browse events on the map or scroll through cards. Use the category filters to narrow results.',
+                },
+                {
+                  role: 'user',
+                  content: 'Add a favorites system so users can save events',
+                },
+                {
+                  role: 'assistant',
+                  content: 'Adding a favorites feature with heart toggle and a saved events tab.',
+                  toolCalls: [
+                    { name: 'readFile', done: true },
+                    { name: 'writeFile', done: true },
+                    { name: 'writeFile', done: false },
+                  ],
+                },
+              ]}
+              previewSrc="/component_gallery_preview.html"
+              creditPct={47}
+              agentWorking={true}
+              defaultView="preview"
+              className="shadow-[0_8px_60px_-12px_rgba(0,0,0,0.25)]"
+            />
+          </div>
+        </Reveal>
+      </section>
+
+      {/* ================================================================ */}
+      {/* FEATURES                                                         */}
+      {/* ================================================================ */}
+      <section className="relative border-t border-[var(--sand-border)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+          <Reveal>
+            <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
+              <h2
+                className={cn(
+                  serif.className,
+                  'text-4xl sm:text-5xl md:text-6xl tracking-tight',
+                )}
+              >
+                Everything you need to build
+              </h2>
+              <p className="mt-4 text-lg text-[var(--sand-text-muted)] leading-relaxed">
+                A complete development environment powered by AI. No setup, no config, no context-switching.
+              </p>
+            </div>
+          </Reveal>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+            {features.map((f, i) => (
+              <Reveal key={f.title} delay={i * 80}>
+                <div className="group relative rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-surface)] p-6 sm:p-8 transition-all duration-300 hover:border-[var(--sand-accent)]/30 hover:shadow-lg hover:shadow-[var(--sand-accent)]/5">
+                  {/* Icon */}
+                  <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--sand-elevated)] border border-[var(--sand-border)] text-[var(--sand-text-muted)] group-hover:text-[var(--sand-accent)] group-hover:border-[var(--sand-accent)]/30 transition-colors duration-300">
+                    <f.icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">{f.title}</h3>
+                  <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
+                    {f.description}
+                  </p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* HOW IT WORKS                                                     */}
+      {/* ================================================================ */}
+      <section className="relative border-t border-[var(--sand-border)] bg-[var(--sand-surface)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+          <Reveal>
+            <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
+              <h2
+                className={cn(
+                  serif.className,
+                  'text-4xl sm:text-5xl md:text-6xl tracking-tight',
+                )}
+              >
+                Three steps.{' '}
+                <em className={serif.className}>That&apos;s it.</em>
+              </h2>
+            </div>
+          </Reveal>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 sm:gap-12">
+            {steps.map((s, i) => (
+              <Reveal key={s.num} delay={i * 120}>
+                <div className="relative">
+                  {/* Number */}
+                  <span
+                    className={cn(
+                      serif.className,
+                      'text-7xl sm:text-8xl font-normal text-[var(--sand-accent)] opacity-20 leading-none select-none',
+                    )}
+                  >
+                    {s.num}
+                  </span>
+                  <h3 className="text-xl font-semibold mt-2 mb-3">{s.title}</h3>
+                  <p className="text-[var(--sand-text-muted)] leading-relaxed">{s.description}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* CODE VIEW SHOWCASE                                               */}
+      {/* ================================================================ */}
+      <section className="relative border-t border-[var(--sand-border)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            <Reveal>
+              <div>
+                <h2
+                  className={cn(
+                    serif.className,
+                    'text-4xl sm:text-5xl tracking-tight',
+                  )}
+                >
+                  A real IDE,
+                  <br />
+                  <em className={serif.className}>not a toy</em>
+                </h2>
+                <p className="mt-6 text-lg text-[var(--sand-text-muted)] leading-relaxed">
+                  Full file tree, Monaco code editor, integrated terminal, environment variables — everything you&apos;d expect from a professional development environment. The AI builds here, and so can you.
+                </p>
+                <ul className="mt-8 space-y-3">
+                  {[
+                    'Monaco editor with syntax highlighting',
+                    'Multi-tab terminal with shell access',
+                    'File search and environment variable management',
+                    'Download your project as a ZIP anytime',
+                  ].map((item) => (
+                    <li
+                      key={item}
+                      className="flex items-start gap-3 text-sm text-[var(--sand-text-muted)]"
+                    >
+                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[var(--sand-accent)] shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Reveal>
+            <Reveal delay={150}>
+              <WorkspaceMockup
+                messages={[
+                  {
+                    role: 'user',
+                    content: 'Add a dark mode toggle to the navigation',
+                  },
+                  {
+                    role: 'assistant',
+                    content:
+                      'Done! Added a theme toggle with smooth transitions and system preference detection.',
+                    toolCalls: [
+                      { name: 'readFile', done: true },
+                      { name: 'writeFile', done: true },
+                      { name: 'writeFile', done: true },
+                    ],
+                  },
+                ]}
+                creditPct={22}
+                defaultView="code"
+                agentWorking={false}
+                modelName="Claude Sonnet 4.6"
+                className="shadow-[0_8px_40px_-12px_rgba(0,0,0,0.2)]"
+              />
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* INTEGRATIONS                                                     */}
+      {/* ================================================================ */}
+      <section className="relative border-t border-[var(--sand-border)] bg-[var(--sand-surface)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+          <Reveal>
+            <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
+              <h2
+                className={cn(
+                  serif.className,
+                  'text-4xl sm:text-5xl md:text-6xl tracking-tight',
+                )}
+              >
+                Built on infrastructure{' '}
+                <em className={serif.className}>you trust</em>
+              </h2>
+              <p className="mt-4 text-lg text-[var(--sand-text-muted)] leading-relaxed">
+                We didn&apos;t reinvent the wheel. Botflow integrates with best-in-class tools so you own your code, your data, and your deployments.
+              </p>
+            </div>
+          </Reveal>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+            {/* Convex */}
+            <Reveal delay={0}>
+              <div className="rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-bg)] p-8 text-center">
+                <div className="flex items-center justify-center h-10 mb-5">
+                  <Convex className="h-8 w-auto" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Convex</h3>
+                <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
+                  Real-time backend as a service. Every project gets serverless functions, a document database, and automatic scaling.
+                </p>
+              </div>
+            </Reveal>
+
+            {/* GitHub */}
+            <Reveal delay={80}>
+              <div className="rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-bg)] p-8 text-center">
+                <div className="flex items-center justify-center h-10 mb-5">
+                  <Github className="h-8 w-8 text-[var(--sand-text)]" />
+                </div>
+                <h3 className="text-lg font-semibold mb-2">GitHub</h3>
+                <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
+                  Version control and collaboration. Connect a repo, push commits, and pull updates — all from inside the workspace.
+                </p>
+              </div>
+            </Reveal>
+
+            {/* Cloudflare */}
+            <Reveal delay={160}>
+              <div className="rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-bg)] p-8 text-center">
+                <div className="flex items-center justify-center h-10 mb-5">
+                  {/* Placeholder for Cloudflare logo — replace with your asset */}
+                  <div className="h-8 w-8 rounded-lg bg-[var(--sand-elevated)] border border-[var(--sand-border)] flex items-center justify-center">
+                    <Globe className="h-5 w-5 text-[var(--sand-accent)]" />
+                  </div>
+                </div>
+                <h3 className="text-lg font-semibold mb-2">Cloudflare</h3>
+                <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
+                  Global edge deployment. One-click publish puts your app on Cloudflare Pages — fast, reliable, and free to start.
+                </p>
+              </div>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* MODELS                                                           */}
+      {/* ================================================================ */}
+      <section className="relative border-t border-[var(--sand-border)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+            <Reveal>
+              <div>
+                <h2
+                  className={cn(
+                    serif.className,
+                    'text-4xl sm:text-5xl tracking-tight',
+                  )}
+                >
+                  Pick your engine
+                </h2>
+                <p className="mt-6 text-lg text-[var(--sand-text-muted)] leading-relaxed">
+                  Different tasks, different models. Use a lightweight model for quick iterations, or bring in the heavyweights for complex features. Switch models mid-conversation — no restart needed.
+                </p>
+              </div>
+            </Reveal>
+
+            <Reveal delay={100}>
+              <div className="space-y-3">
+                {[
+                  {
+                    name: 'GPT-5.3 Codex',
+                    provider: 'OpenAI',
+                    badge: 'Popular',
+                    cost: 'x4',
+                  },
+                  {
+                    name: 'Claude Opus 4.6',
+                    provider: 'Anthropic',
+                    badge: 'Most capable',
+                    cost: 'x10',
+                  },
+                  {
+                    name: 'Claude Sonnet 4.6',
+                    provider: 'Anthropic',
+                    badge: '',
+                    cost: 'x5',
+                  },
+                  {
+                    name: 'GPT-5.4',
+                    provider: 'OpenAI',
+                    badge: '',
+                    cost: 'x6',
+                  },
+                  {
+                    name: 'MiniMax M2P5',
+                    provider: 'Fireworks',
+                    badge: 'Free tier',
+                    cost: 'x1',
+                  },
+                  {
+                    name: 'GLM-5',
+                    provider: 'Fireworks',
+                    badge: 'Free tier',
+                    cost: 'x2',
+                  },
+                ].map((m) => (
+                  <div
+                    key={m.name}
+                    className="flex items-center gap-4 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-surface)] px-5 py-3.5 transition-colors hover:border-[var(--sand-accent)]/30"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm">{m.name}</span>
+                        {m.badge && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--sand-accent)]/10 text-[var(--sand-accent)]">
+                            {m.badge}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs text-[var(--sand-text-muted)]">{m.provider}</span>
+                    </div>
+                    <span className="text-xs font-mono text-[var(--sand-text-muted)] tabular-nums">
+                      {m.cost}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* SOCIAL PROOF / PLACEHOLDER                                       */}
+      {/* ================================================================ */}
+      <section className="relative border-t border-[var(--sand-border)] bg-[var(--sand-surface)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+          <Reveal>
+            <div className="text-center max-w-3xl mx-auto">
+              {/* Placeholder for testimonials or showcased projects */}
+              <p className="text-sm uppercase tracking-widest text-[var(--sand-text-muted)] mb-8">
+                What people are building
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {[1, 2, 3].map((n) => (
+                  <div
+                    key={n}
+                    className="aspect-[4/3] rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] flex items-center justify-center text-[var(--sand-text-muted)] text-sm"
+                  >
+                    {/* IMAGE PLACEHOLDER — Replace with project screenshot */}
+                    Project screenshot {n}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* CTA                                                              */}
+      {/* ================================================================ */}
+      <section className="relative border-t border-[var(--sand-border)]">
+        <div className="pointer-events-none absolute inset-0 -z-10 landing-gradient opacity-60" />
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-28 sm:py-36">
+          <Reveal>
+            <div className="text-center max-w-2xl mx-auto">
+              <h2
+                className={cn(
+                  serif.className,
+                  'text-4xl sm:text-5xl md:text-6xl tracking-tight',
+                )}
+              >
+                Ready to build something?
+              </h2>
+              <p className="mt-4 text-lg text-[var(--sand-text-muted)]">
+                Start for free. No credit card required.
+              </p>
+              <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <Link
+                  href="/sign-up"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--sand-text)] text-[var(--sand-bg)] px-6 py-3 text-base font-medium shadow-lg hover:opacity-90 transition"
+                >
+                  Get started free
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  href="/pricing"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-6 py-3 text-base font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
+                >
+                  View pricing
+                </Link>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* FOOTER                                                           */}
+      {/* ================================================================ */}
+      <footer className="border-t border-[var(--sand-border)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/botflow-glyph.svg" alt="" className="h-6 w-6" />
+              <span className="text-sm text-[var(--sand-text-muted)]">
+                &copy; 2026 Botflow
+              </span>
+            </div>
+            <div className="flex items-center gap-6 text-sm text-[var(--sand-text-muted)]">
+              <a href="#" className="hover:text-[var(--sand-text)] transition">
+                Privacy
+              </a>
+              <a href="#" className="hover:text-[var(--sand-text)] transition">
+                Terms
+              </a>
+              <a href="#" className="hover:text-[var(--sand-text)] transition">
+                Contact
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}

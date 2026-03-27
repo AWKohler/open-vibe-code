@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #faf9f7; color: #2f2f31; padding: 32px; }
+    h1 { font-size: 28px; font-weight: 700; margin-bottom: 24px; }
+    .task { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: white; border-radius: 12px; margin-bottom: 8px; border: 1px solid #eceae4; }
+    .task input[type="checkbox"] { width: 18px; height: 18px; accent-color: #1d52f1; }
+    .task.done span { text-decoration: line-through; color: #999; }
+    .add { display: flex; gap: 8px; margin-bottom: 20px; }
+    .add input { flex: 1; padding: 10px 14px; border: 1px solid #eceae4; border-radius: 10px; font-size: 14px; outline: none; }
+    .add input:focus { border-color: #1d52f1; }
+    .add button { padding: 10px 20px; background: #1d52f1; color: white; border: none; border-radius: 10px; font-weight: 600; cursor: pointer; }
+    .badge { font-size: 12px; color: #888; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <h1>My Tasks</h1>
+  <p class="badge">3 tasks &middot; 1 completed</p>
+  <div class="add">
+    <input placeholder="Add a new task..." />
+    <button>Add</button>
+  </div>
+  <div class="task done"><input type="checkbox" checked /><span>Set up Convex backend</span></div>
+  <div class="task"><input type="checkbox" /><span>Design the landing page</span></div>
+  <div class="task"><input type="checkbox" /><span>Add user authentication</span></div>
+</body>
+</html>

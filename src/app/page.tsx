@@ -263,6 +263,17 @@ export default function Home() {
     }
   };
 
+  const saveBackendPreference = useCallback(async (pref: 'platform' | 'user') => {
+    setConvexBackendType(pref);
+    try {
+      await fetch('/api/user-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ convexBackendPreference: pref }),
+      });
+    } catch {}
+  }, []);
+
   const fetchUserSettings = useCallback(async () => {
     try {
       const [settingsRes, budgetRes] = await Promise.all([
@@ -278,6 +289,14 @@ export default function Home() {
         setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
         setHasFireworksKey(Boolean(data?.hasFireworksKey));
         setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
+        // Server-authoritative backend type preference
+        if (data?.convexBackendPreference === 'user' && data?.hasConvexOAuth) {
+          setConvexBackendType('user');
+        } else if (data?.convexBackendPreference === 'platform') {
+          setConvexBackendType('platform');
+        } else if (!data?.hasConvexOAuth) {
+          setConvexBackendType('platform');
+        }
       }
       if (budgetRes.ok) {
         const data = await budgetRes.json();
@@ -322,7 +341,7 @@ export default function Home() {
       const newSearch = params.toString();
       window.history.replaceState({}, '', newSearch ? `/?${newSearch}` : '/');
       // User came back from Convex OAuth — they chose BYOC
-      setConvexBackendType('user');
+      void saveBackendPreference('user');
       // If there are pending params (user was mid-flow), go straight to name step.
       // Bake backendType=user into the stored params so handleCreateProject picks it
       // up regardless of React state timing.
@@ -622,7 +641,7 @@ export default function Home() {
                               <div className="absolute bottom-full mb-2 left-0 w-60 rounded-xl border border-border bg-surface shadow-lg overflow-hidden z-20">
                                 <button
                                   type="button"
-                                  onClick={() => { setConvexBackendType('platform'); setShowConvexSelector(false); }}
+                                  onClick={() => { void saveBackendPreference('platform'); setShowConvexSelector(false); }}
                                   className={cn(
                                     "flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left",
                                     convexBackendType === 'platform' ? "bg-elevated" : "hover:bg-elevated"
@@ -637,7 +656,7 @@ export default function Home() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => { setConvexBackendType('user'); setShowConvexSelector(false); }}
+                                  onClick={() => { void saveBackendPreference('user'); setShowConvexSelector(false); }}
                                   className={cn(
                                     "flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left border-t border-border",
                                     convexBackendType === 'user' ? "bg-elevated" : "hover:bg-elevated"
@@ -889,7 +908,7 @@ export default function Home() {
                         type="button"
                         disabled={managedQuotaHit}
                         onClick={() => {
-                          setConvexBackendType('platform');
+                          void saveBackendPreference('platform');
                           setProjectStep('name');
                         }}
                         className={cn(
@@ -944,7 +963,7 @@ export default function Home() {
                       {hasConvexOAuth && (
                         <button
                           onClick={() => {
-                            setConvexBackendType('user');
+                            void saveBackendPreference('user');
                             setProjectStep('name');
                           }}
                           className="flex-1 inline-flex items-center justify-center rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition"

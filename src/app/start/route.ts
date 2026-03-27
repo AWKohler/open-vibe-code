@@ -112,7 +112,15 @@ export async function GET(request: Request) {
         ? prompt.slice(0, 48)
         : 'New Project';
 
-    const backendType = backendTypeParam === 'user' ? 'user' : 'platform';
+    // Resolve backend type from server-side credential store (authoritative)
+    // Falls back to client param only as a hint; server preference takes priority
+    const creds = await getUserCredentials(userId);
+    const backendType: 'platform' | 'user' =
+      creds.convexBackendPreference === 'user' && creds.convexOAuthAccessToken
+        ? 'user'
+        : backendTypeParam === 'user' && creds.convexOAuthAccessToken
+          ? 'user'
+          : 'platform';
 
     const [project] = await db
       .insert(projects)
@@ -122,7 +130,6 @@ export async function GET(request: Request) {
     if (backendType === 'user') {
       // BYOC: provision in the user's own Convex account via their OAuth token
       try {
-        const creds = await getUserCredentials(userId);
         if (creds.convexOAuthAccessToken) {
           const convexResult = await provisionUserConvex(creds, name, userId);
 

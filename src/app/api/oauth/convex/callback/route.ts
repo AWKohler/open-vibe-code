@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
       convexOAuthAccessToken: accessToken,
       convexOAuthRefreshToken: null,
       convexOAuthExpiresAt: null,
+      convexBackendPreference: 'user',
       ...(convexTeamId ? { convexTeamId } : {}),
     });
 

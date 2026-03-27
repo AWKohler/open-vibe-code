@@ -20,6 +20,7 @@ export async function GET() {
       hasClaudeOAuth: Boolean(creds.claudeOAuthAccessToken),
       hasCodexOAuth: Boolean(creds.codexOAuthAccessToken),
       hasConvexOAuth: Boolean(creds.convexOAuthAccessToken),
+      convexBackendPreference: creds.convexBackendPreference ?? 'platform',
     });
   } catch (e) {
     console.error('GET /api/user-settings failed:', e);
@@ -33,11 +34,12 @@ export async function POST(req: NextRequest) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { openaiApiKey, anthropicApiKey, moonshotApiKey, fireworksApiKey } = body as {
+    const { openaiApiKey, anthropicApiKey, moonshotApiKey, fireworksApiKey, convexBackendPreference } = body as {
       openaiApiKey?: string | null;
       anthropicApiKey?: string | null;
       moonshotApiKey?: string | null;
       fireworksApiKey?: string | null;
+      convexBackendPreference?: 'platform' | 'user';
     };
 
     // Read existing credentials to preserve fields not being updated
@@ -48,6 +50,9 @@ export async function POST(req: NextRequest) {
     if (anthropicApiKey !== undefined) updates.anthropicApiKey = anthropicApiKey || null;
     if (moonshotApiKey !== undefined) updates.moonshotApiKey = moonshotApiKey || null;
     if (fireworksApiKey !== undefined) updates.fireworksApiKey = fireworksApiKey || null;
+    if (convexBackendPreference === 'platform' || convexBackendPreference === 'user') {
+      updates.convexBackendPreference = convexBackendPreference;
+    }
 
     await setUserCredentials(userId, updates);
 

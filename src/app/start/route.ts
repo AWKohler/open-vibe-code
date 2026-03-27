@@ -113,14 +113,18 @@ export async function GET(request: Request) {
         : 'New Project';
 
     // Resolve backend type from server-side credential store (authoritative)
-    // Falls back to client param only as a hint; server preference takes priority
     const creds = await getUserCredentials(userId);
-    const backendType: 'platform' | 'user' =
-      creds.convexBackendPreference === 'user' && creds.convexOAuthAccessToken
-        ? 'user'
-        : backendTypeParam === 'user' && creds.convexOAuthAccessToken
-          ? 'user'
-          : 'platform';
+    const userWantsBYOC =
+      creds.convexBackendPreference === 'user' || backendTypeParam === 'user';
+    const backendType: 'platform' | 'user' = userWantsBYOC ? 'user' : 'platform';
+
+    // BYOC hard gate: if user selected BYOC, they MUST have a valid OAuth token.
+    // Never fall through to platform provisioning — that would consume platform resources.
+    if (backendType === 'user' && !creds.convexOAuthAccessToken) {
+      const errUrl = new URL('/', request.url);
+      errUrl.searchParams.set('error', 'convex_not_connected');
+      return NextResponse.redirect(errUrl);
+    }
 
     const [project] = await db
       .insert(projects)
@@ -128,33 +132,34 @@ export async function GET(request: Request) {
       .returning();
 
     if (backendType === 'user') {
-      // BYOC: provision in the user's own Convex account via their OAuth token
+      // BYOC: provision in the user's own Convex account via their OAuth token.
+      // If this fails, delete the project and redirect with an error — never fall through.
       try {
-        if (creds.convexOAuthAccessToken) {
-          const convexResult = await provisionUserConvex(creds, name, userId);
+        const convexResult = await provisionUserConvex(creds, name, userId);
 
-          await db.update(projects)
-            .set({
-              userConvexUrl: convexResult.deploymentUrl,
-              userConvexDeployKey: convexResult.adminKey,
-              convexProjectId: convexResult.projectSlug,
-              convexDeploymentId: convexResult.deploymentName,
-              convexDeployUrl: convexResult.deploymentUrl,
-              backendType: 'user',
-              updatedAt: new Date(),
-            })
-            .where(eq(projects.id, project.id));
-        } else {
-          console.error('BYOC requested but no Convex OAuth token found for user', userId);
-        }
+        await db.update(projects)
+          .set({
+            userConvexUrl: convexResult.deploymentUrl,
+            userConvexDeployKey: convexResult.adminKey,
+            convexProjectId: convexResult.projectSlug,
+            convexDeploymentId: convexResult.deploymentName,
+            convexDeployUrl: convexResult.deploymentUrl,
+            backendType: 'user',
+            updatedAt: new Date(),
+          })
+          .where(eq(projects.id, project.id));
       } catch (error) {
+        // BYOC failed — clean up the project row and redirect with error
+        await db.delete(projects).where(eq(projects.id, project.id));
         const msg = error instanceof Error ? error.message : String(error);
-        if (msg.includes('ProjectQuotaReached')) {
-          const errUrl = new URL('/', request.url);
-          errUrl.searchParams.set('error', 'convex_quota');
-          return NextResponse.redirect(errUrl);
-        }
         console.error('BYOC Convex provisioning failed:', msg);
+        const errUrl = new URL('/', request.url);
+        if (msg.includes('ProjectQuotaReached')) {
+          errUrl.searchParams.set('error', 'convex_quota');
+        } else {
+          errUrl.searchParams.set('error', 'convex_provision_failed');
+        }
+        return NextResponse.redirect(errUrl);
       }
     } else {
       // Platform-managed: provision under our account

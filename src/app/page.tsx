@@ -334,6 +334,21 @@ export default function Home() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
+    // Handle error redirects from /start
+    const errorParam = params.get('error');
+    if (errorParam) {
+      params.delete('error');
+      const newSearch = params.toString();
+      window.history.replaceState({}, '', newSearch ? `/?${newSearch}` : '/');
+      const errorMessages: Record<string, { title: string; description: string }> = {
+        convex_not_connected: { title: 'Convex not connected', description: 'Please connect your Convex account before creating a BYOC project.' },
+        convex_provision_failed: { title: 'Convex provisioning failed', description: 'Failed to create a Convex backend in your account. Please try again or check your Convex dashboard.' },
+        convex_quota: { title: 'Convex project limit reached', description: 'Your Convex account has reached its project quota. Delete unused projects at dashboard.convex.dev or upgrade your Convex plan.' },
+      };
+      const errMsg = errorMessages[errorParam] ?? { title: 'Error', description: 'Something went wrong creating your project.' };
+      toast(errMsg);
+    }
+
     if (params.get('convex_connected') === '1') {
       setHasConvexOAuth(true);
       // Clean URL

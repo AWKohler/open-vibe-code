@@ -41,9 +41,15 @@ export class WebContainerManager {
   }
 
   private static async boot(): Promise<WebContainer> {
-    const container = await WebContainer.boot({
-      coep: 'credentialless'
-    });
+    let container: WebContainer;
+    try {
+      container = await WebContainer.boot({
+        coep: 'credentialless'
+      });
+    } catch (err) {
+      console.error('WebContainer boot failed:', err);
+      throw err;
+    }
     
     // Set up file system watching with debouncing
     let watchTimeout: NodeJS.Timeout;

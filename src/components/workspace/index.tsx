@@ -40,6 +40,7 @@ import {
 import { UserButton } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { detectResourceError, RESOURCE_ERROR_MESSAGES, type ResourceErrorType } from "@/lib/resource-errors";
 import "@/lib/debug-storage"; // Make debug utilities available in console
 
 type WorkspaceView = "code" | "preview" | "database";
@@ -93,6 +94,7 @@ export function Workspace({
     lastSyncAt: Date | null;
   }>({ syncing: false, lastSyncAt: null });
   const [htmlSnapshotUrl, setHtmlSnapshotUrl] = useState<string | null>(null);
+  const [resourceError, setResourceError] = useState<ResourceErrorType | null>(null);
 
   // GitHub integration state
   const [githubRepoOwner, setGithubRepoOwner] = useState<string | null>(null);
@@ -427,10 +429,18 @@ export function Workspace({
         }
 
         // Run installer based on platform
-        const installProcess =
-          platform === "mobile"
-            ? await container.spawn("pnpm", ["install"])
-            : await container.spawn("pnpm", ["install"]);
+        const installProcess = await container.spawn("pnpm", ["install"]);
+
+        // Collect output so we can detect OOM / storage errors
+        let installOutput = "";
+        installProcess.output.pipeTo(
+          new WritableStream({
+            write(chunk) {
+              installOutput += chunk;
+            },
+          }),
+        ).catch(() => {});
+
         const exitCode = await installProcess.exit;
 
         if (exitCode === 0) {
@@ -439,15 +449,31 @@ export function Workspace({
         } else {
           console.error("install failed with exit code:", exitCode);
           setIsInstalled(false);
+
+          // Check if this was a resource issue
+          const errorType = detectResourceError(installOutput);
+          if (errorType) {
+            setResourceError(errorType);
+          } else {
+            toast({
+              title: "Install failed",
+              description: `pnpm install exited with code ${exitCode}. Check the terminal for details.`,
+            });
+          }
         }
       } catch (error) {
         console.error("Failed to run install:", error);
         setIsInstalled(false);
+
+        const errorType = detectResourceError(String(error));
+        if (errorType) {
+          setResourceError(errorType);
+        }
       } finally {
         setIsInstalling(false);
       }
     },
-    [platform],
+    [platform, toast],
   );
 
   const startDevServer = useCallback(
@@ -694,6 +720,20 @@ export function Workspace({
 
       setHydrating(true);
       try {
+        // Pre-flight: warn if browser storage is critically low
+        if (navigator.storage?.estimate) {
+          try {
+            const { quota = 0, usage = 0 } = await navigator.storage.estimate();
+            const availableMB = Math.round((quota - usage) / (1024 * 1024));
+            if (availableMB < 500) {
+              console.warn(`⚠️ Low browser storage: ~${availableMB} MB available`);
+              setResourceError("storage");
+            }
+          } catch {
+            // Storage API not available — continue anyway
+          }
+        }
+
         const container = await WebContainerManager.getInstance();
         setWebcontainer(container);
 
@@ -846,6 +886,14 @@ export function Workspace({
         console.error("Failed to initialize WebContainer:", error);
         setIsLoading(false);
         setHydrating(false);
+
+        // Classify and surface resource errors
+        const errorType = detectResourceError(String(error));
+        if (errorType) {
+          setResourceError(errorType);
+        } else {
+          setResourceError("boot");
+        }
 
         // Mark project as initialized even on error to prevent re-initialization loop
         initializedProjectIdRef.current = projectId;
@@ -1194,6 +1242,27 @@ export function Workspace({
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
+        {/* Resource error banner */}
+        {resourceError && (
+          <div className="px-4 py-3 bg-red-900/80 border-b border-red-700 text-white flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">
+                {RESOURCE_ERROR_MESSAGES[resourceError].title}
+              </p>
+              <p className="text-xs text-red-200 mt-0.5">
+                {RESOURCE_ERROR_MESSAGES[resourceError].description}
+              </p>
+            </div>
+            <button
+              onClick={() => setResourceError(null)}
+              className="shrink-0 text-red-300 hover:text-white text-lg leading-none mt-0.5"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Header */}
         <div className="h-12 flex items-center pr-2.5 gap-4 bg-surface backdrop-blur-sm">
           {/* Tabs */}

@@ -7,14 +7,12 @@ import { SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
 import {
   ArrowUp,
   ArrowRight,
-  Cog,
   Eye,
   Database,
   Github,
   Globe,
   Bot,
   Layers,
-  Rocket,
   Plus,
   Monitor,
 } from 'lucide-react';
@@ -35,6 +33,13 @@ const serif = Instrument_Serif({
   subsets: ['latin'],
   display: 'swap',
 });
+
+// ============================================================================
+// Premium easing (from reference)
+// ============================================================================
+
+const EASE_OUT = 'cubic-bezier(0.43, 0.195, 0.02, 1)';
+const EASE_SNAP = 'cubic-bezier(0.5, 0, 0, 1)';
 
 // ============================================================================
 // Scroll reveal
@@ -74,15 +79,125 @@ function Reveal({
   return (
     <div
       ref={ref}
-      className={cn(
-        'transition-all duration-700 ease-out',
-        inView ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8',
-        className,
-      )}
-      style={{ transitionDelay: `${delay}ms` }}
+      className={cn(className)}
+      style={{
+        transform: inView ? 'translateY(0)' : 'translateY(2rem)',
+        opacity: inView ? 1 : 0,
+        transition: `transform 0.8s ${EASE_OUT} ${delay}ms, opacity 0.8s ${EASE_OUT} ${delay}ms`,
+      }}
     >
       {children}
     </div>
+  );
+}
+
+// ============================================================================
+// Animated line divider — grows from center on scroll
+// ============================================================================
+
+function LineDivider({ className }: { className?: string }) {
+  const { ref, inView } = useInView();
+  return (
+    <div ref={ref} className={cn('relative w-full overflow-hidden', className)}>
+      <div
+        className="h-px w-full origin-center"
+        style={{
+          background: 'var(--sand-border)',
+          transform: inView ? 'scaleX(1)' : 'scaleX(0)',
+          transition: `transform 1s ${EASE_SNAP}`,
+        }}
+      />
+    </div>
+  );
+}
+
+// ============================================================================
+// Section label — uppercase, tracked, muted
+// ============================================================================
+
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="inline-block text-[11px] font-medium uppercase tracking-[0.2em] text-[var(--sand-text-muted)] mb-5"
+      style={{ letterSpacing: '0.2em' }}
+    >
+      {children}
+    </span>
+  );
+}
+
+// ============================================================================
+// Character-stagger button — text slides up on hover, shadow reveals copy
+// ============================================================================
+
+function StaggerButton({
+  text,
+  href,
+  className,
+}: {
+  text: string;
+  href: string;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        'group relative inline-flex items-center gap-2 overflow-hidden rounded-xl bg-[var(--sand-accent)] px-6 py-3 text-base font-medium shadow-lg',
+        className,
+      )}
+    >
+      <span className="relative flex overflow-hidden">
+        {text.split('').map((char, i) => (
+          <span
+            key={i}
+            className="inline-block transition-transform duration-300 group-hover:-translate-y-[1.5em]"
+            style={{
+              transitionDelay: `${i * 12}ms`,
+              transitionTimingFunction: 'ease',
+              textShadow: '0 1.5em 0 currentColor',
+              color: 'var(--sand-accent-contrast)',
+            }}
+          >
+            {char === ' ' ? '\u00A0' : char}
+          </span>
+        ))}
+      </span>
+      <ArrowRight
+        className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5"
+        style={{ color: 'var(--sand-accent-contrast)' }}
+      />
+    </Link>
+  );
+}
+
+// ============================================================================
+// Drop-in badge
+// ============================================================================
+
+function DropBadge({ children }: { children: ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setVisible(true), 600);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <span
+      className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+      style={{
+        background: 'color-mix(in oklab, var(--sand-accent) 8%, transparent)',
+        color: 'var(--sand-accent)',
+        transform: visible ? 'translateY(0)' : 'translateY(-100%)',
+        opacity: visible ? 1 : 0,
+        transition: `transform 0.4s ${EASE_OUT}, opacity 0.3s ${EASE_OUT}`,
+      }}
+    >
+      <span
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ background: 'var(--sand-accent)' }}
+      />
+      {children}
+    </span>
   );
 }
 
@@ -163,7 +278,6 @@ export default function LandingV2() {
   const [prompt, setPrompt] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea
   const handlePromptChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setPrompt(e.target.value);
@@ -174,7 +288,6 @@ export default function LandingV2() {
     [],
   );
 
-  // Send prompt → redirect to main page with prompt param
   const handleSend = useCallback(() => {
     if (!prompt.trim()) return;
     const params = new URLSearchParams({ prompt: prompt.trim() });
@@ -186,10 +299,9 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* NAV                                                              */}
       {/* ================================================================ */}
-      <header className="sticky top-0 z-50 backdrop-blur-lg bg-[var(--sand-bg)]/80 border-b border-[var(--sand-border)]/50">
+      <header className="sticky top-0 z-50 backdrop-blur-lg bg-[var(--sand-bg)]/80">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between md:grid md:grid-cols-3">
-            {/* Logo */}
             <a className="flex items-center gap-2.5" href="/">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/botflow-glyph.svg" alt="" className="h-8 w-8" />
@@ -201,7 +313,6 @@ export default function LandingV2() {
               />
             </a>
 
-            {/* Center nav */}
             <nav className="hidden md:flex items-center justify-center gap-8 text-sm">
               <SignedIn>
                 <a href="/projects" className="font-medium hover:text-[var(--sand-accent)] transition">
@@ -213,7 +324,6 @@ export default function LandingV2() {
               </a>
             </nav>
 
-            {/* Right */}
             <div className="flex items-center justify-end gap-2">
               <SignedOut>
                 <Link
@@ -241,17 +351,31 @@ export default function LandingV2() {
             </div>
           </div>
         </div>
+        {/* Animated nav bottom border */}
+        <div
+          className="h-px w-full origin-center"
+          style={{
+            background: 'var(--sand-border)',
+            animation: `lineGrowX 0.6s ${EASE_SNAP} forwards`,
+            opacity: 0.5,
+          }}
+        />
+        <style>{`@keyframes lineGrowX { from { transform: scaleX(0); } to { transform: scaleX(1); } }`}</style>
       </header>
 
       {/* ================================================================ */}
       {/* HERO                                                             */}
       {/* ================================================================ */}
       <section className="relative overflow-hidden">
-        {/* Gradient background */}
         <div className="pointer-events-none absolute inset-0 -z-10 landing-gradient" />
 
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-20 sm:pt-28 pb-8 sm:pb-12">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-16 sm:pt-24 pb-8 sm:pb-12">
           <div className="max-w-3xl mx-auto text-center">
+            {/* Drop-in badge */}
+            <div className="mb-6 flex justify-center">
+              <DropBadge>AI-Powered Development</DropBadge>
+            </div>
+
             {/* Headline */}
             <Reveal>
               <h1
@@ -261,10 +385,15 @@ export default function LandingV2() {
                 )}
               >
                 From idea to{' '}
-                <span className="relative">
-                  production
+                <span className="relative inline-block">
+                  <span style={{ color: 'var(--sand-accent)' }}>production</span>
                   <span
-                    className="absolute -bottom-1 left-0 right-0 h-[3px] rounded-full bg-[var(--sand-accent)] opacity-60"
+                    className="absolute -bottom-1 left-0 right-0 h-[3px] rounded-full origin-center"
+                    style={{
+                      background: 'var(--sand-accent)',
+                      opacity: 0.5,
+                      animation: `lineGrowX 0.8s ${EASE_SNAP} 0.5s both`,
+                    }}
                     aria-hidden
                   />
                 </span>
@@ -274,7 +403,7 @@ export default function LandingV2() {
             </Reveal>
 
             {/* Subheading */}
-            <Reveal delay={100}>
+            <Reveal delay={150}>
               <p className="mt-6 text-lg sm:text-xl text-[var(--sand-text-muted)] max-w-2xl mx-auto leading-relaxed">
                 Botflow is an AI workspace that builds full-stack web apps from natural language.
                 Describe what you want, watch the agent code it, and deploy — all without leaving your browser.
@@ -282,7 +411,7 @@ export default function LandingV2() {
             </Reveal>
 
             {/* Prompt box */}
-            <Reveal delay={200}>
+            <Reveal delay={250}>
               <div className="w-full mt-8">
                 <div className="flex flex-col rounded-2xl sm:rounded-3xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] backdrop-blur-sm shadow-[0_2px_0_rgba(0,0,0,0.02),0_20px_60px_-20px_rgba(0,0,0,0.18)]">
                   <textarea
@@ -341,7 +470,7 @@ export default function LandingV2() {
             </Reveal>
 
             {/* Provider pills */}
-            <Reveal delay={300}>
+            <Reveal delay={350}>
               <div className="mt-4 flex flex-col items-center gap-3">
                 <div className="flex items-center justify-center gap-2">
                   <SignedOut>
@@ -381,10 +510,8 @@ export default function LandingV2() {
           </div>
         </div>
 
-        {/* ============================================================== */}
-        {/* HERO MOCKUP                                                     */}
-        {/* ============================================================== */}
-        <Reveal delay={400}>
+        {/* HERO MOCKUP */}
+        <Reveal delay={450}>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-16 sm:pb-24">
             <WorkspaceMockup
               messages={[
@@ -438,17 +565,20 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* FEATURES                                                         */}
       {/* ================================================================ */}
-      <section className="relative border-t border-[var(--sand-border)]">
+      <LineDivider />
+      <section className="relative">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
           <Reveal>
             <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
+              <SectionLabel>Features</SectionLabel>
               <h2
                 className={cn(
                   serif.className,
                   'text-4xl sm:text-5xl md:text-6xl tracking-tight',
                 )}
               >
-                Everything you need to build
+                Everything you need{' '}
+                <em className={serif.className}>to build</em>
               </h2>
               <p className="mt-4 text-lg text-[var(--sand-text-muted)] leading-relaxed">
                 A complete development environment powered by AI. No setup, no config, no context-switching.
@@ -456,11 +586,32 @@ export default function LandingV2() {
             </div>
           </Reveal>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
+          {/* Feature grid with vertical dividers */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-0">
             {features.map((f, i) => (
               <Reveal key={f.title} delay={i * 80}>
-                <div className="group relative rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-surface)] p-6 sm:p-8 transition-all duration-300 hover:border-[var(--sand-accent)]/30 hover:shadow-lg hover:shadow-[var(--sand-accent)]/5">
-                  {/* Icon */}
+                <div
+                  className={cn(
+                    'group relative p-6 sm:p-8 transition-colors duration-300 hover:bg-[var(--sand-surface)]',
+                    // Right border for first two columns on lg
+                    i % 3 !== 2 && 'lg:border-r lg:border-[var(--sand-border)]',
+                    // Right border for first column on md (2-col)
+                    i % 2 === 0 && 'md:max-lg:border-r md:max-lg:border-[var(--sand-border)]',
+                    // Bottom border for all except last row
+                    i < 3 && 'lg:border-b lg:border-[var(--sand-border)]',
+                    i < 4 && 'md:max-lg:border-b md:max-lg:border-[var(--sand-border)]',
+                    'max-md:border-b max-md:border-[var(--sand-border)]',
+                    i === features.length - 1 && 'max-md:border-b-0',
+                  )}
+                >
+                  {/* Accent top line on hover */}
+                  <div
+                    className="absolute top-0 left-6 right-6 h-px origin-center scale-x-0 group-hover:scale-x-100 transition-transform duration-500"
+                    style={{
+                      background: 'var(--sand-accent)',
+                      transitionTimingFunction: EASE_SNAP,
+                    }}
+                  />
                   <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--sand-elevated)] border border-[var(--sand-border)] text-[var(--sand-text-muted)] group-hover:text-[var(--sand-accent)] group-hover:border-[var(--sand-accent)]/30 transition-colors duration-300">
                     <f.icon className="h-5 w-5" />
                   </div>
@@ -478,10 +629,12 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* HOW IT WORKS                                                     */}
       {/* ================================================================ */}
-      <section className="relative border-t border-[var(--sand-border)] bg-[var(--sand-surface)]">
+      <LineDivider />
+      <section className="relative bg-[var(--sand-surface)]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
           <Reveal>
             <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
+              <SectionLabel>How it works</SectionLabel>
               <h2
                 className={cn(
                   serif.className,
@@ -494,16 +647,23 @@ export default function LandingV2() {
             </div>
           </Reveal>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 sm:gap-12">
+          {/* Steps with vertical dividers */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
             {steps.map((s, i) => (
               <Reveal key={s.num} delay={i * 120}>
-                <div className="relative">
-                  {/* Number */}
+                <div
+                  className={cn(
+                    'relative px-6 sm:px-10 py-8 md:py-0',
+                    i < 2 && 'md:border-r md:border-[var(--sand-border)]',
+                    i < 2 && 'max-md:border-b max-md:border-[var(--sand-border)]',
+                  )}
+                >
                   <span
                     className={cn(
                       serif.className,
-                      'text-7xl sm:text-8xl font-normal text-[var(--sand-accent)] opacity-20 leading-none select-none',
+                      'text-7xl sm:text-8xl font-normal leading-none select-none',
                     )}
+                    style={{ color: 'var(--sand-accent)', opacity: 0.2 }}
                   >
                     {s.num}
                   </span>
@@ -519,11 +679,13 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* CODE VIEW SHOWCASE                                               */}
       {/* ================================================================ */}
-      <section className="relative border-t border-[var(--sand-border)]">
+      <LineDivider />
+      <section className="relative">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <Reveal>
               <div>
+                <SectionLabel>Development</SectionLabel>
                 <h2
                   className={cn(
                     serif.className,
@@ -548,7 +710,10 @@ export default function LandingV2() {
                       key={item}
                       className="flex items-start gap-3 text-sm text-[var(--sand-text-muted)]"
                     >
-                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[var(--sand-accent)] shrink-0" />
+                      <span
+                        className="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0"
+                        style={{ background: 'var(--sand-accent)' }}
+                      />
                       {item}
                     </li>
                   ))}
@@ -587,67 +752,68 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* INTEGRATIONS                                                     */}
       {/* ================================================================ */}
-      <section className="relative border-t border-[var(--sand-border)] bg-[var(--sand-surface)]">
+      <LineDivider />
+      <section className="relative bg-[var(--sand-surface)]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
           <Reveal>
             <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
+              <SectionLabel>Infrastructure</SectionLabel>
               <h2
                 className={cn(
                   serif.className,
                   'text-4xl sm:text-5xl md:text-6xl tracking-tight',
                 )}
               >
-                Built on infrastructure{' '}
+                Built on tools{' '}
                 <em className={serif.className}>you trust</em>
               </h2>
               <p className="mt-4 text-lg text-[var(--sand-text-muted)] leading-relaxed">
-                We didn&apos;t reinvent the wheel. Botflow integrates with best-in-class tools so you own your code, your data, and your deployments.
+                We didn&apos;t reinvent the wheel. Botflow integrates with best-in-class services so you own your code, your data, and your deployments.
               </p>
             </div>
           </Reveal>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
-            {/* Convex */}
-            <Reveal delay={0}>
-              <div className="rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-bg)] p-8 text-center">
-                <div className="flex items-center justify-center h-10 mb-5">
-                  <Convex className="h-8 w-auto" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">Convex</h3>
-                <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
-                  Real-time backend as a service. Every project gets serverless functions, a document database, and automatic scaling.
-                </p>
-              </div>
-            </Reveal>
-
-            {/* GitHub */}
-            <Reveal delay={80}>
-              <div className="rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-bg)] p-8 text-center">
-                <div className="flex items-center justify-center h-10 mb-5">
-                  <Github className="h-8 w-8 text-[var(--sand-text)]" />
-                </div>
-                <h3 className="text-lg font-semibold mb-2">GitHub</h3>
-                <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
-                  Version control and collaboration. Connect a repo, push commits, and pull updates — all from inside the workspace.
-                </p>
-              </div>
-            </Reveal>
-
-            {/* Cloudflare */}
-            <Reveal delay={160}>
-              <div className="rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-bg)] p-8 text-center">
-                <div className="flex items-center justify-center h-10 mb-5">
-                  {/* Placeholder for Cloudflare logo — replace with your asset */}
+          {/* Integration cards with dividers */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-[var(--sand-border)] rounded-2xl overflow-hidden">
+            {[
+              {
+                logo: <Convex className="h-8 w-auto" />,
+                name: 'Convex',
+                desc: 'Real-time backend as a service. Serverless functions, document database, and automatic scaling.',
+              },
+              {
+                logo: <Github className="h-8 w-8 text-[var(--sand-text)]" />,
+                name: 'GitHub',
+                desc: 'Version control and collaboration. Connect a repo, push commits, and pull updates from the workspace.',
+              },
+              {
+                logo: (
                   <div className="h-8 w-8 rounded-lg bg-[var(--sand-elevated)] border border-[var(--sand-border)] flex items-center justify-center">
                     <Globe className="h-5 w-5 text-[var(--sand-accent)]" />
                   </div>
+                ),
+                name: 'Cloudflare',
+                desc: 'Global edge deployment. One-click publish via Cloudflare Pages — fast, reliable, and free to start.',
+              },
+            ].map((item, i) => (
+              <Reveal key={item.name} delay={i * 80}>
+                <div
+                  className={cn(
+                    'p-8 text-center bg-[var(--sand-bg)]',
+                    i < 2 && 'md:border-r md:border-[var(--sand-border)]',
+                    i < 2 && 'max-md:border-b max-md:border-[var(--sand-border)]',
+                  )}
+                >
+                  <div className="flex items-center justify-center h-10 mb-5">
+                    {item.logo}
+                  </div>
+                  <h3 className="text-lg font-semibold mb-2">{item.name}</h3>
+                  <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
+                    {item.desc}
+                  </p>
                 </div>
-                <h3 className="text-lg font-semibold mb-2">Cloudflare</h3>
-                <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
-                  Global edge deployment. One-click publish puts your app on Cloudflare Pages — fast, reliable, and free to start.
-                </p>
-              </div>
-            </Reveal>
+              </Reveal>
+            ))}
           </div>
         </div>
       </section>
@@ -655,18 +821,21 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* MODELS                                                           */}
       {/* ================================================================ */}
-      <section className="relative border-t border-[var(--sand-border)]">
+      <LineDivider />
+      <section className="relative">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <Reveal>
               <div>
+                <SectionLabel>AI Models</SectionLabel>
                 <h2
                   className={cn(
                     serif.className,
                     'text-4xl sm:text-5xl tracking-tight',
                   )}
                 >
-                  Pick your engine
+                  Pick your{' '}
+                  <span style={{ color: 'var(--sand-accent)' }}>engine</span>
                 </h2>
                 <p className="mt-6 text-lg text-[var(--sand-text-muted)] leading-relaxed">
                   Different tasks, different models. Use a lightweight model for quick iterations, or bring in the heavyweights for complex features. Switch models mid-conversation — no restart needed.
@@ -675,54 +844,30 @@ export default function LandingV2() {
             </Reveal>
 
             <Reveal delay={100}>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {[
-                  {
-                    name: 'GPT-5.3 Codex',
-                    provider: 'OpenAI',
-                    badge: 'Popular',
-                    cost: 'x4',
-                  },
-                  {
-                    name: 'Claude Opus 4.6',
-                    provider: 'Anthropic',
-                    badge: 'Most capable',
-                    cost: 'x10',
-                  },
-                  {
-                    name: 'Claude Sonnet 4.6',
-                    provider: 'Anthropic',
-                    badge: '',
-                    cost: 'x5',
-                  },
-                  {
-                    name: 'GPT-5.4',
-                    provider: 'OpenAI',
-                    badge: '',
-                    cost: 'x6',
-                  },
-                  {
-                    name: 'MiniMax M2P5',
-                    provider: 'Fireworks',
-                    badge: 'Free tier',
-                    cost: 'x1',
-                  },
-                  {
-                    name: 'GLM-5',
-                    provider: 'Fireworks',
-                    badge: 'Free tier',
-                    cost: 'x2',
-                  },
+                  { name: 'GPT-5.3 Codex', provider: 'OpenAI', badge: 'Popular', cost: 'x4' },
+                  { name: 'Claude Opus 4.6', provider: 'Anthropic', badge: 'Most capable', cost: 'x10' },
+                  { name: 'Claude Sonnet 4.6', provider: 'Anthropic', badge: '', cost: 'x5' },
+                  { name: 'GPT-5.4', provider: 'OpenAI', badge: '', cost: 'x6' },
+                  { name: 'MiniMax M2P5', provider: 'Fireworks', badge: 'Free tier', cost: 'x1' },
+                  { name: 'GLM-5', provider: 'Fireworks', badge: 'Free tier', cost: 'x2' },
                 ].map((m) => (
                   <div
                     key={m.name}
-                    className="flex items-center gap-4 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-surface)] px-5 py-3.5 transition-colors hover:border-[var(--sand-accent)]/30"
+                    className="group flex items-center gap-4 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-surface)] px-5 py-3.5 transition-all duration-300 hover:border-[var(--sand-accent)]/30 hover:bg-[var(--sand-elevated)]"
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">{m.name}</span>
                         {m.badge && (
-                          <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--sand-accent)]/10 text-[var(--sand-accent)]">
+                          <span
+                            className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                            style={{
+                              background: 'color-mix(in oklab, var(--sand-accent) 10%, transparent)',
+                              color: 'var(--sand-accent)',
+                            }}
+                          >
                             {m.badge}
                           </span>
                         )}
@@ -743,14 +888,20 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* SOCIAL PROOF / PLACEHOLDER                                       */}
       {/* ================================================================ */}
-      <section className="relative border-t border-[var(--sand-border)] bg-[var(--sand-surface)]">
+      <LineDivider />
+      <section className="relative bg-[var(--sand-surface)]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
           <Reveal>
             <div className="text-center max-w-3xl mx-auto">
-              {/* Placeholder for testimonials or showcased projects */}
-              <p className="text-sm uppercase tracking-widest text-[var(--sand-text-muted)] mb-8">
+              <SectionLabel>Showcase</SectionLabel>
+              <h2
+                className={cn(
+                  serif.className,
+                  'text-3xl sm:text-4xl tracking-tight mb-10',
+                )}
+              >
                 What people are building
-              </p>
+              </h2>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {[1, 2, 3].map((n) => (
                   <div
@@ -770,7 +921,8 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* CTA                                                              */}
       {/* ================================================================ */}
-      <section className="relative border-t border-[var(--sand-border)]">
+      <LineDivider />
+      <section className="relative">
         <div className="pointer-events-none absolute inset-0 -z-10 landing-gradient opacity-60" />
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-28 sm:py-36">
           <Reveal>
@@ -781,19 +933,14 @@ export default function LandingV2() {
                   'text-4xl sm:text-5xl md:text-6xl tracking-tight',
                 )}
               >
-                Ready to build something?
+                Ready to build{' '}
+                <span style={{ color: 'var(--sand-accent)' }}>something</span>?
               </h2>
               <p className="mt-4 text-lg text-[var(--sand-text-muted)]">
                 Start for free. No credit card required.
               </p>
               <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-                <Link
-                  href="/sign-up"
-                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--sand-text)] text-[var(--sand-bg)] px-6 py-3 text-base font-medium shadow-lg hover:opacity-90 transition"
-                >
-                  Get started free
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
+                <StaggerButton text="Get started free" href="/sign-up" />
                 <Link
                   href="/pricing"
                   className="inline-flex items-center gap-2 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-6 py-3 text-base font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
@@ -809,7 +956,8 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* FOOTER                                                           */}
       {/* ================================================================ */}
-      <footer className="border-t border-[var(--sand-border)]">
+      <LineDivider />
+      <footer>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">

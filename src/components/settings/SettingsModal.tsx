@@ -530,12 +530,12 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                       </div>
 
                       {/* TODO: remove this warning once resolved */}
-                      <div className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2.5 mb-3">
+                      {/* <div className="flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2.5 mb-3">
                         <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
                         <p className="text-xs text-amber-700 dark:text-amber-300/80">
                           Currently facing issues when using models with OpenAI OAuth.
                         </p>
-                      </div>
+                      </div> */}
 
                       {!hasCodexOAuth && codexOAuthStep === 'idle' && (
                         <button

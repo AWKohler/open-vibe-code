@@ -704,6 +704,37 @@ export function Workspace({
 
   // REMOVED: Manual snapshot test button (no longer needed)
 
+  // Global error listener — catches OOM errors that escape promise chains
+  // (e.g. WebAssembly.instantiate crashing in a Worker)
+  useEffect(() => {
+    const handleGlobalError = (event: ErrorEvent) => {
+      const msg = event.message || String(event.error);
+      const errorType = detectResourceError(msg);
+      if (errorType) {
+        setResourceError(errorType);
+      }
+    };
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const msg =
+        event.reason instanceof Error
+          ? event.reason.message
+          : String(event.reason);
+      const errorType = detectResourceError(msg);
+      if (errorType) {
+        setResourceError(errorType);
+      }
+    };
+    window.addEventListener("error", handleGlobalError);
+    window.addEventListener("unhandledrejection", handleUnhandledRejection);
+    return () => {
+      window.removeEventListener("error", handleGlobalError);
+      window.removeEventListener(
+        "unhandledrejection",
+        handleUnhandledRejection,
+      );
+    };
+  }, []);
+
   useEffect(() => {
     async function initWebContainer() {
       // Prevent concurrent initializations within same mount
@@ -1221,9 +1252,31 @@ export function Workspace({
 
   if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-bg">
-        {/* <div className="text-muted">Loading WebContainer...</div> */}
-        <div className="text-muted">There is no moat...</div>
+      <div className="h-screen flex flex-col bg-bg">
+        {resourceError && (
+          <div className="px-4 py-3 bg-red-900/80 border-b border-red-700 text-white flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold">
+                {RESOURCE_ERROR_MESSAGES[resourceError].title}
+              </p>
+              <p className="text-xs text-red-200 mt-0.5">
+                {RESOURCE_ERROR_MESSAGES[resourceError].description}
+              </p>
+            </div>
+            <button
+              onClick={() => setResourceError(null)}
+              className="shrink-0 text-red-300 hover:text-white text-lg leading-none mt-0.5"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-muted">
+            {resourceError ? "Failed to load" : "There is no moat..."}
+          </div>
+        </div>
       </div>
     );
   }

@@ -7,6 +7,8 @@ const OOM_PATTERNS = [
   'cannot allocate memory',
   'allocation failed',
   'wasm memory',
+  'webassembly.instantiate',
+  'wasm compile',
 ];
 
 const STORAGE_PATTERNS = [

@@ -302,7 +302,7 @@ export default function LandingV2() {
       <header className="sticky top-0 z-50 backdrop-blur-lg bg-[var(--sand-bg)]/80">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-3">
           <div className="flex items-center justify-between md:grid md:grid-cols-3">
-            <a className="flex items-center gap-2.5" href="/">
+            <Link className="flex items-center gap-2.5" href="/">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/brand/botflow-glyph.svg" alt="" className="h-8 w-8" />
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -311,7 +311,7 @@ export default function LandingV2() {
                 alt="Botflow"
                 className="h-5 w-auto botflow-wordmark-invert"
               />
-            </a>
+            </Link>
 
             <nav className="hidden md:flex items-center justify-center gap-8 text-sm">
               <SignedIn>

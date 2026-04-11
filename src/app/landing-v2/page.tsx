@@ -366,8 +366,7 @@ export default function LandingV2() {
       {/* ================================================================ */}
       {/* HERO                                                             */}
       {/* ================================================================ */}
-      <section className="relative overflow-hidden">
-        <div className="pointer-events-none absolute inset-0 -z-10 landing-gradient" />
+      <section className="relative overflow-hidden hero-grid">
 
         <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-16 sm:pt-24 pb-8 sm:pb-12">
           <div className="max-w-3xl mx-auto text-center">

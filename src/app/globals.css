@@ -189,11 +189,24 @@ body {
 
 /* Landing page gradient */
 .landing-gradient {
+    /* Accent blobs only — no solid base so hero-grid shows through */
     background:
         radial-gradient(ellipse 90% 60% at 50% 0%, color-mix(in oklab, var(--sand-accent) 70%, transparent), transparent),
         radial-gradient(ellipse 70% 55% at 85% 5%, color-mix(in oklab, var(--sand-soft) 85%, transparent), transparent),
-        radial-gradient(ellipse 60% 70% at 50% 100%, color-mix(in oklab, var(--sand-elevated) 95%, transparent), transparent),
-        linear-gradient(180deg, var(--sand-bg) 0%, var(--sand-surface) 50%, var(--sand-bg) 100%);
+        radial-gradient(ellipse 60% 70% at 50% 100%, color-mix(in oklab, var(--sand-elevated) 95%, transparent), transparent);
+}
+
+/* Squared grid background — ported from component.gallery */
+.hero-grid {
+    background-color: var(--sand-bg);
+    background-image:
+        linear-gradient(to bottom, var(--sand-bg) 0, transparent calc(40px * 3), transparent calc(100% - 40px), var(--sand-bg) 100%),
+        linear-gradient(to right, var(--sand-bg) 0, transparent calc(40px * 2), transparent calc(100% - 40px), var(--sand-bg) 100%),
+        linear-gradient(105deg, var(--sand-bg), transparent),
+        linear-gradient(var(--sand-border) 1px, transparent 1px),
+        linear-gradient(to right, var(--sand-border) 1px, var(--sand-bg) 1px);
+    background-size: 100% 100%, 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+    background-position: top left;
 }
 
 .landing-gradient::after {

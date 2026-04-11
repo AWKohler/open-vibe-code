@@ -106,6 +106,8 @@ export function Workspace({
   // Cloudflare Pages publish state
   const [cloudflareProjectName, setCloudflareProjectName] = useState<string | null>(null);
   const [cloudflareDeploymentUrl, setCloudflareDeploymentUrl] = useState<string | null>(null);
+  const [customDomain, setCustomDomain] = useState<string | null>(null);
+  const [customDomainStatus, setCustomDomainStatus] = useState<string | null>(null);
   const [publishPanelOpen, setPublishPanelOpen] = useState(false);
   const publishBtnRef = useRef<HTMLButtonElement | null>(null);
   const searchParams = useSearchParams();
@@ -159,6 +161,8 @@ export function Workspace({
           if (proj?.githubDefaultBranch) setGithubDefaultBranch(proj.githubDefaultBranch);
           if (proj?.cloudflareProjectName) setCloudflareProjectName(proj.cloudflareProjectName);
           if (proj?.cloudflareDeploymentUrl) setCloudflareDeploymentUrl(proj.cloudflareDeploymentUrl);
+          setCustomDomain(proj?.customDomain ?? null);
+          setCustomDomainStatus(proj?.customDomainStatus ?? null);
         }
       } catch (e) {
         console.warn("Failed to load project data", e);
@@ -1595,6 +1599,12 @@ export function Workspace({
                 onUnpublished={() => {
                   setCloudflareProjectName(null);
                   setCloudflareDeploymentUrl(null);
+                }}
+                customDomain={customDomain}
+                customDomainStatus={customDomainStatus as "pending" | "active" | "error" | null}
+                onCustomDomainChanged={(domain, status) => {
+                  setCustomDomain(domain);
+                  setCustomDomainStatus(status);
                 }}
                 platform={platform}
               />

@@ -30,6 +30,9 @@ export const projects = pgTable('projects', {
   // Cloudflare Pages deployment
   cloudflareProjectName: text('cloudflare_project_name'),
   cloudflareDeploymentUrl: text('cloudflare_deployment_url'),
+  // User custom domain (Pro/Max only)
+  customDomain: text('custom_domain'),
+  customDomainStatus: text('custom_domain_status'), // 'pending' | 'active' | 'error'
   lastOpened: timestamp('last_opened').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),

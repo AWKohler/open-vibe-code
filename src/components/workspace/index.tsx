@@ -108,6 +108,7 @@ export function Workspace({
   const [cloudflareDeploymentUrl, setCloudflareDeploymentUrl] = useState<string | null>(null);
   const [customDomain, setCustomDomain] = useState<string | null>(null);
   const [customDomainStatus, setCustomDomainStatus] = useState<string | null>(null);
+  const [canUseCustomDomain, setCanUseCustomDomain] = useState(false);
   const [publishPanelOpen, setPublishPanelOpen] = useState(false);
   const publishBtnRef = useRef<HTMLButtonElement | null>(null);
   const searchParams = useSearchParams();
@@ -142,9 +143,10 @@ export function Workspace({
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(
-          `/api/projects/${encodeURIComponent(projectId)}`,
-        );
+        const [res, planRes] = await Promise.all([
+          fetch(`/api/projects/${encodeURIComponent(projectId)}`),
+          fetch('/api/user/plan'),
+        ]);
         if (res.ok) {
           const proj = await res.json();
           if (
@@ -163,6 +165,10 @@ export function Workspace({
           if (proj?.cloudflareDeploymentUrl) setCloudflareDeploymentUrl(proj.cloudflareDeploymentUrl);
           setCustomDomain(proj?.customDomain ?? null);
           setCustomDomainStatus(proj?.customDomainStatus ?? null);
+        }
+        if (planRes.ok) {
+          const plan = await planRes.json() as { tier: string; canUseCustomDomain: boolean };
+          setCanUseCustomDomain(plan.canUseCustomDomain ?? false);
         }
       } catch (e) {
         console.warn("Failed to load project data", e);
@@ -1606,6 +1612,7 @@ export function Workspace({
                   setCustomDomain(domain);
                   setCustomDomainStatus(status);
                 }}
+                canUseCustomDomain={canUseCustomDomain}
                 platform={platform}
               />
             </div>

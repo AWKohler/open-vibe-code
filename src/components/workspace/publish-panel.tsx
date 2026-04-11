@@ -3,7 +3,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { WebContainer } from "@webcontainer/api";
-import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -42,6 +41,7 @@ interface PublishPanelProps {
   customDomain: string | null;
   customDomainStatus: DomainStatus;
   onCustomDomainChanged: (domain: string | null, status: DomainStatus) => void;
+  canUseCustomDomain: boolean;
   platform?: "web" | "mobile" | "multiplatform";
 }
 
@@ -233,6 +233,7 @@ export function PublishPanel({
   customDomain,
   customDomainStatus,
   onCustomDomainChanged,
+  canUseCustomDomain,
   platform = "web",
 }: PublishPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -254,11 +255,6 @@ export function PublishPanel({
   const [domainCopied, setDomainCopied] = useState(false);
   const [confirmRemoveDomain, setConfirmRemoveDomain] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // ── Tier detection ───────────────────────────────────────────────────────
-  const { user } = useUser();
-  const plan = (user?.publicMetadata?.plan as string) ?? "free";
-  const canUseCustomDomain = plan === "pro" || plan === "max";
 
   // Apex domain for redirect instructions (derived from www.domain)
   const domainApex = customDomain?.startsWith("www.")

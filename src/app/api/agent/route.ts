@@ -280,7 +280,7 @@ function createAnthropicOAuthProvider(oauthToken: string) {
 
       const existingBeta = requestHeaders.get("anthropic-beta") || "";
       const betaList = existingBeta.split(",").map(b => b.trim()).filter(Boolean);
-      const requiredBetas = ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"];
+      const requiredBetas = ["oauth-2026-02-11"]; // "interleaved-thinking-2025-05-14" removed — may be outdated
       const mergedBetas = [...new Set([...requiredBetas, ...betaList])].join(",");
       requestHeaders.set("anthropic-beta", mergedBetas);
       requestHeaders.set("user-agent", "claude-cli/2.1.2 (external, cli)");

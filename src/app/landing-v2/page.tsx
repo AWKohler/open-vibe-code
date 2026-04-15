@@ -270,41 +270,6 @@ const steps = [
 ];
 
 // ============================================================================
-// Editorial column grid — decorative structural lines (ported from component.gallery)
-// Fixed overlay: 12-column grid, border-color lines at 1px gaps, fades top/bottom
-// ============================================================================
-
-function EditorialGrid() {
-  return (
-    <div
-      aria-hidden="true"
-      className="fixed inset-0 pointer-events-none select-none overflow-hidden"
-      style={{ zIndex: 1 }}
-    >
-      <div
-        className="h-full mx-auto max-w-7xl px-4 sm:px-6"
-        style={{
-          maskImage:
-            'linear-gradient(to bottom, transparent 0px, black 72px, black calc(100% - 80px), transparent 100%)',
-          WebkitMaskImage:
-            'linear-gradient(to bottom, transparent 0px, black 72px, black calc(100% - 80px), transparent 100%)',
-        }}
-      >
-        {/* Just the two margin boundary lines — left and right edges of the content area */}
-        <div
-          className="h-full"
-          style={{
-            borderLeft: '1px solid var(--sand-border)',
-            borderRight: '1px solid var(--sand-border)',
-            opacity: 0.5,
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-// ============================================================================
 // Main Page
 // ============================================================================
 
@@ -331,7 +296,6 @@ export default function LandingV2() {
 
   return (
     <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen">
-      <EditorialGrid />
       {/* ================================================================ */}
       {/* NAV                                                              */}
       {/* ================================================================ */}
@@ -587,7 +551,7 @@ export default function LandingV2() {
                   ],
                 },
               ]}
-              previewSrc="/component_gallery_preview.html"
+              previewSrc="/health.html"
               creditPct={47}
               agentWorking={true}
               defaultView="preview"

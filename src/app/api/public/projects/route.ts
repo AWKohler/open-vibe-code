@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
 import { projects, projectStars } from '@/db/schema';
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, isNotNull } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 import { clerkClient } from '@clerk/nextjs/server';
 
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
     const platformFilter = searchParams.get('platform');
 
     const db = getDb();
-    const whereClauses = [eq(projects.isPublic, true)];
+    const whereClauses = [eq(projects.isPublic, true), isNotNull(projects.publicSlug)];
     if (platformFilter === 'web' || platformFilter === 'mobile' || platformFilter === 'multiplatform') {
       whereClauses.push(eq(projects.platform, platformFilter));
     }

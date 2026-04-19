@@ -129,6 +129,18 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
         if (cancelled) return;
 
         setBootMessage("Writing project files…");
+        // Wipe any pre-existing files from a prior project in the same tab
+        // (e.g. user navigated from their own /workspace into a public /p view).
+        // Public view is read-only and never writes to IndexedDB, so this is safe.
+        try {
+          const entries = await container.fs.readdir("/", { withFileTypes: true });
+          for (const entry of entries) {
+            const p = `/${entry.name}`;
+            try {
+              await container.fs.rm(p, { recursive: true, force: true });
+            } catch {}
+          }
+        } catch {}
         // Create folders first
         const folderSet = new Set<string>();
         for (const f of files) {
@@ -432,14 +444,9 @@ function PreviewPane({
     <div className="absolute inset-0 flex flex-col bg-bg">
       {/* Browser-chrome address bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-surface">
-        <div className="flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-400/70" />
-          <span className="h-2.5 w-2.5 rounded-full bg-yellow-400/70" />
-          <span className="h-2.5 w-2.5 rounded-full bg-green-400/70" />
-        </div>
         <button
           onClick={onReload}
-          className="ml-2 inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-elevated text-muted hover:text-fg transition"
+          className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-elevated text-muted hover:text-fg transition"
           title="Reload preview"
         >
           <RefreshCw className="h-3.5 w-3.5" />

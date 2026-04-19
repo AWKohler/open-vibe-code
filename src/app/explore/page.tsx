@@ -113,10 +113,6 @@ export default function ExplorePage() {
         <section className="relative">
           <div className="mx-auto max-w-7xl px-6 py-12 sm:py-16">
             <div className="text-center max-w-2xl mx-auto">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-elevated px-3 py-1 text-xs text-muted mb-4">
-                <Sparkles className="h-3 w-3 text-accent" />
-                Community showcase
-              </div>
               <h1 className="text-4xl sm:text-5xl font-semibold tracking-tight">
                 What people are building with{" "}
                 <span style={{ color: "var(--sand-accent)" }}>Botflow</span>

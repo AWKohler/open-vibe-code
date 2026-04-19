@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Star, Laptop, Smartphone, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -18,7 +19,10 @@ export interface ShowcaseProject {
 }
 
 export function ShowcaseCard({ project, compact = false }: { project: ShowcaseProject; compact?: boolean }) {
-  const thumb = project.htmlSnapshotUrl || project.thumbnailUrl;
+  // thumbnailUrl is a PNG screenshot; htmlSnapshotUrl is an HTML doc and
+  // must not be used as an <img> src. Match the projects page behavior.
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const thumb = project.thumbnailUrl;
   const Icon = project.platform === "mobile" ? Smartphone : project.platform === "multiplatform" ? Layers : Laptop;
 
   return (
@@ -30,11 +34,12 @@ export function ShowcaseCard({ project, compact = false }: { project: ShowcasePr
       )}
     >
       <div className="relative aspect-[16/10] overflow-hidden bg-gradient-to-br from-elevated to-bg">
-        {thumb ? (
+        {thumb && !thumbFailed ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumb}
             alt={project.name}
+            onError={() => setThumbFailed(true)}
             className="w-full h-full object-cover object-top transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (

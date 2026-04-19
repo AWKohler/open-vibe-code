@@ -12,25 +12,23 @@ const nextConfig: NextConfig = {
     return config;
   },
   headers: async () => {
-    return [
+    // WebContainer requires cross-origin isolation (SharedArrayBuffer) — apply to
+    // routes that boot WebContainer: /workspace/* (owner) and /p/* (public view).
+    const coepHeaders = [
       {
-        // WebContainer requires cross-origin isolation (SharedArrayBuffer) — apply only to
-        // workspace routes so Stripe/Clerk checkout iframes work everywhere else.
-        source: '/workspace/(.*)',
-        headers: [
-          {
-            key: 'Cross-Origin-Embedder-Policy',
-            // 'credentialless' enables SharedArrayBuffer (required by WebContainer) while
-            // allowing cross-origin resources that don't set CORP headers (Clerk, CDN fonts, etc.)
-            // 'require-corp' was too strict and broke third-party embeds, preventing crossOriginIsolated.
-            value: 'credentialless',
-          },
-          {
-            key: 'Cross-Origin-Opener-Policy',
-            value: 'same-origin',
-          },
-        ],
+        key: 'Cross-Origin-Embedder-Policy',
+        // 'credentialless' enables SharedArrayBuffer (required by WebContainer) while
+        // allowing cross-origin resources that don't set CORP headers (Clerk, CDN fonts, etc.)
+        value: 'credentialless',
       },
+      {
+        key: 'Cross-Origin-Opener-Policy',
+        value: 'same-origin',
+      },
+    ];
+    return [
+      { source: '/workspace/(.*)', headers: coepHeaders },
+      { source: '/p/(.*)', headers: coepHeaders },
     ];
   },
 };

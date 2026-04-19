@@ -1,0 +1,17 @@
+/*! tailwindcss v4.1.8 | MIT License | https://tailwindcss.com */@media (min-width:800px){.mobile-only{display:none!important}}@media (max-width:799px){.desktop-only{display:none!important}}.newsletter-signup{flex-direction:column;gap:12px;width:100%;padding-top:32px;display:flex}.newsletter-signup label{font-family:var(--font-kh);letter-spacing:.72px;font-size:12px;font-weight:400;line-height:.8;font-size:16px!important}@media (min-width:800px){.newsletter-signup label{font-size:12px}}@media (min-width:1720px){.newsletter-signup label{font-size:12px}}.newsletter-signup label strong{font-weight:400}.newsletter-signup .row{flex-direction:row;gap:8px;width:100%;display:flex}@media (min-width:800px){.newsletter-signup .row{flex-direction:column}}@media (min-width:1200px){.newsletter-signup .row{flex-direction:row}}.newsletter-signup .row input{color:#eee;appearance:none;--tw-outline-style:none;background-color:#eeeeee1a;border-radius:8px;outline-style:none;flex-grow:1;height:40px;padding:0 16px}.newsletter-signup .row .btn-icon{flex:0 0 40px}.newsletter-signup .row svg{rotate:180deg}
+/*
+     FILE ARCHIVED ON 12:25:38 Jul 10, 2025 AND RETRIEVED FROM THE
+     INTERNET ARCHIVE ON 16:49:49 Apr 17, 2026.
+     JAVASCRIPT APPENDED BY WAYBACK MACHINE, COPYRIGHT INTERNET ARCHIVE.
+
+     ALL OTHER CONTENT MAY ALSO BE PROTECTED BY COPYRIGHT (17 U.S.C.
+     SECTION 108(a)(3)).
+*/
+/*
+playback timings (ms):
+  capture_cache.get: 0.427
+  load_resource: 168.038
+  PetaboxLoader3.resolve: 96.586
+  PetaboxLoader3.datanode: 60.214 (2)
+  loaddict: 28.985
+*/

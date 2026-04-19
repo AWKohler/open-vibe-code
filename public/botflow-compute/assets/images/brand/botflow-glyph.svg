@@ -1,0 +1,11 @@
+<svg width="280" height="202" viewBox="0 0 280 202" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M76 101C76 45.7715 120.772 0 176 0H180C235.228 0 280 44.7715 280 100V202H176C120.772 202 76 156.228 76 101V101Z" fill="#D9D9D9" fill-opacity="0.64"/>
+<path d="M176 1H180C234.676 1 279 45.3238 279 100V201H176C121.337 201 77 155.689 77 101C77 46.3108 121.337 1 176 1Z" stroke="#D9D9D9" stroke-opacity="0.1" stroke-width="2"/>
+<foreignObject x="-10" y="-10" width="224" height="222"><div xmlns="http://www.w3.org/1999/xhtml" style="backdrop-filter:blur(5px);clip-path:url(#bgblur_0_95_17_clip_path);height:100%;width:100%"></div></foreignObject><g data-figma-bg-blur-radius="10">
+<path d="M0 101C0 45.7715 44.7715 0 100 0H104C159.228 0 204 44.7715 204 100V202H100C44.7715 202 0 156.228 0 101V101Z" fill="#8C52FF" fill-opacity="0.64"/>
+<path d="M100 1H104C158.676 1 203 45.3238 203 100V201H100C45.3367 201 1 155.689 1 101C1 46.3108 45.3367 1 100 1Z" stroke="#8C52FF" stroke-opacity="0.1" stroke-width="2"/>
+</g>
+<defs>
+<clipPath id="bgblur_0_95_17_clip_path" transform="translate(10 10)"><path d="M0 101C0 45.7715 44.7715 0 100 0H104C159.228 0 204 44.7715 204 100V202H100C44.7715 202 0 156.228 0 101V101Z"/>
+</clipPath></defs>
+</svg>

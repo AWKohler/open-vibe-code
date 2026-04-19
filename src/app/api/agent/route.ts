@@ -254,9 +254,12 @@ function buildAnthropicCachedMessages(systemPrompt: string, messages: ModelMessa
 // Provider creation helpers
 // ============================================================================
 
-function createAnthropicOAuthProvider(oauthToken: string) {
-  const TOOL_PREFIX = "mcp_";
+function prefixToolName(name: string): string {
+  // mcp_ prefix with PascalCase first letter (e.g. listFiles → mcp_ListFiles)
+  return `mcp_${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+}
 
+function createAnthropicOAuthProvider(oauthToken: string) {
   return createAnthropic({
     apiKey: "oauth-placeholder",
     fetch: async (requestInput: RequestInfo | URL, init?: RequestInit) => {
@@ -280,10 +283,11 @@ function createAnthropicOAuthProvider(oauthToken: string) {
 
       const existingBeta = requestHeaders.get("anthropic-beta") || "";
       const betaList = existingBeta.split(",").map(b => b.trim()).filter(Boolean);
-      const requiredBetas = ["oauth-2026-02-11"]; // "interleaved-thinking-2025-05-14" removed — may be outdated
+      const requiredBetas = ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"];
       const mergedBetas = [...new Set([...requiredBetas, ...betaList])].join(",");
       requestHeaders.set("anthropic-beta", mergedBetas);
       requestHeaders.set("user-agent", "claude-cli/2.1.2 (external, cli)");
+      requestHeaders.set("x-anthropic-billing-header", "cc_version=2.1.2; cc_entrypoint=sdk-cli;");
 
       let body = init?.body;
       if (body && typeof body === "string") {
@@ -292,7 +296,7 @@ function createAnthropicOAuthProvider(oauthToken: string) {
           if (parsed.tools && Array.isArray(parsed.tools)) {
             parsed.tools = parsed.tools.map((t: Record<string, unknown>) => ({
               ...t,
-              name: t.name ? `${TOOL_PREFIX}${t.name}` : t.name,
+              name: t.name ? prefixToolName(t.name as string) : t.name,
             }));
           }
           if (parsed.messages && Array.isArray(parsed.messages)) {
@@ -300,7 +304,7 @@ function createAnthropicOAuthProvider(oauthToken: string) {
               if (msg.content && Array.isArray(msg.content)) {
                 msg.content = msg.content.map((block: Record<string, unknown>) => {
                   if (block.type === "tool_use" && block.name) {
-                    return { ...block, name: `${TOOL_PREFIX}${block.name}` };
+                    return { ...block, name: prefixToolName(block.name as string) };
                   }
                   return block;
                 });
@@ -348,6 +352,8 @@ function createAnthropicOAuthProvider(oauthToken: string) {
               return;
             }
             let text = decoder.decode(value, { stream: true });
+            // Strip mcp_ prefix and restore original camelCase first letter
+            text = text.replace(/"name"\s*:\s*"mcp_([A-Z])([^"]+)"/g, (_, first, rest) => `"name": "${first.toLowerCase()}${rest}"`);
             text = text.replace(/"name"\s*:\s*"mcp_([^"]+)"/g, '"name": "$1"');
             controller.enqueue(encoder.encode(text));
           },
@@ -372,7 +378,7 @@ async function refreshAnthropicOAuthToken(
   if (!creds.claudeOAuthRefreshToken) return null;
 
   try {
-    const refreshRes = await fetch('https://console.anthropic.com/v1/oauth/token', {
+    const refreshRes = await fetch('https://platform.claude.com/v1/oauth/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -44,6 +44,8 @@ export interface WorkspaceMockupProps {
   previewHtml?: string;
   /** URL to load in the preview iframe (takes priority over previewHtml) */
   previewSrc?: string;
+  /** Virtual viewport width the iframe should render at before being scaled down to fit. Defaults to 1440. */
+  previewVirtualWidth?: number;
   /** Credit gauge percentage (0–100) */
   creditPct?: number;
   /** Fake file tree */
@@ -53,13 +55,15 @@ export interface WorkspaceMockupProps {
   /** Fake code content to show in the code editor area */
   codeContent?: string;
   /** Which tab is active by default */
-  defaultView?: 'preview' | 'code';
+  defaultView?: 'preview' | 'code' | 'database';
   /** Whether to show the agent "working" indicator */
   agentWorking?: boolean;
   /** Model name to display */
   modelName?: string;
   /** Additional className on the root */
   className?: string;
+  /** Hide the left-side agent panel entirely — useful when the chrome around the chat would distract from the main surface. */
+  hideAgentPanel?: boolean;
 }
 
 // ============================================================================
@@ -212,6 +216,63 @@ function MockCodeEditor({ code }: { code: string }) {
 }
 
 // ============================================================================
+// ScaledIframe — renders the iframe at a fixed "desktop" virtual width and
+// scales it down to fit its container so buttons/typography look natural
+// instead of squished.
+// ============================================================================
+
+function ScaledIframe({
+  src,
+  srcDoc,
+  virtualWidth,
+  sandbox,
+}: {
+  src?: string;
+  srcDoc?: string;
+  virtualWidth: number;
+  sandbox?: string;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const update = () => {
+      const r = el.getBoundingClientRect();
+      setSize({ w: r.width, h: r.height });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const scale = size.w > 0 ? size.w / virtualWidth : 1;
+  const virtualHeight = size.h > 0 ? size.h / scale : 0;
+
+  return (
+    <div ref={containerRef} className="w-full h-full overflow-hidden">
+      {size.w > 0 && (
+        <iframe
+          src={src}
+          srcDoc={srcDoc}
+          sandbox={sandbox as never}
+          title="Preview"
+          style={{
+            width: virtualWidth,
+            height: virtualHeight,
+            border: 0,
+            transform: `scale(${scale})`,
+            transformOrigin: 'top left',
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Main Component
 // ============================================================================
 
@@ -219,6 +280,7 @@ export function WorkspaceMockup({
   messages,
   previewHtml,
   previewSrc,
+  previewVirtualWidth = 1440,
   creditPct = 32,
   files,
   selectedFile = 'App.tsx',
@@ -227,6 +289,7 @@ export function WorkspaceMockup({
   agentWorking = false,
   modelName = 'GPT-5.3 Codex',
   className,
+  hideAgentPanel = false,
 }: WorkspaceMockupProps) {
   const [currentView, setCurrentView] = useState<string>(defaultView);
   const [showSidebar, setShowSidebar] = useState(true);
@@ -296,6 +359,7 @@ export default function App() {
       {/* ================================================================ */}
       {/* Agent Sidebar                                                    */}
       {/* ================================================================ */}
+      {!hideAgentPanel && (
       <div className="w-80 flex flex-col bg-elevated/70 backdrop-blur-sm border-border shrink-0">
         {/* Agent header */}
         <div className="flex items-center justify-between px-3 py-2 bg-surface text-sm">
@@ -373,13 +437,14 @@ export default function App() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ================================================================ */}
       {/* Main Content Area                                                */}
       {/* ================================================================ */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <div className="h-12 flex items-center pr-2.5 gap-4 bg-surface backdrop-blur-sm shrink-0">
+        <div className="h-12 flex items-center px-2.5 gap-4 bg-surface backdrop-blur-sm shrink-0">
           {/* Tabs */}
           <MockTabs
             options={[
@@ -460,17 +525,12 @@ export default function App() {
           <div className={cn('absolute inset-0 pb-2.5 pr-2.5', currentView === 'preview' ? 'block' : 'hidden')}>
             <div className="w-full h-full rounded-xl border border-border overflow-hidden bg-white dark:bg-[#1a1a1a]">
               {previewSrc ? (
-                <iframe
-                  src={previewSrc}
-                  className="w-full h-full border-0"
-                  title="Preview"
-                />
+                <ScaledIframe src={previewSrc} virtualWidth={previewVirtualWidth} />
               ) : previewHtml ? (
-                <iframe
+                <ScaledIframe
                   srcDoc={previewHtml}
-                  className="w-full h-full border-0"
+                  virtualWidth={previewVirtualWidth}
                   sandbox="allow-scripts"
-                  title="Preview"
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted text-sm">
@@ -535,7 +595,7 @@ export default function App() {
           </div>
 
           {/* Database View */}
-          <div className={cn('absolute inset-0 pb-2.5 pr-2.5', currentView === 'database' ? 'block' : 'hidden')}>
+          <div className={cn('absolute inset-0 pb-2.5 px-2.5', currentView === 'database' ? 'block' : 'hidden')}>
             <div className="w-full h-full rounded-xl border border-border overflow-hidden bg-surface">
               <iframe
                 src="/convex_mockup.html"

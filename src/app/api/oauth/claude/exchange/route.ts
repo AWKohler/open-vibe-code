@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e';
-const REDIRECT_URI = 'https://console.anthropic.com/oauth/code/callback';
-const TOKEN_ENDPOINT = 'https://console.anthropic.com/v1/oauth/token';
+const REDIRECT_URI = 'https://platform.claude.com/oauth/code/callback';
+const TOKEN_ENDPOINT = 'https://platform.claude.com/v1/oauth/token';
 
 export async function POST(req: NextRequest) {
   try {

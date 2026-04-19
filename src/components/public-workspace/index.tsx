@@ -15,6 +15,7 @@ import {
   ArrowLeft,
   Copy,
   Check,
+  Play,
 } from "lucide-react";
 import { WebContainerManager } from "@/lib/webcontainer";
 import { DevServerManager } from "@/lib/dev-server";
@@ -407,7 +408,8 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
             activePreview={activePreview}
             reloadKey={reloadKey}
             onReload={() => setReloadKey((k) => k + 1)}
-            thumbnailUrl={project.htmlSnapshotUrl || project.thumbnailUrl}
+            htmlSnapshotUrl={project.htmlSnapshotUrl}
+            thumbnailUrl={project.thumbnailUrl}
           />
         ) : (
           <CodePane
@@ -428,6 +430,7 @@ function PreviewPane({
   activePreview,
   reloadKey,
   onReload,
+  htmlSnapshotUrl,
   thumbnailUrl,
 }: {
   bootState: "idle" | "mounting" | "installing" | "starting" | "ready" | "error";
@@ -435,10 +438,50 @@ function PreviewPane({
   activePreview: PreviewInfo | undefined;
   reloadKey: number;
   onReload: () => void;
+  htmlSnapshotUrl: string | null;
   thumbnailUrl: string | null;
 }) {
   const isReady = bootState === "ready" && activePreview?.ready;
+  const isBooting = bootState !== "ready" && bootState !== "error" && bootState !== "idle";
   const isError = bootState === "error";
+
+  const [snapshotHtml, setSnapshotHtml] = useState<string | null>(null);
+  const [internalPath, setInternalPath] = useState("/");
+  const [iframeUrl, setIframeUrl] = useState("");
+
+  // Fetch HTML snapshot for placeholder background
+  useEffect(() => {
+    if (!htmlSnapshotUrl) return;
+    fetch(htmlSnapshotUrl)
+      .then((r) => r.text())
+      .then(setSnapshotHtml)
+      .catch(() => {});
+  }, [htmlSnapshotUrl]);
+
+  // Sync iframe URL when preview becomes ready or path changes
+  useEffect(() => {
+    if (activePreview?.baseUrl) {
+      setIframeUrl(activePreview.baseUrl + (internalPath || "/"));
+    }
+  }, [activePreview, internalPath]);
+
+  const handlePathKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      const raw = (e.target as HTMLInputElement).value;
+      const normalized = raw.startsWith("/") ? raw : "/" + raw;
+      setInternalPath(normalized);
+      if (activePreview?.baseUrl) {
+        setIframeUrl(activePreview.baseUrl + normalized);
+      }
+    }
+  };
+
+  const openInNewTab = () => {
+    if (activePreview?.baseUrl) {
+      const url = activePreview.baseUrl + (internalPath || "/");
+      window.open(`/preview-popup?url=${encodeURIComponent(url)}`, "_blank");
+    }
+  };
 
   return (
     <div className="absolute inset-0 flex flex-col bg-bg">
@@ -451,78 +494,91 @@ function PreviewPane({
         >
           <RefreshCw className="h-3.5 w-3.5" />
         </button>
-        <div className="flex-1 mx-2 rounded-md bg-elevated px-3 py-1 text-xs text-muted truncate">
-          {activePreview?.baseUrl ?? "Starting preview…"}
+
+        {/* URL bar: hides raw webcontainer domain, shows editable path */}
+        <div className="flex-1 mx-1 flex items-center gap-0 rounded-md bg-elevated border border-border px-3 py-1 text-xs">
+          <span className="text-muted select-none shrink-0">localhost</span>
+          <input
+            type="text"
+            value={internalPath}
+            onChange={(e) => setInternalPath(e.target.value)}
+            onKeyDown={handlePathKeyDown}
+            placeholder="/"
+            className="flex-1 bg-transparent text-fg outline-none min-w-0"
+          />
         </div>
-        {activePreview && (
-          <a
-            href={activePreview.baseUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-elevated text-muted hover:text-fg transition"
-            title="Open in new tab"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-        )}
+
+        <button
+          onClick={openInNewTab}
+          disabled={!activePreview}
+          className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-elevated text-muted hover:text-fg disabled:opacity-40 transition"
+          title="Open in new tab"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </button>
       </div>
 
-      <div className="relative flex-1 bg-bg">
-        {isReady && activePreview ? (
+      <div className="relative flex-1 bg-bg overflow-hidden">
+        {/* Live preview iframe — always mounted once ready so it doesn't remount on tab switch */}
+        {isReady && activePreview && (
           <iframe
             key={reloadKey}
-            src={activePreview.baseUrl}
+            src={iframeUrl || activePreview.baseUrl}
             className="absolute inset-0 w-full h-full bg-white"
             sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts allow-downloads"
             title="Public project preview"
           />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center p-8">
-            {/* background: blurred thumbnail if available */}
-            {thumbnailUrl && !isError && (
+        )}
+
+        {/* Snapshot placeholder + overlay while not yet ready */}
+        {!isReady && (
+          <div className="absolute inset-0">
+            {/* Background: HTML snapshot iframe or thumbnail image */}
+            {snapshotHtml ? (
+              <iframe
+                srcDoc={snapshotHtml}
+                className="w-full h-full border-none pointer-events-none"
+                sandbox="allow-scripts allow-same-origin"
+                title="Preview snapshot"
+              />
+            ) : thumbnailUrl ? (
               <img
                 src={thumbnailUrl}
                 alt=""
-                className="absolute inset-0 w-full h-full object-cover object-top opacity-30 blur-md scale-105"
+                className="w-full h-full object-cover object-top"
               />
-            )}
-            <div className="relative z-10 max-w-md w-full text-center">
-              <div className="inline-flex items-center justify-center h-14 w-14 rounded-full border border-border bg-surface shadow-sm mb-4">
-                {isError ? (
-                  <span className="text-red-500 text-2xl">!</span>
+            ) : null}
+
+            {/* Blur overlay */}
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center gap-4">
+              <button
+                disabled
+                className="flex items-center justify-center w-24 h-24 rounded-full bg-white/90 shadow-2xl"
+              >
+                {isBooting ? (
+                  <span className="inline-flex h-10 w-10 rounded-full border-4 border-green-600 border-t-transparent animate-spin" />
+                ) : isError ? (
+                  <span className="text-red-500 text-3xl font-bold">!</span>
                 ) : (
-                  <Loader2 className="h-6 w-6 animate-spin text-accent" />
+                  <Play size={40} className="text-green-600 fill-green-600 ml-1" />
                 )}
-              </div>
-              <h3 className="text-lg font-semibold text-fg mb-1">
-                {isError ? "Preview failed to start" : "Building preview…"}
-              </h3>
-              <p className="text-sm text-muted mb-4">{bootMessage}</p>
+              </button>
+              <p className="text-white text-sm font-medium drop-shadow-lg max-w-xs text-center">
+                {isError ? bootMessage : isBooting ? bootMessage : "Loading…"}
+              </p>
               {isError && (
                 <button
                   onClick={() => window.location.reload()}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-fg hover:bg-soft transition"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/30 bg-white/10 px-3.5 py-2 text-sm font-medium text-white hover:bg-white/20 transition"
                 >
                   <RefreshCw className="h-4 w-4" />
                   Retry
                 </button>
               )}
-              {!isError && (
-                <div className="mx-auto h-1 w-48 overflow-hidden rounded-full bg-elevated">
-                  <div className="h-full w-1/3 rounded-full bg-accent animate-[progress_2s_ease-in-out_infinite]" />
-                </div>
-              )}
             </div>
           </div>
         )}
       </div>
-
-      <style jsx>{`
-        @keyframes progress {
-          0% { transform: translateX(-100%); }
-          100% { transform: translateX(400%); }
-        }
-      `}</style>
     </div>
   );
 }

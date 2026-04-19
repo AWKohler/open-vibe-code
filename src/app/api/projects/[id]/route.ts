@@ -32,10 +32,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const [proj] = await db.select().from(projects).where(eq(projects.id, resolvedParams.id));
     if (!proj || proj.userId !== userId) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const body = await req.json();
-    const { model, thumbnailUrl, htmlSnapshotUrl } = body as {
+    const { model, thumbnailUrl, htmlSnapshotUrl, isPublic, publicDescription } = body as {
       model?: string;
       thumbnailUrl?: string;
       htmlSnapshotUrl?: string;
+      isPublic?: boolean;
+      publicDescription?: string;
     };
     if (
       model &&
@@ -61,6 +63,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (model) updateData.model = model;
     if (thumbnailUrl !== undefined) updateData.thumbnailUrl = thumbnailUrl;
     if (htmlSnapshotUrl !== undefined) updateData.htmlSnapshotUrl = htmlSnapshotUrl;
+    if (publicDescription !== undefined) updateData.publicDescription = publicDescription;
+    if (isPublic !== undefined) {
+      updateData.isPublic = isPublic;
+      if (isPublic) {
+        updateData.publishedAt = new Date();
+        if (!proj.publicSlug) {
+          // Generate slug: kebab-case name + random 4-char suffix
+          const base = proj.name
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 40) || 'project';
+          const suffix = Math.random().toString(36).slice(2, 6);
+          let candidate = `${base}-${suffix}`;
+          // Retry on collision (extremely rare)
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const existing = await db.select({ id: projects.id }).from(projects).where(eq(projects.publicSlug, candidate)).limit(1);
+            if (existing.length === 0) break;
+            candidate = `${base}-${Math.random().toString(36).slice(2, 6)}`;
+          }
+          updateData.publicSlug = candidate;
+        }
+      }
+    }
 
     const [updated] = await db
       .update(projects)

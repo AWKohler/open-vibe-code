@@ -33,6 +33,13 @@ export const projects = pgTable('projects', {
   // User custom domain (Pro/Max only)
   customDomain: text('custom_domain'),
   customDomainStatus: text('custom_domain_status'), // 'pending' | 'active' | 'error'
+  // Public sharing
+  isPublic: boolean('is_public').notNull().default(false),
+  publicSlug: text('public_slug'), // human-readable unique URL slug, nullable
+  publicDescription: text('public_description'), // optional short description shown on showcase
+  starCount: integer('star_count').notNull().default(0),
+  forkedFromProjectId: uuid('forked_from_project_id'),
+  publishedAt: timestamp('published_at'),
   lastOpened: timestamp('last_opened').defaultNow().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -42,6 +49,21 @@ export const projects = pgTable('projects', {
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
+
+// Project stars — join table for public project stars
+export const projectStars = pgTable('project_stars', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull(), // Clerk user id of the starrer
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (t) => ({
+  projectUserUnique: uniqueIndex('project_stars_project_user_unique').on(t.projectId, t.userId),
+  projectIdIdx: index('project_stars_project_id_idx').on(t.projectId),
+  userIdIdx: index('project_stars_user_id_idx').on(t.userId),
+}));
+
+export type ProjectStar = typeof projectStars.$inferSelect;
+export type NewProjectStar = typeof projectStars.$inferInsert;
 
 // Chat session per project (one active session per project)
 export const chatSessions = pgTable('chat_sessions', {

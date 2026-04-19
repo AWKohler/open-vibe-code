@@ -1008,6 +1008,7 @@ import { CardSpotlight } from '@/components/landing/CardSpotlight';
 import { ModelCloud } from '@/components/landing/ModelCloud';
 import { MobileFeatureGrid } from '@/components/landing/MobileFeatureGrid';
 import { LandingNav } from '@/components/landing/shared';
+import { LandingShowcase } from '@/components/showcase/LandingShowcase';
 import { Convex } from '@/components/icons/convex';
 import { Anthropic } from '@/components/icons/anthropic';
 import { OpenAI } from '@/components/icons/openai';
@@ -1850,17 +1851,7 @@ export default function LandingV2() {
               >
                 What people are building
               </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[1, 2, 3].map((n) => (
-                  <div
-                    key={n}
-                    className="aspect-[4/3] rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] flex items-center justify-center text-[var(--sand-text-muted)] text-sm"
-                  >
-                    {/* IMAGE PLACEHOLDER — Replace with project screenshot */}
-                    Project screenshot {n}
-                  </div>
-                ))}
-              </div>
+              <LandingShowcase />
             </div>
           </Reveal>
         </div>

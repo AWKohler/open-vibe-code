@@ -215,6 +215,9 @@ export function LandingNav() {
                   My Projects
                 </a>
               </SignedIn>
+              <a href="/explore" className="font-medium hover:text-[var(--sand-accent)] transition">
+                Explore
+              </a>
               <a href="/convex" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Convex
               </a>

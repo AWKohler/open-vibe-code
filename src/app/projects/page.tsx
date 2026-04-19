@@ -16,19 +16,28 @@ import {
   Trash2,
   ExternalLink,
   Database,
+  Globe,
+  Lock,
+  Star,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { useToast } from '@/components/ui/toast';
 import { SettingsModal } from '@/components/settings/SettingsModal';
 import type { Project } from '@/db/schema';
 
 export default function ProjectsPage() {
   const router = useRouter();
+  const { toast } = useToast();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [togglingPublicId, setTogglingPublicId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [thumbnailErrors, setThumbnailErrors] = useState<Record<string, true>>({});
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadProjects() {
@@ -68,6 +77,48 @@ export default function ProjectsPage() {
     } finally {
       setDeletingId(null);
       setOpenMenuId(null);
+    }
+  };
+
+  const handleTogglePublic = async (project: Project) => {
+    const makingPublic = !project.isPublic;
+    setTogglingPublicId(project.id);
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isPublic: makingPublic }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Failed to update visibility');
+      }
+      const updated = (await res.json()) as Project;
+      setProjects((prev) => prev.map((p) => (p.id === project.id ? updated : p)));
+      toast({
+        title: makingPublic ? 'Project is now public' : 'Project is now private',
+        description: makingPublic && updated.publicSlug
+          ? `Anyone can view it at /p/${updated.publicSlug}`
+          : undefined,
+      });
+    } catch (err) {
+      console.error(err);
+      toast({ title: 'Failed to update visibility', description: err instanceof Error ? err.message : undefined });
+    } finally {
+      setTogglingPublicId(null);
+      setOpenMenuId(null);
+    }
+  };
+
+  const handleCopyShareLink = async (project: Project) => {
+    if (!project.publicSlug) return;
+    const url = `${window.location.origin}/p/${project.publicSlug}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedSlug(project.id);
+      window.setTimeout(() => setCopiedSlug((s) => (s === project.id ? null : s)), 1800);
+    } catch {
+      toast({ title: 'Could not copy link' });
     }
   };
 
@@ -123,6 +174,7 @@ export default function ProjectsPage() {
 
               <nav className="hidden md:flex items-center justify-center gap-7 text-sm text-muted">
                 <a className="text-fg font-medium" href="/projects">My Projects</a>
+                <a className="hover:text-fg transition" href="/explore">Explore</a>
                 <a className="hover:text-fg transition" href="/pricing">Pricing</a>
               </nav>
 
@@ -281,6 +333,22 @@ export default function ProjectsPage() {
                             </span>
                           </div>
 
+                          {project.isPublic && (
+                            <div className="absolute top-3 right-3">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-accent/90 px-2 py-1 text-xs font-medium text-[var(--sand-accent-contrast)] backdrop-blur-sm shadow-sm">
+                                <Globe className="h-3 w-3" />
+                                Public
+                                {(project.starCount ?? 0) > 0 && (
+                                  <>
+                                    <span className="mx-0.5 opacity-60">·</span>
+                                    <Star className="h-3 w-3 fill-current" />
+                                    {project.starCount}
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          )}
+
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                             <span className="inline-flex items-center gap-2 rounded-full bg-surface px-4 py-2 text-sm font-medium shadow-lg text-fg">
                               <ExternalLink className="h-4 w-4" />
@@ -317,7 +385,7 @@ export default function ProjectsPage() {
 
                               {openMenuId === project.id && (
                                 <div
-                                  className="absolute right-0 top-full mt-1 w-52 rounded-xl border border-border bg-surface shadow-lg z-50 py-1"
+                                  className="absolute right-0 top-full mt-1 w-60 rounded-xl border border-border bg-surface shadow-lg z-50 py-1"
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   <button
@@ -340,6 +408,55 @@ export default function ProjectsPage() {
                                     <Database className="h-4 w-4" />
                                     Open Database Manager
                                   </button>
+                                  <div className="my-1 h-px bg-border" />
+                                  <button
+                                    onClick={() => handleTogglePublic(project)}
+                                    disabled={togglingPublicId === project.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-elevated"
+                                  >
+                                    {project.isPublic ? (
+                                      <>
+                                        <Lock className="h-4 w-4" />
+                                        {togglingPublicId === project.id ? 'Updating…' : 'Make private'}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Globe className="h-4 w-4" />
+                                        {togglingPublicId === project.id ? 'Updating…' : 'Make public'}
+                                      </>
+                                    )}
+                                  </button>
+                                  {project.isPublic && project.publicSlug && (
+                                    <>
+                                      <button
+                                        onClick={() => handleCopyShareLink(project)}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-elevated"
+                                      >
+                                        {copiedSlug === project.id ? (
+                                          <>
+                                            <Check className="h-4 w-4" />
+                                            Copied!
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Copy className="h-4 w-4" />
+                                            Copy share link
+                                          </>
+                                        )}
+                                      </button>
+                                      <a
+                                        href={`/p/${project.publicSlug}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        onClick={() => setOpenMenuId(null)}
+                                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-elevated"
+                                      >
+                                        <ExternalLink className="h-4 w-4" />
+                                        View public page
+                                      </a>
+                                    </>
+                                  )}
+                                  <div className="my-1 h-px bg-border" />
                                   <button
                                     onClick={() => handleDeleteProject(project.id)}
                                     disabled={deletingId === project.id}

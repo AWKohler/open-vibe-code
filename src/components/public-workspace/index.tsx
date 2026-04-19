@@ -4,10 +4,12 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
+import { checkDeviceSupport } from "@/lib/device";
 import {
   Eye,
   Code2,
   Star,
+  Monitor,
   Loader2,
   Sparkles,
   RefreshCw,
@@ -581,6 +583,48 @@ function PreviewPane({
       </div>
     </div>
   );
+}
+
+export function PublicWorkspaceGuard({ data, isSignedIn }: PublicWorkspaceProps) {
+  const [deviceBlocked, setDeviceBlocked] = useState<string | null>(null);
+
+  useEffect(() => {
+    const result = checkDeviceSupport();
+    if (!result.supported) setDeviceBlocked(result.reason ?? "Your device is not supported.");
+  }, []);
+
+  if (deviceBlocked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-bg text-fg px-4">
+        <div className="max-w-md text-center space-y-5 p-8 rounded-2xl border border-border bg-surface shadow-sm">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-elevated">
+            <Monitor className="h-7 w-7 text-muted" />
+          </div>
+          <h1 className="text-2xl font-semibold">Desktop required</h1>
+          <p className="text-sm text-muted leading-relaxed">{deviceBlocked}</p>
+          <p className="text-xs text-muted opacity-60">
+            Botflow uses WebContainer technology that requires a desktop browser to run full development environments.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+            <Link
+              href="/explore"
+              className="inline-flex items-center rounded-xl bg-fg px-4 py-2 text-sm font-medium text-bg shadow hover:opacity-90 transition"
+            >
+              Browse public projects
+            </Link>
+            <Link
+              href="/"
+              className="inline-flex items-center rounded-xl border border-border bg-elevated px-4 py-2 text-sm font-medium text-fg hover:bg-soft transition"
+            >
+              Back home
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <PublicWorkspace data={data} isSignedIn={isSignedIn} />;
 }
 
 function CodePane({

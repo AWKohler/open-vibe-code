@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
-import { PublicWorkspace, type PublicProjectData } from "@/components/public-workspace";
+import { PublicWorkspaceGuard, type PublicProjectData } from "@/components/public-workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -39,5 +39,5 @@ export default async function PublicProjectPage({ params }: { params: Promise<{ 
   const { slug } = await params;
   const [data, { userId }] = await Promise.all([fetchPublicProject(slug), auth()]);
   if (!data) notFound();
-  return <PublicWorkspace data={data} isSignedIn={Boolean(userId)} />;
+  return <PublicWorkspaceGuard data={data} isSignedIn={Boolean(userId)} />;
 }

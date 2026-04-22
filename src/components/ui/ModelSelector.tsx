@@ -29,10 +29,11 @@ const PROVIDER_LABELS: Record<string, string> = {
 const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
   'fireworks-minimax-m2p5': 'free',
   'fireworks-glm-5': 'free',
+  'fireworks-kimi-k2p6': 'free',
   'gpt-5.3-codex': 'pro',       // Pro+ for server key; free requires BYOK/OAuth
   'gpt-5.4': 'pro',             // Pro+
   'claude-sonnet-4.6': 'pro',   // Pro+
-  'claude-opus-4.6': 'pro',     // Pro+
+  'claude-opus-4.7': 'pro',     // Pro+
 };
 
 /**
@@ -42,20 +43,22 @@ const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
 const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-minimax-m2p5',
   'fireworks-glm-5',
+  'fireworks-kimi-k2p6',
   'gpt-5.3-codex',
   'gpt-5.4',
   'claude-sonnet-4.6',
-  'claude-opus-4.6',
+  'claude-opus-4.7',
 ]);
 
 /** Rounded per-model cost multiplier for user display */
 const MODEL_COST_LABEL: Record<ModelId, string> = {
   'fireworks-minimax-m2p5': 'x1',
   'fireworks-glm-5': 'x2',
+  'fireworks-kimi-k2p6': 'x3',
   'gpt-5.3-codex': 'x4',
   'claude-sonnet-4.6': 'x5',
   'gpt-5.4': 'x6',
-  'claude-opus-4.6': 'x10',
+  'claude-opus-4.7': 'x10',
 };
 
 const TIER_RANK: Record<string, number> = { free: 0, pro: 1, max: 2 };
@@ -71,10 +74,11 @@ function formatContextSize(tokens: number): string {
 const MODEL_ORDER: ModelId[] = [
   'fireworks-minimax-m2p5',  // x1
   'fireworks-glm-5',         // x2
+  'fireworks-kimi-k2p6',     // x3
   'gpt-5.3-codex',           // x4
   'claude-sonnet-4.6',       // x5
   'gpt-5.4',                 // x6
-  'claude-opus-4.6',         // x10
+  'claude-opus-4.7',         // x10
 ];
 
 export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className }: ModelSelectorProps) {

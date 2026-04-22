@@ -34,8 +34,9 @@ function fmt(n: number): string {
 const MODEL_DISPLAY: Record<string, string> = {
   'fireworks-minimax-m2p5': 'MiniMax M2.5',
   'fireworks-glm-5': 'GLM-5',
+  'fireworks-kimi-k2p6': 'Kimi K2.6',
   'claude-sonnet-4.6': 'Claude Sonnet 4.6',
-  'claude-opus-4.6': 'Claude Opus 4.6',
+  'claude-opus-4.7': 'Claude Opus 4.7',
   'gpt-5.3-codex': 'GPT-5.3',
   'gpt-5.4': 'GPT-5.4',
 };

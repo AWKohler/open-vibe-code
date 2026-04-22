@@ -36,9 +36,10 @@ export async function POST(request: NextRequest) {
         | 'gpt-5.3-codex'
         | 'gpt-5.4'
         | 'claude-sonnet-4.6'
-        | 'claude-opus-4.6'
+        | 'claude-opus-4.7'
         | 'fireworks-minimax-m2p5'
-        | 'fireworks-glm-5';
+        | 'fireworks-glm-5'
+        | 'fireworks-kimi-k2p6';
     };
 
     if (!name) {
@@ -72,12 +73,14 @@ export async function POST(request: NextRequest) {
             ? 'gpt-5.4'
             : model === 'claude-sonnet-4.6'
             ? 'claude-sonnet-4.6'
-            : model === 'claude-opus-4.6'
-            ? 'claude-opus-4.6'
+            : model === 'claude-opus-4.7'
+            ? 'claude-opus-4.7'
             : model === 'fireworks-minimax-m2p5'
             ? 'fireworks-minimax-m2p5'
             : model === 'fireworks-glm-5'
             ? 'fireworks-glm-5'
+            : model === 'fireworks-kimi-k2p6'
+            ? 'fireworks-kimi-k2p6'
             : 'gpt-5.3-codex',
       })
       .returning();

@@ -332,7 +332,7 @@ export default function ConvexPage() {
   };
 
   return (
-    <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen">
+    <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen overflow-x-hidden">
       <EditorialGrid />
       <LandingNav />
 
@@ -340,7 +340,7 @@ export default function ConvexPage() {
       {/* HERO                                                             */}
       {/* ================================================================ */}
       <section className="relative overflow-hidden">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-16 sm:pt-24 pb-12 sm:pb-16">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 pt-16 sm:pt-24 pb-12 sm:pb-16">
           <div className="max-w-3xl mx-auto text-center">
 
             <Reveal delay={80}>
@@ -364,7 +364,7 @@ export default function ConvexPage() {
             </Reveal>
 
             <Reveal delay={280}>
-              <div className="mt-10 flex flex-col min-[390px]:flex-row items-center justify-center gap-3">
+              <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <StaggerButton text="Start building" href="/sign-up" />
                 <button
                   type="button"
@@ -385,7 +385,7 @@ export default function ConvexPage() {
       {/* ================================================================ */}
       <LineDivider />
       <section className="relative">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-20 sm:py-28">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 py-20 sm:py-28">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
             {pillars.map((p, i) => (
               <Reveal key={p.title} delay={i * 80}>
@@ -421,10 +421,10 @@ export default function ConvexPage() {
       {/* ================================================================ */}
       <LineDivider />
       <section id="showcase" className="relative">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10 xl:px-14 py-24 sm:py-32">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 lg:px-10 xl:px-14 py-24 sm:py-32">
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-12 lg:gap-14 items-center">
-            {/* Mockup — agent panel hidden, database view front-and-center */}
-            <Reveal delay={150} className="lg:col-span-3 lg:order-1">
+            {/* Mockup — agent panel hidden, database view front-and-center. Hidden on mobile (too cramped to fit). */}
+            <Reveal delay={150} className="hidden lg:block lg:col-span-3 lg:order-1">
               <div className="relative">
                 {/* Ambient accent glow behind the mockup */}
                 <div
@@ -491,7 +491,7 @@ export default function ConvexPage() {
       {/* ================================================================ */}
       <LineDivider />
       <section className="relative">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10 xl:px-14 py-24 sm:py-32">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 lg:px-10 xl:px-14 py-24 sm:py-32">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start">
             <Reveal>
               <SectionLabel>Built for AI-first development</SectionLabel>
@@ -532,7 +532,7 @@ export default function ConvexPage() {
       {/* ================================================================ */}
       <LineDivider />
       <section className="relative bg-[var(--sand-surface)]">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 py-24 sm:py-32">
           <Reveal>
             <div className="text-center max-w-2xl mx-auto mb-16 sm:mb-20">
               <SectionLabel>In the box</SectionLabel>
@@ -597,7 +597,7 @@ export default function ConvexPage() {
       {/* ================================================================ */}
       <LineDivider />
       <section className="relative">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-10 xl:px-14 py-24 sm:py-32">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 lg:px-10 xl:px-14 py-24 sm:py-32">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center">
             <Reveal>
               <SectionLabel>Less to pay for, less to debug</SectionLabel>
@@ -675,7 +675,7 @@ export default function ConvexPage() {
       {/* ================================================================ */}
       <LineDivider />
       <section className="relative bg-[var(--sand-surface)]">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 py-24 sm:py-32">
           <Reveal>
             <div className="max-w-3xl mx-auto text-center">
               <SectionLabel>Power-user option</SectionLabel>
@@ -736,7 +736,7 @@ export default function ConvexPage() {
       <LineDivider />
       <section className="relative">
         <div className="pointer-events-none absolute inset-0 -z-10 landing-gradient opacity-60" />
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
+        <div className="mx-auto max-w-7xl px-6 sm:px-6 py-24 sm:py-32">
           <Reveal>
             <div className="text-center max-w-2xl mx-auto">
               <h2
@@ -751,7 +751,7 @@ export default function ConvexPage() {
               <p className="mt-4 text-lg text-[var(--sand-text-muted)]">
                 Start a new project and your Convex deployment is waiting.
               </p>
-              <div className="mt-8 flex flex-col min-[390px]:flex-row items-center justify-center gap-3">
+              <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <StaggerButton text="Start for free" href="/sign-up" />
                 <Link
                   href="/pricing"

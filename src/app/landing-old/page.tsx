@@ -70,19 +70,22 @@ export default function Home() {
     "gpt-5.4",
     "gpt-5.2", // legacy compat
     "claude-sonnet-4.6",
-    "claude-opus-4.6",
+    "claude-opus-4.7",
+    "claude-opus-4.6", // legacy compat
     "fireworks-minimax-m2p5",
     "fireworks-glm-5",
+    "fireworks-kimi-k2p6",
   ]);
 
   // Models served via platform keys — don't require BYOK at project start
   const serverKeyModels = new Set([
     "fireworks-minimax-m2p5",
     "fireworks-glm-5",
+    "fireworks-kimi-k2p6",
     "gpt-5.3-codex",
     "gpt-5.4",
     "claude-sonnet-4.6",
-    "claude-opus-4.6",
+    "claude-opus-4.7",
   ]);
   const landingSignInModalAppearance = {
     elements: {

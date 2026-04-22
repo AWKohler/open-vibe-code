@@ -6,9 +6,10 @@ export type ModelId =
   | "gpt-5.3-codex"
   | "gpt-5.4"
   | "claude-sonnet-4.6"
-  | "claude-opus-4.6"
+  | "claude-opus-4.7"
   | "fireworks-minimax-m2p5"
-  | "fireworks-glm-5";
+  | "fireworks-glm-5"
+  | "fireworks-kimi-k2p6";
 
 export type Provider = "openai" | "anthropic" | "fireworks";
 
@@ -60,11 +61,11 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     criticalThreshold: 0.9,
     supportsImages: true,
   },
-  "claude-opus-4.6": {
-    id: "claude-opus-4.6",
+  "claude-opus-4.7": {
+    id: "claude-opus-4.7",
     provider: "anthropic",
-    apiModelId: "claude-opus-4-6",
-    displayName: "Claude Opus 4.6",
+    apiModelId: "claude-opus-4-7",
+    displayName: "Claude Opus 4.7",
     maxContextTokens: 200_000,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
@@ -90,12 +91,23 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     criticalThreshold: 0.9,
     supportsImages: false,
   },
+  "fireworks-kimi-k2p6": {
+    id: "fireworks-kimi-k2p6",
+    provider: "fireworks",
+    apiModelId: "accounts/fireworks/models/kimi-k2p6",
+    displayName: "Kimi K2.6",
+    maxContextTokens: 131_072,
+    warnThreshold: 0.7,
+    criticalThreshold: 0.9,
+    supportsImages: false,
+  },
 };
 
 /** Resolve stored model value (handles legacy migrations) */
 export function resolveModelId(stored: string | null | undefined): ModelId {
   if (stored === "claude-sonnet-4.5") return "claude-sonnet-4.6";
-  if (stored === "claude-opus-4.5") return "claude-opus-4.6";
+  if (stored === "claude-opus-4.5") return "claude-opus-4.7";
+  if (stored === "claude-opus-4.6") return "claude-opus-4.7";
   if (stored === "gpt-4.1") return "gpt-5.3-codex"; // migrate legacy
   if (stored === "gpt-5.2") return "gpt-5.3-codex"; // migrate legacy
   if (stored === "claude-haiku-4.5") return "claude-sonnet-4.6"; // removed model

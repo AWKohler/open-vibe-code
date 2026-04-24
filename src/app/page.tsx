@@ -986,10 +986,10 @@
 
 'use client';
 
-import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { SignedIn, SignedOut } from '@clerk/nextjs';
+import { SignedIn, SignedOut, SignInButton, useUser } from '@clerk/nextjs';
 import {
   ArrowUp,
   ArrowRight,
@@ -1001,7 +1001,21 @@ import {
   Layers,
   Plus,
   Monitor,
+  Smartphone,
+  Laptop,
+  ImagePlus,
+  X as IconX,
+  KeyRound,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
+import { SettingsModal } from '@/components/settings/SettingsModal';
+import { useToast } from '@/components/ui/toast';
+import { ModelSelector } from '@/components/ui/ModelSelector';
+import type { ModelId } from '@/lib/agent/models';
+import { modelSupportsImages } from '@/lib/agent/models';
+import { processImageForUpload } from '@/lib/image-processing';
+import { checkDeviceSupport } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import { WorkspaceMockup } from '@/components/landing/WorkspaceMockup';
 import { CardSpotlight } from '@/components/landing/CardSpotlight';
@@ -1305,10 +1319,73 @@ function EditorialGrid() {
 // Main Page
 // ============================================================================
 
+interface LandingPendingImage {
+  id: string;
+  file: File;
+  localUrl: string;
+}
+
 export default function LandingV2() {
   const router = useRouter();
+  const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState('');
+  const [platform, setPlatform] = useState<'web' | 'mobile' | 'multiplatform'>('web');
+  const [model, setModel] = useState<ModelId>('fireworks-minimax-m2p5');
+  const { toast } = useToast();
+  const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
+  const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);
+  const [hasClaudeOAuth, setHasClaudeOAuth] = useState<boolean | null>(null);
+  const [, setHasMoonshotKey] = useState<boolean | null>(null);
+  const [hasCodexOAuth, setHasCodexOAuth] = useState<boolean | null>(null);
+  const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
+  const [userTier, setUserTier] = useState<'free' | 'pro' | 'max'>('free');
+  const [hasConvexOAuth, setHasConvexOAuth] = useState<boolean | null>(null);
+  const [convexBackendType, setConvexBackendType] = useState<'platform' | 'user'>('platform');
+  const [showConvexSelector, setShowConvexSelector] = useState(false);
+  const [convexConnecting, setConvexConnecting] = useState(false);
+  const convexSelectorRef = useRef<HTMLDivElement>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'usage' | 'connections' | 'subscription'>('usage');
+  const [showAuthDialog, setShowAuthDialog] = useState(false);
+  const [projectStep, setProjectStep] = useState<null | 'convex' | 'name'>(null);
+  const [projectQuotaLeft, setProjectQuotaLeft] = useState<number | null>(null);
+  const [pendingImages, setPendingImages] = useState<LandingPendingImage[]>([]);
+  const [showPlusPopover, setShowPlusPopover] = useState(false);
+  const plusButtonRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [projectName, setProjectName] = useState('');
+  const [pendingParams, setPendingParams] = useState<URLSearchParams | null>(null);
+  const PENDING_PARAMS_KEY = 'huggable_pending_start_params';
+  const PENDING_NAME_KEY = 'huggable_pending_project_name';
+  const allowedModels = useMemo(() => new Set([
+    'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.2',
+    'claude-sonnet-4.6', 'claude-opus-4.7', 'claude-opus-4.6',
+    'fireworks-minimax-m2p5', 'fireworks-glm-5', 'fireworks-kimi-k2p6',
+  ]), []);
+  const serverKeyModels = useMemo(() => new Set([
+    'fireworks-minimax-m2p5', 'fireworks-glm-5', 'fireworks-kimi-k2p6',
+    'gpt-5.3-codex', 'gpt-5.4', 'claude-sonnet-4.6', 'claude-opus-4.7',
+  ]), []);
+  const landingSignInModalAppearance = {
+    elements: {
+      modalContent: '!max-h-[90vh] !overflow-hidden',
+      cardBox: '!max-h-[90vh] !overflow-y-auto !rounded-2xl !border !border-[var(--sand-border)] !bg-[var(--color-surface)] !shadow-xl',
+      card: '!h-auto !max-h-none !overflow-visible !bg-transparent !border-0 !shadow-none !pb-4',
+      footer: '!mt-2 !pt-2 !bg-transparent',
+    },
+  } as const;
+
+  const canSend = useMemo(
+    () => prompt.trim().length > 0 || pendingImages.length > 0,
+    [prompt, pendingImages.length],
+  );
+
+  const providerAccess = useMemo(() => ({
+    openai: hasCodexOAuth || hasOpenAIKey || null,
+    anthropic: hasClaudeOAuth || hasAnthropicKey || null,
+    fireworks: hasFireworksKey === true ? true : null,
+  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey]);
 
   const handlePromptChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -1320,13 +1397,299 @@ export default function LandingV2() {
     [],
   );
 
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    const newImages = await Promise.all(files.map(async (file) => {
+      const processed = await processImageForUpload(file);
+      return { id: crypto.randomUUID(), file: processed, localUrl: URL.createObjectURL(processed) };
+    }));
+    setPendingImages(prev => [...prev, ...newImages]);
+  }, []);
+
+  const handleRemoveImage = useCallback((id: string) => {
+    setPendingImages(prev => {
+      const img = prev.find(i => i.id === id);
+      if (img) URL.revokeObjectURL(img.localUrl);
+      return prev.filter(i => i.id !== id);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!showPlusPopover) return;
+    const handler = (e: MouseEvent) => {
+      if (plusButtonRef.current && !plusButtonRef.current.contains(e.target as Node)) {
+        setShowPlusPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showPlusPopover]);
+
+  const ensureModelKeyPresent = () => {
+    if (serverKeyModels.has(model)) return true;
+    const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
+    const keyChecks: Record<string, { hasKey: boolean | null; provider: string }> = {
+      'gpt-5.3-codex': { hasKey: hasOpenAICreds, provider: 'OpenAI' },
+    };
+    const check = keyChecks[model];
+    if (check?.hasKey === false) {
+      toast({ title: 'Missing API key', description: `Please add your ${check.provider} API key in Settings.` });
+      return false;
+    }
+    return true;
+  };
+
+  const start = (authed: boolean) => {
+    const device = checkDeviceSupport();
+    if (!device.supported) {
+      toast({
+        title: 'Device not supported',
+        description: device.reason ?? 'Botflow is a desktop-only platform. Please use a desktop browser.',
+      });
+      return;
+    }
+    const params = new URLSearchParams();
+    if (prompt.trim()) params.set('prompt', prompt.trim());
+    params.set('visibility', 'public');
+    params.set('platform', platform);
+    params.set('model', model);
+    const defaultName = prompt.trim() ? prompt.trim().slice(0, 48) : 'New Project';
+    params.set('name', defaultName);
+    setPendingParams(params);
+    setProjectName(defaultName);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(PENDING_PARAMS_KEY, params.toString());
+      localStorage.setItem(PENDING_NAME_KEY, defaultName);
+    }
+    if (!authed) {
+      setShowAuthDialog(true);
+      return;
+    }
+    const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+    const needsConvexStep = ((!cloudForAll && userTier === 'free') || convexBackendType === 'user') && !hasConvexOAuth;
+    setProjectStep(needsConvexStep ? 'convex' : 'name');
+  };
+
   const handleSend = useCallback(() => {
-    if (!prompt.trim()) return;
-    const params = new URLSearchParams({ prompt: prompt.trim() });
-    router.push(`/?${params.toString()}`);
-  }, [prompt, router]);
+    start(Boolean(isSignedIn));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn, prompt, platform, model, userTier, convexBackendType, hasConvexOAuth, pendingImages.length]);
+
+  const handleCreateProject = async () => {
+    if (!pendingParams) return;
+    if (!ensureModelKeyPresent()) return;
+    const params = new URLSearchParams(pendingParams);
+    const chosenName = projectName.trim() ? projectName.trim().slice(0, 48) : 'New Project';
+    params.set('name', chosenName);
+    setProjectStep(null);
+    setPendingParams(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(PENDING_PARAMS_KEY);
+      localStorage.removeItem(PENDING_NAME_KEY);
+    }
+    if (convexBackendType === 'user' || params.get('backendType') === 'user') params.set('backendType', 'user');
+    if (pendingImages.length > 0) {
+      try {
+        const imageParts = await Promise.all(
+          pendingImages.map((img) =>
+            new Promise<{ type: 'file'; mediaType: string; url: string; filename: string }>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve({
+                type: 'file',
+                mediaType: img.file.type || 'image/jpeg',
+                url: reader.result as string,
+                filename: img.file.name,
+              });
+              reader.onerror = reject;
+              reader.readAsDataURL(img.file);
+            })
+          )
+        );
+        sessionStorage.setItem('botflow_pending_images', JSON.stringify(imageParts));
+      } catch (err) {
+        console.error('Failed to serialize images for workspace:', err);
+      }
+      pendingImages.forEach(img => URL.revokeObjectURL(img.localUrl));
+      setPendingImages([]);
+    }
+    router.push(`/start?${params.toString()}`);
+  };
+
+  const closeAuthDialog = () => {
+    setShowAuthDialog(false);
+    setPendingParams(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(PENDING_PARAMS_KEY);
+      localStorage.removeItem(PENDING_NAME_KEY);
+    }
+  };
+
+  const closeProjectModal = () => {
+    setProjectStep(null);
+    setPendingParams(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(PENDING_PARAMS_KEY);
+      localStorage.removeItem(PENDING_NAME_KEY);
+    }
+  };
+
+  const saveBackendPreference = useCallback(async (pref: 'platform' | 'user') => {
+    setConvexBackendType(pref);
+    try {
+      await fetch('/api/user-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ convexBackendPreference: pref }),
+      });
+    } catch {}
+  }, []);
+
+  const fetchUserSettings = useCallback(async () => {
+    try {
+      const [settingsRes, budgetRes] = await Promise.all([
+        fetch('/api/user-settings'),
+        fetch('/api/usage/budget'),
+      ]);
+      if (settingsRes.ok) {
+        const data = await settingsRes.json();
+        setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
+        setHasAnthropicKey(Boolean(data?.hasAnthropicKey));
+        setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
+        setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
+        setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
+        setHasFireworksKey(Boolean(data?.hasFireworksKey));
+        setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
+        if (data?.convexBackendPreference === 'user' && data?.hasConvexOAuth) {
+          setConvexBackendType('user');
+        } else if (data?.convexBackendPreference === 'platform') {
+          setConvexBackendType('platform');
+        } else if (!data?.hasConvexOAuth) {
+          setConvexBackendType('platform');
+        }
+      }
+      if (budgetRes.ok) {
+        const data = await budgetRes.json();
+        if (data?.tier === 'pro' || data?.tier === 'max') {
+          setUserTier(data.tier as 'pro' | 'max');
+        }
+        if (typeof data?.convexProjectsLeft === 'number') {
+          setProjectQuotaLeft(data.convexProjectsLeft);
+        }
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setHasOpenAIKey(null);
+      setHasAnthropicKey(null);
+      setHasMoonshotKey(null);
+      setHasFireworksKey(null);
+      setHasConvexOAuth(null);
+      return;
+    }
+    void fetchUserSettings();
+  }, [isSignedIn, fetchUserSettings]);
+
+  useEffect(() => {
+    const handler = () => { if (isSignedIn) void fetchUserSettings(); };
+    window.addEventListener('settings-closed', handler);
+    return () => window.removeEventListener('settings-closed', handler);
+  }, [isSignedIn, fetchUserSettings]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const errorParam = params.get('error');
+    if (errorParam) {
+      params.delete('error');
+      const newSearch = params.toString();
+      window.history.replaceState({}, '', newSearch ? `/?${newSearch}` : '/');
+      const errorMessages: Record<string, { title: string; description: string }> = {
+        convex_not_connected: { title: 'Convex not connected', description: 'Please connect your Convex account before creating a BYOC project.' },
+        convex_provision_failed: { title: 'Convex provisioning failed', description: 'Failed to create a Convex backend in your account. Please try again or check your Convex dashboard.' },
+        convex_quota: { title: 'Convex project limit reached', description: 'Your Convex account has reached its project quota. Delete unused projects at dashboard.convex.dev or upgrade your Convex plan.' },
+      };
+      const errMsg = errorMessages[errorParam] ?? { title: 'Error', description: 'Something went wrong creating your project.' };
+      toast(errMsg);
+    }
+    if (params.get('convex_connected') === '1') {
+      setHasConvexOAuth(true);
+      params.delete('convex_connected');
+      const newSearch = params.toString();
+      window.history.replaceState({}, '', newSearch ? `/?${newSearch}` : '/');
+      void saveBackendPreference('user');
+      const stored = localStorage.getItem(PENDING_PARAMS_KEY);
+      if (stored) {
+        const restoredParams = new URLSearchParams(stored);
+        restoredParams.set('backendType', 'user');
+        localStorage.setItem(PENDING_PARAMS_KEY, restoredParams.toString());
+        const storedName = localStorage.getItem(PENDING_NAME_KEY) ?? 'New Project';
+        setPendingParams(restoredParams);
+        setProjectName(storedName);
+        setProjectStep('name');
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!showConvexSelector) return;
+    const handler = (e: MouseEvent) => {
+      if (convexSelectorRef.current && !convexSelectorRef.current.contains(e.target as Node)) {
+        setShowConvexSelector(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showConvexSelector]);
+
+  const handleConnectConvex = async () => {
+    setConvexConnecting(true);
+    try {
+      const res = await fetch('/api/oauth/convex/start?return_to=/');
+      const data = await res.json();
+      if (data.authUrl) {
+        window.location.href = data.authUrl;
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to start Convex authentication.' });
+    } finally {
+      setConvexConnecting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!pendingParams && typeof window !== 'undefined') {
+      const storedParams = localStorage.getItem(PENDING_PARAMS_KEY);
+      const storedName = localStorage.getItem(PENDING_NAME_KEY);
+      if (storedParams) {
+        setPendingParams(new URLSearchParams(storedParams));
+        const storedParamsObj = new URLSearchParams(storedParams);
+        const storedModel = storedParamsObj.get('model');
+        const storedPlatform = storedParamsObj.get('platform');
+        if (storedModel && allowedModels.has(storedModel)) {
+          const resolved = storedModel === 'gpt-5.2' ? 'gpt-5.3-codex' : storedModel;
+          setModel(resolved as ModelId);
+        }
+        if (storedPlatform === 'web' || (storedPlatform === 'mobile' && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP) || (storedPlatform === 'multiplatform' && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP)) {
+          setPlatform(storedPlatform);
+        }
+        if (storedName) setProjectName(storedName);
+      }
+    }
+    if (isSignedIn && pendingParams) {
+      setShowAuthDialog(false);
+      const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+      const needsConvex = ((!cloudForAll && userTier === 'free') || convexBackendType === 'user') && !hasConvexOAuth;
+      setProjectStep(needsConvex ? 'convex' : 'name');
+    }
+  }, [isSignedIn, pendingParams, userTier, convexBackendType, hasConvexOAuth, allowedModels]);
 
   return (
+    <>
     <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen">
       <EditorialGrid />
       <LandingNav />
@@ -1383,7 +1746,7 @@ export default function LandingV2() {
                   <textarea
                     ref={textareaRef}
                     placeholder="Ask Botflow to create a web app that..."
-                    className="w-full bg-transparent px-4 sm:px-5 pt-3 sm:pt-4 pb-2 text-sm sm:text-lg text-[var(--sand-text)] placeholder-[var(--sand-text-muted)] outline-none resize-none overflow-y-auto modern-scrollbar"
+                    className="w-full bg-transparent px-4 sm:px-5 pt-3 sm:pt-4 pb-2 text-sm sm:text-lg text-[var(--sand-text)] placeholder-[var(--sand-text-muted)] outline-none resize-none overflow-y-auto modern-scrollbar text-left"
                     aria-label="Generation prompt"
                     style={{ minHeight: 96, maxHeight: 300 }}
                     maxLength={30000}
@@ -1396,40 +1759,166 @@ export default function LandingV2() {
                       }
                     }}
                   />
-                  <div className="flex items-center justify-between gap-2 px-2.5 sm:px-3 pb-2.5 sm:pb-3 pt-1">
-                    <div className="flex items-center gap-1.5 sm:gap-2">
-                      <button
-                        type="button"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] shadow-sm hover:bg-[var(--sand-accent)]/10 transition"
-                        aria-label="Attach"
-                      >
-                        <Plus className="h-4 w-4" />
-                      </button>
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-2.5 py-1.5 text-xs sm:text-sm font-medium shadow-sm">
-                        <Monitor className="h-3.5 w-3.5" />
-                        <span className="hidden sm:inline">Web</span>
-                      </span>
-                    </div>
-                    <SignedIn>
-                      <button
-                        onClick={handleSend}
-                        disabled={!prompt.trim()}
-                        className={cn(
-                          'shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sand-text)] text-[var(--sand-bg)] shadow-md transition',
-                          !prompt.trim() ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,.jpg,.jpeg,image/png,.png,image/webp,.webp"
+                    multiple
+                    className="hidden"
+                    onChange={handleFileSelect}
+                  />
+                  <div className="flex flex-col gap-1 px-2.5 sm:px-3 pb-2.5 sm:pb-3 pt-1">
+                    {pendingImages.length > 0 && (
+                      <div className="flex gap-2 overflow-x-auto modern-scrollbar pb-1">
+                        {pendingImages.map(img => (
+                          <div key={img.id} className="relative group shrink-0">
+                            <div className="w-10 h-10 rounded-lg border border-[var(--sand-border)] overflow-hidden">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={img.localUrl} alt={img.file.name} className="w-full h-full object-cover" />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveImage(img.id)}
+                              className="absolute -top-1.5 -right-1.5 flex items-center justify-center size-4 rounded-full bg-[var(--sand-elevated)] border border-[var(--sand-border)] text-[var(--sand-text-muted)] hover:text-[var(--sand-text)] opacity-0 group-hover:opacity-100 transition-opacity"
+                              aria-label="Remove image"
+                            >
+                              <IconX size={10} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-1.5 sm:gap-2">
+                      <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+                        <div ref={plusButtonRef} className="relative shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setShowPlusPopover(v => !v)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] shadow-sm hover:border-transparent hover:bg-[var(--sand-accent)]/15 transition"
+                            aria-label="Attach"
+                          >
+                            <Plus className="h-4 w-4 text-[var(--sand-text)]" />
+                          </button>
+                          {showPlusPopover && (
+                            <div className="absolute bottom-full mb-2 left-0 w-44 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-surface)] shadow-lg overflow-hidden z-20">
+                              <button
+                                type="button"
+                                onClick={() => { setShowPlusPopover(false); fileInputRef.current?.click(); }}
+                                disabled={!modelSupportsImages(model)}
+                                className={cn(
+                                  'flex w-full items-center gap-2.5 px-3 py-2 text-sm transition',
+                                  modelSupportsImages(model)
+                                    ? 'text-[var(--sand-text)] hover:bg-[var(--sand-elevated)] cursor-pointer'
+                                    : 'text-[var(--sand-text-muted)] cursor-not-allowed',
+                                )}
+                              >
+                                <ImagePlus size={15} className="shrink-0" />
+                                <span>Attach image</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP && (
+                          <button
+                            type="button"
+                            onClick={() => setPlatform(platform === 'web' ? 'multiplatform' : platform === 'multiplatform' ? 'mobile' : 'web')}
+                            className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:border-transparent hover:bg-[var(--sand-accent)]/15 transition"
+                            title="Toggle platform"
+                          >
+                            {platform === 'web' ? <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : platform === 'multiplatform' ? <Monitor className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
+                            <span className="hidden sm:inline">{platform === 'web' ? 'Web' : platform === 'multiplatform' ? 'Multiplatform' : 'Mobile App (Experimental)'}</span>
+                            <span className="sm:hidden">{platform === 'web' ? 'Web' : platform === 'multiplatform' ? 'Multi' : 'Mobile'}</span>
+                          </button>
                         )}
-                      >
-                        <ArrowUp className="h-5 w-5" />
-                      </button>
-                    </SignedIn>
-                    <SignedOut>
-                      <Link
-                        href="/sign-up"
-                        className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sand-text)] text-[var(--sand-bg)] shadow-md hover:opacity-80 transition"
-                      >
-                        <ArrowUp className="h-5 w-5" />
-                      </Link>
-                    </SignedOut>
+                        <ModelSelector
+                          value={model}
+                          onChange={setModel}
+                          providerAccess={providerAccess}
+                          userTier={userTier}
+                          size="md"
+                          onTierLocked={() => {
+                            toast({
+                              title: 'Plan required',
+                              description: 'This model requires a Pro or Max plan. Upgrade or add your own API key in Settings.',
+                            });
+                          }}
+                        />
+                        {isSignedIn && (userTier === 'pro' || userTier === 'max' || process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true') && (
+                          <div ref={convexSelectorRef} className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setShowConvexSelector(v => !v)}
+                              className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:border-transparent hover:bg-[var(--sand-accent)]/15 transition"
+                              title="Backend type"
+                            >
+                              {convexBackendType === 'platform' ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src="/convex-color.svg" className="h-3.5 w-3.5" alt="" />
+                              ) : (
+                                <KeyRound className="h-3.5 w-3.5" />
+                              )}
+                              <span className="hidden sm:inline">{convexBackendType === 'platform' ? 'Managed' : 'Your Convex'}</span>
+                              <ChevronDown className="h-3 w-3 opacity-60" />
+                            </button>
+                            {showConvexSelector && (
+                              <div className="absolute bottom-full mb-2 left-0 w-60 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-surface)] shadow-lg overflow-hidden z-20">
+                                <button
+                                  type="button"
+                                  onClick={() => { void saveBackendPreference('platform'); setShowConvexSelector(false); }}
+                                  className={cn(
+                                    'flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left',
+                                    convexBackendType === 'platform' ? 'bg-[var(--sand-elevated)]' : 'hover:bg-[var(--sand-elevated)]',
+                                  )}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src="/convex-color.svg" className="h-4 w-4 mt-0.5 shrink-0" alt="" />
+                                  <div>
+                                    <div className="font-medium text-[var(--sand-text)]">Botflow Managed</div>
+                                    <div className="text-xs text-[var(--sand-text-muted)] mt-0.5">We handle infrastructure &amp; scaling</div>
+                                  </div>
+                                  {convexBackendType === 'platform' && <Check className="h-4 w-4 text-[var(--sand-text)] ml-auto mt-0.5 shrink-0" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { void saveBackendPreference('user'); setShowConvexSelector(false); }}
+                                  className={cn(
+                                    'flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left border-t border-[var(--sand-border)]',
+                                    convexBackendType === 'user' ? 'bg-[var(--sand-elevated)]' : 'hover:bg-[var(--sand-elevated)]',
+                                  )}
+                                >
+                                  <KeyRound className="h-4 w-4 mt-0.5 shrink-0 text-[var(--sand-text)]" />
+                                  <div>
+                                    <div className="font-medium text-[var(--sand-text)]">Bring Your Own Convex</div>
+                                    <div className="text-xs text-[var(--sand-text-muted)] mt-0.5">Will require authentication</div>
+                                  </div>
+                                  {convexBackendType === 'user' && <Check className="h-4 w-4 text-[var(--sand-text)] ml-auto mt-0.5 shrink-0" />}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <SignedIn>
+                        <button
+                          onClick={() => start(true)}
+                          disabled={!canSend}
+                          className={cn(
+                            'shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sand-text)] text-[var(--sand-bg)] shadow-md transition',
+                            !canSend ? 'opacity-40 cursor-not-allowed' : 'hover:opacity-80',
+                          )}
+                        >
+                          <ArrowUp className="h-5 w-5" />
+                        </button>
+                      </SignedIn>
+                      <SignedOut>
+                        <button
+                          onClick={() => start(false)}
+                          className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[var(--sand-text)] text-[var(--sand-bg)] shadow-md hover:opacity-80 transition"
+                        >
+                          <ArrowUp className="h-5 w-5" />
+                        </button>
+                      </SignedOut>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1921,5 +2410,216 @@ export default function LandingV2() {
         </div>
       </footer>
     </div>
+
+    <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} defaultTab={settingsDefaultTab} />
+
+    {showAuthDialog && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-bg p-6 shadow-xl">
+          <h2 className="text-xl font-semibold text-foreground">Sign in to start building</h2>
+          <p className="mt-2 text-sm text-muted">
+            Sign in or sign up to create your project workspace. You&apos;ll be able to name it on the next step.
+          </p>
+          <div className="mt-6 flex flex-col sm:flex-row gap-3">
+            <SignInButton mode="modal" appearance={landingSignInModalAppearance}>
+              <button className="inline-flex flex-1 items-center justify-center rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition">
+                Sign in / Sign up
+              </button>
+            </SignInButton>
+            <button
+              onClick={closeAuthDialog}
+              className="inline-flex flex-1 items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-muted shadow-sm hover:bg-surface transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {projectStep !== null && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
+        <div className="w-full max-w-md rounded-2xl border border-border bg-bg shadow-xl overflow-hidden">
+          {projectStep === 'convex' && (() => {
+            const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+            const isPaid = userTier === 'pro' || userTier === 'max' || cloudForAll;
+            const managedQuotaHit = isPaid && projectQuotaLeft !== null && projectQuotaLeft <= 0;
+            return (
+              <>
+                <div className="px-6 pt-6 pb-3">
+                  <h2 className="text-xl font-semibold text-foreground">Connect your backend</h2>
+                  <p className="mt-1.5 text-sm text-muted">
+                    {isPaid
+                      ? 'Choose how to host the Convex backend for this project.'
+                      : 'Botflow uses Convex for your backend. Connect your free Convex account to continue.'}
+                  </p>
+                </div>
+                <div className="px-6 pb-6 space-y-3">
+                  <div className={cn(
+                    'relative rounded-xl border-2 p-4 transition-all',
+                    hasConvexOAuth ? 'border-green-500/60 bg-green-500/5' : 'border-foreground/20 bg-soft',
+                  )}>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground">
+                        <KeyRound className="h-4 w-4 text-bg" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">Your Convex Account</span>
+                          {hasConvexOAuth && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-xs font-medium text-green-700 border border-green-500/30">
+                              <Check className="h-3 w-3" /> Connected
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted">
+                          Connect your free Convex account — projects live in your dashboard, no lock-in.
+                        </p>
+                        {!hasConvexOAuth && (
+                          <a
+                            href="https://dashboard.convex.dev"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-muted hover:text-foreground mt-1"
+                          >
+                            Don&apos;t have an account? Sign up free at convex.dev
+                            <ArrowRight className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    {!hasConvexOAuth && (
+                      <button
+                        onClick={handleConnectConvex}
+                        disabled={convexConnecting}
+                        className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 disabled:opacity-60 transition"
+                      >
+                        {convexConnecting ? (
+                          <><div className="h-4 w-4 animate-spin rounded-full border-2 border-bg/30 border-t-bg" /> Connecting&hellip;</>
+                        ) : (
+                          'Sign in with Convex'
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {isPaid ? (
+                    <button
+                      type="button"
+                      disabled={managedQuotaHit}
+                      onClick={() => {
+                        void saveBackendPreference('platform');
+                        setProjectStep('name');
+                      }}
+                      className={cn(
+                        'relative w-full rounded-xl border p-4 text-left transition-all',
+                        managedQuotaHit
+                          ? 'border-border bg-soft opacity-50 cursor-not-allowed'
+                          : 'border-border bg-soft hover:border-foreground/30 hover:bg-elevated cursor-pointer',
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/convex-color.svg" className="h-4 w-4" alt="" />
+                        </div>
+                        <div>
+                          <span className="text-sm font-semibold text-foreground">Botflow Managed</span>
+                          <span className="ml-1.5 text-xs text-muted font-normal">(Recommended)</span>
+                          <p className="mt-0.5 text-xs text-muted">
+                            We handle the infrastructure, backups, and scaling. Instant setup.
+                          </p>
+                          {managedQuotaHit && (
+                            <p className="mt-1 text-xs text-amber-600 font-medium">
+                              You&apos;ve reached your managed project limit. Delete a project or upgrade your plan.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  ) : (
+                    <div className="relative rounded-xl border border-border bg-soft p-4 opacity-50 cursor-not-allowed">
+                      <div className="absolute -top-2.5 right-3">
+                        <span className="inline-flex items-center rounded-full bg-foreground px-2.5 py-0.5 text-xs font-semibold text-bg">
+                          Upgrade to Pro
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-elevated">
+                          <Database className="h-4 w-4 text-muted" />
+                        </div>
+                        <div>
+                          <span className="text-sm font-semibold text-muted">Botflow Managed (Recommended)</span>
+                          <p className="mt-0.5 text-xs text-muted">
+                            We handle the infrastructure, backups, and scaling. Instant setup.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex gap-3 pt-1">
+                    {hasConvexOAuth && (
+                      <button
+                        onClick={() => {
+                          void saveBackendPreference('user');
+                          setProjectStep('name');
+                        }}
+                        className="flex-1 inline-flex items-center justify-center rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition"
+                      >
+                        Continue
+                        <ArrowRight className="ml-1.5 h-4 w-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={closeProjectModal}
+                      className={cn(
+                        'inline-flex items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-muted shadow-sm hover:bg-surface transition',
+                        hasConvexOAuth ? '' : 'flex-1',
+                      )}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
+          {projectStep === 'name' && (
+            <div className="p-6">
+              <h2 className="text-xl font-semibold text-foreground">Name your project</h2>
+              <p className="mt-2 text-sm text-muted">
+                Give your project a short name so it&apos;s easy to find later.
+              </p>
+              <div className="mt-4">
+                <input
+                  value={projectName}
+                  onChange={(e) => setProjectName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleCreateProject();
+                  }}
+                  placeholder="My new project"
+                  className="w-full rounded-xl border border-border bg-bg px-3.5 py-2.5 text-sm text-foreground shadow-sm outline-none focus:ring-2 focus:ring-foreground/10"
+                  autoFocus
+                />
+              </div>
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={handleCreateProject}
+                  className="flex-1 inline-flex items-center justify-center rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-bg shadow hover:opacity-90 transition"
+                >
+                  Continue to workspace
+                </button>
+                <button
+                  onClick={closeProjectModal}
+                  className="inline-flex items-center justify-center rounded-xl border border-border bg-elevated px-4 py-2.5 text-sm font-medium text-muted shadow-sm hover:bg-surface transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )}
+    </>
   );
 }

@@ -73,14 +73,15 @@ export default function Home() {
     "claude-opus-4.7",
     "claude-opus-4.6", // legacy compat
     "fireworks-minimax-m2p5",
-    "fireworks-glm-5",
+    "fireworks-glm-5p1",
+    "fireworks-glm-5", // legacy compat
     "fireworks-kimi-k2p6",
   ]);
 
   // Models served via platform keys — don't require BYOK at project start
   const serverKeyModels = new Set([
     "fireworks-minimax-m2p5",
-    "fireworks-glm-5",
+    "fireworks-glm-5p1",
     "fireworks-kimi-k2p6",
     "gpt-5.3-codex",
     "gpt-5.4",

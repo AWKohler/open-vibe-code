@@ -477,7 +477,7 @@ async function injectOpenAICacheRetention(input: RequestInfo | URL, init?: Reque
 /** Server key models: models the app pays for on behalf of paid users */
 const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-minimax-m2p5', // free tier
-  'fireworks-glm-5',         // free tier
+  'fireworks-glm-5p1',         // free tier
   'fireworks-kimi-k2p6',     // free tier
   'gpt-5.3-codex',           // pro+
   'gpt-5.4',                 // pro+
@@ -545,7 +545,7 @@ export async function POST(req: Request) {
       if (selectedModel === 'gpt-5.3-codex' || selectedModel === 'gpt-5.4') {
         return Boolean(creds.codexOAuthAccessToken || creds.openaiApiKey);
       }
-      if (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5' || selectedModel === 'fireworks-kimi-k2p6') {
+      if (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5p1' || selectedModel === 'fireworks-kimi-k2p6') {
         return Boolean(creds.fireworksApiKey) && !process.env.FIREWORKS_API_KEY;
       }
       // Anthropic models
@@ -684,7 +684,7 @@ export async function POST(req: Request) {
         }
 
         // Fireworks fallback: providerMetadata or response header
-        if (cachedRead === 0 && (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5' || selectedModel === 'fireworks-kimi-k2p6')) {
+        if (cachedRead === 0 && (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5p1' || selectedModel === 'fireworks-kimi-k2p6')) {
           const metaCache = event.providerMetadata?.fireworks?.cachedPromptTokens as number | undefined;
           if (metaCache !== undefined && metaCache > 0) {
             cachedRead = metaCache;
@@ -856,7 +856,7 @@ export async function POST(req: Request) {
         );
       }
 
-      if (selectedModel === "fireworks-minimax-m2p5" || selectedModel === "fireworks-glm-5" || selectedModel === "fireworks-kimi-k2p6") {
+      if (selectedModel === "fireworks-minimax-m2p5" || selectedModel === "fireworks-glm-5p1" || selectedModel === "fireworks-kimi-k2p6") {
         // Check for server-side Fireworks key first (for server-key models)
         const serverFireworksKey = process.env.FIREWORKS_API_KEY;
         const apiKey = isServerKeyModel(selectedModel) && serverFireworksKey

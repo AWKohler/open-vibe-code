@@ -8,7 +8,7 @@ export type ModelId =
   | "claude-sonnet-4.6"
   | "claude-opus-4.7"
   | "fireworks-minimax-m2p5"
-  | "fireworks-glm-5"
+  | "fireworks-glm-5p1"
   | "fireworks-kimi-k2p6";
 
 export type Provider = "openai" | "anthropic" | "fireworks";
@@ -81,11 +81,21 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     criticalThreshold: 0.9,
     supportsImages: false,
   },
-  "fireworks-glm-5": {
-    id: "fireworks-glm-5",
+  // "fireworks-glm-5": {
+  //   id: "fireworks-glm-5",
+  //   provider: "fireworks",
+  //   apiModelId: "accounts/fireworks/models/glm-5",
+  //   displayName: "GLM-5",
+  //   maxContextTokens: 202_800,
+  //   warnThreshold: 0.7,
+  //   criticalThreshold: 0.9,
+  //   supportsImages: false,
+  // },
+  "fireworks-glm-5p1": {
+    id: "fireworks-glm-5p1",
     provider: "fireworks",
-    apiModelId: "accounts/fireworks/models/glm-5",
-    displayName: "GLM-5",
+    apiModelId: "accounts/fireworks/models/glm-5p1",
+    displayName: "GLM-5.1",
     maxContextTokens: 202_800,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
@@ -113,6 +123,7 @@ export function resolveModelId(stored: string | null | undefined): ModelId {
   if (stored === "claude-haiku-4.5") return "claude-sonnet-4.6"; // removed model
   if (stored === "kimi-k2.5") return "fireworks-minimax-m2p5"; // removed model
   if (stored === "kimi-k2-thinking-turbo") return "fireworks-minimax-m2p5"; // removed model
+  if (stored === "fireworks-glm-5") return "fireworks-glm-5p1"; // updated model
   if (stored && stored in MODEL_CONFIGS) return stored as ModelId;
   return "gpt-5.3-codex";
 }

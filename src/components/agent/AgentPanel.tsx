@@ -688,7 +688,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             proj?.model === 'kimi-k2.5' || // removed → minimax
             proj?.model === 'kimi-k2-thinking-turbo' || // removed → minimax
             proj?.model === 'fireworks-minimax-m2p5' ||
-            proj?.model === 'fireworks-glm-5' ||
+            proj?.model === 'fireworks-glm-5p1' ||
+            proj?.model === 'fireworks-glm-5' || // legacy
             proj?.model === 'fireworks-kimi-k2p6'
           ) {
             const m = proj.model === 'gpt-4.1' ? 'gpt-5.3-codex'

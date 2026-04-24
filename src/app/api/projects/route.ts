@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
         | 'claude-sonnet-4.6'
         | 'claude-opus-4.7'
         | 'fireworks-minimax-m2p5'
-        | 'fireworks-glm-5'
+        | 'fireworks-glm-5p1'
         | 'fireworks-kimi-k2p6';
     };
 
@@ -77,8 +77,8 @@ export async function POST(request: NextRequest) {
             ? 'claude-opus-4.7'
             : model === 'fireworks-minimax-m2p5'
             ? 'fireworks-minimax-m2p5'
-            : model === 'fireworks-glm-5'
-            ? 'fireworks-glm-5'
+            : model === 'fireworks-glm-5p1'
+            ? 'fireworks-glm-5p1'
             : model === 'fireworks-kimi-k2p6'
             ? 'fireworks-kimi-k2p6'
             : 'gpt-5.3-codex',

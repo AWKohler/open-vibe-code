@@ -51,10 +51,15 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachedInput: 0.03 / BASE_PRICE,   // 0.1
     output:      1.20 / BASE_PRICE,   // 4.0
   },
-  'fireworks-glm-5': {
-    input:       1.00 / BASE_PRICE,   // 3.33
-    cachedInput: 0.20 / BASE_PRICE,   // 0.67
-    output:      3.20 / BASE_PRICE,   // 10.67
+  // 'fireworks-glm-5': {
+  //   input:       1.00 / BASE_PRICE,   // 3.33
+  //   cachedInput: 0.20 / BASE_PRICE,   // 0.67
+  //   output:      3.20 / BASE_PRICE,   // 10.67
+  // },
+  'fireworks-glm-5p1': {
+    input:       1.40 / BASE_PRICE,   // 4.67
+    cachedInput: 0.26 / BASE_PRICE,   // 0.87
+    output:      4.40 / BASE_PRICE,   // 14.67
   },
   'fireworks-kimi-k2p6': {
     input:       0.95 / BASE_PRICE,   // 3.17
@@ -101,7 +106,7 @@ const GPT54_LONG_CONTEXT_THRESHOLD = 272_000;
  */
 export const MODEL_COST_MULTIPLIER: Record<ModelId, number> = {
   'fireworks-minimax-m2p5': 1,
-  'fireworks-glm-5': 2,
+  'fireworks-glm-5p1': 3,
   'fireworks-kimi-k2p6': 3,
   'gpt-5.3-codex': 4,
   'claude-sonnet-4.6': 5,

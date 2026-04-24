@@ -54,7 +54,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       model !== 'kimi-k2.5' && // removed → mapped to minimax
       model !== 'kimi-k2-thinking-turbo' && // removed → mapped to minimax
       model !== 'fireworks-minimax-m2p5' &&
-      model !== 'fireworks-glm-5' &&
+      model !== 'fireworks-glm-5p1' &&
       model !== 'fireworks-kimi-k2p6'
     ) {
       return NextResponse.json({ error: 'Invalid model' }, { status: 400 });

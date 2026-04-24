@@ -1740,7 +1740,7 @@ export default function LandingV2() {
             </Reveal>
 
             {/* Prompt box */}
-            <Reveal delay={250}>
+            <Reveal delay={250} className="relative z-40">
               <div className="w-full mt-8">
                 <div className="flex flex-col rounded-2xl sm:rounded-3xl border border-[var(--sand-border)] bg-[var(--sand-elevated)] backdrop-blur-sm shadow-[0_2px_0_rgba(0,0,0,0.02),0_20px_60px_-20px_rgba(0,0,0,0.18)]">
                   <textarea

@@ -3,7 +3,6 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFireworks } from "@ai-sdk/fireworks";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
@@ -488,59 +487,6 @@ const SERVER_KEY_MODELS = new Set<ModelId>([
   'gemini-3.1-pro-preview',  // pro+
 ]);
 
-// ============================================================================
-// Gemini explicit context cache (TTL ~10 min) — keyed by user/project/platform
-// ============================================================================
-//
-// We create one cache per (user, project, platform) holding the system prompt.
-// Subsequent calls within ~9 minutes reuse the cache — Google charges for cache
-// read tokens (~10x cheaper than fresh input) plus storage time.
-// Cache TTL is 600s on Google's side; Redis tracks the cache name for 540s
-// (slightly less to avoid serving stale references).
-
-const GEMINI_CACHE_TTL_SECS = 600;       // Google-side TTL
-const GEMINI_CACHE_REDIS_TTL = 540;      // Redis-side TTL (less to prevent stale reads)
-
-function geminiCacheKey(userId: string, projectId: string, platform: string): string {
-  return `gemini_cache:${userId}:${projectId}:${platform}`;
-}
-
-async function getOrCreateGeminiCache(
-  userId: string,
-  projectId: string,
-  platform: string,
-  systemPrompt: string,
-  apiKey: string,
-  modelApiId: string,
-): Promise<string | null> {
-  const key = geminiCacheKey(userId, projectId, platform);
-  const cached = await redis.get<string>(key).catch(() => null);
-  if (cached) return cached;
-
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const created = await ai.caches.create({
-      model: modelApiId,
-      config: {
-        systemInstruction: systemPrompt,
-        ttl: `${GEMINI_CACHE_TTL_SECS}s`,
-      },
-    });
-    if (created.name) {
-      await redis.setex(key, GEMINI_CACHE_REDIS_TTL, created.name).catch(() => {});
-      return created.name;
-    }
-    return null;
-  } catch (err) {
-    // Common cause: prompt below 4096-token minimum for cache. Non-fatal —
-    // fall through to non-cached call.
-    agentLog.info('gemini_cache_create_failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return null;
-  }
-}
-
 function isServerKeyModel(model: ModelId): boolean {
   return SERVER_KEY_MODELS.has(model);
 }
@@ -931,28 +877,13 @@ export async function POST(req: Request) {
           );
         }
 
-        const cacheName = projectId
-          ? await getOrCreateGeminiCache(
-              userId,
-              projectId,
-              platform ?? "web",
-              systemPrompt,
-              apiKey,
-              modelConfig.apiModelId,
-            )
-          : null;
-
         const google = createGoogleGenerativeAI({ apiKey });
         const result = streamText({
           model: google(modelConfig.apiModelId),
+          system: systemPrompt,
           messages: resolvedMessages,
-          // Pass system inline only when no cache — when cache hit, the cache contains it
-          ...(cacheName ? {} : { system: systemPrompt }),
           tools,
           onFinish,
-          ...(cacheName
-            ? { providerOptions: { google: { cachedContent: cacheName } } }
-            : {}),
         });
         return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
       }

@@ -83,7 +83,7 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     output:      15.00 / BASE_PRICE,  // 50.0
     cacheWrite:  3.75 / BASE_PRICE,   // 12.5 (5-min ephemeral cache write)
   },
-  'claude-opus-4-1': {
+  'claude-opus-4-7': {
     input:       5.00 / BASE_PRICE,   // 16.67
     cachedInput: 0.50 / BASE_PRICE,   // 1.67 (cache hit/refresh)
     output:      25.00 / BASE_PRICE,  // 83.33
@@ -129,7 +129,7 @@ export const MODEL_COST_MULTIPLIER: Record<ModelId, number> = {
   'gemini-3.1-pro-preview': 5,
   'claude-sonnet-4-0': 5,
   'gpt-5.4': 6,
-  'claude-opus-4-1': 10,
+  'claude-opus-4-7': 10,
 };
 
 export interface CreditCalculationInput {

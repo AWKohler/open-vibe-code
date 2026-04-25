@@ -685,7 +685,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             proj?.model === 'claude-sonnet-4.5' ||
             proj?.model === 'claude-sonnet-4.6' ||
             proj?.model === 'claude-haiku-4.5' || // removed → sonnet
-            proj?.model === 'claude-opus-4-1' ||
+            proj?.model === 'claude-opus-4-7' ||
             proj?.model === 'claude-opus-4.6' || // legacy
             proj?.model === 'claude-opus-4.7' ||
             proj?.model === 'claude-opus-4.5' ||
@@ -702,9 +702,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4-0'
               : proj.model === 'claude-sonnet-4.6' ? 'claude-sonnet-4-0'
               : proj.model === 'claude-haiku-4.5' ? 'claude-sonnet-4-0'
-              : proj.model === 'claude-opus-4.5' ? 'claude-opus-4-1'
-              : proj.model === 'claude-opus-4.6' ? 'claude-opus-4-1'
-              : proj.model === 'claude-opus-4.7' ? 'claude-opus-4-1'
+              : proj.model === 'claude-opus-4.5' ? 'claude-opus-4-7'
+              : proj.model === 'claude-opus-4.6' ? 'claude-opus-4-7'
+              : proj.model === 'claude-opus-4.7' ? 'claude-opus-4-7'
               : proj.model === 'kimi-k2-thinking-turbo' ? 'fireworks-minimax-m2p5'
               : proj.model === 'kimi-k2.5' ? 'fireworks-minimax-m2p5'
               : proj.model;
@@ -807,7 +807,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     const hasImages = pendingImages.length > 0;
     if (!hasText && !hasImages) return;
 
-    const usingAnthropic = model === 'claude-sonnet-4-0' || model === 'claude-opus-4-1';
+    const usingAnthropic = model === 'claude-sonnet-4-0' || model === 'claude-opus-4-7';
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
     const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
     // Pro/Max users can use OpenAI and Anthropic models via platform server keys — only

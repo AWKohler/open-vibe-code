@@ -5,7 +5,7 @@ export const projects = pgTable('projects', {
   name: text('name').notNull(),
   userId: text('user_id').notNull(), // Clerk user id
   platform: text('platform').notNull().default('web'), // 'web' | 'mobile' | 'multiplatform'
-  // Preferred model for this project: 'gpt-5.3-codex' | 'gpt-5.4' | 'claude-sonnet-4-0' | 'claude-opus-4-1' | 'fireworks-minimax-m2p5' | 'fireworks-glm-5p1' | 'fireworks-kimi-k2p6' | 'gemini-3.1-pro-preview'
+  // Preferred model for this project: 'gpt-5.3-codex' | 'gpt-5.4' | 'claude-sonnet-4-0' | 'claude-opus-4-7' | 'fireworks-minimax-m2p5' | 'fireworks-glm-5p1' | 'fireworks-kimi-k2p6' | 'gemini-3.1-pro-preview'
   model: text('model').notNull().default('gpt-5.3-codex'),
   // Snapshot URLs for project thumbnails and HTML captures
   thumbnailUrl: text('thumbnail_url'),

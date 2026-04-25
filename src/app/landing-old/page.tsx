@@ -71,7 +71,7 @@ export default function Home() {
     "gpt-5.4",
     "gpt-5.2", // legacy compat
     "claude-sonnet-4-0",
-    "claude-opus-4-1",
+    "claude-opus-4-7",
     "claude-sonnet-4.6", // legacy compat
     "claude-opus-4.7", // legacy compat
     "claude-opus-4.6", // legacy compat
@@ -90,7 +90,7 @@ export default function Home() {
     "gpt-5.3-codex",
     "gpt-5.4",
     "claude-sonnet-4-0",
-    "claude-opus-4-1",
+    "claude-opus-4-7",
     "gemini-3.1-pro-preview",
   ]);
   const landingSignInModalAppearance = {

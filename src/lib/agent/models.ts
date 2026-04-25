@@ -6,7 +6,7 @@ export type ModelId =
   | "gpt-5.3-codex"
   | "gpt-5.4"
   | "claude-sonnet-4-0"
-  | "claude-opus-4-1"
+  | "claude-opus-4-7"
   | "gemini-3.1-pro-preview"
   | "fireworks-minimax-m2p5"
   | "fireworks-glm-5p1"
@@ -62,11 +62,11 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     criticalThreshold: 0.9,
     supportsImages: true,
   },
-  "claude-opus-4-1": {
-    id: "claude-opus-4-1",
+  "claude-opus-4-7": {
+    id: "claude-opus-4-7",
     provider: "anthropic",
-    apiModelId: "claude-opus-4-1",
-    displayName: "Claude Opus 4.1",
+    apiModelId: "claude-opus-4-7",
+    displayName: "Claude Opus 4.7",
     maxContextTokens: 200_000,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
@@ -128,9 +128,10 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
 export function resolveModelId(stored: string | null | undefined): ModelId {
   if (stored === "claude-sonnet-4.5") return "claude-sonnet-4-0";
   if (stored === "claude-sonnet-4.6") return "claude-sonnet-4-0";
-  if (stored === "claude-opus-4.5") return "claude-opus-4-1";
-  if (stored === "claude-opus-4.6") return "claude-opus-4-1";
-  if (stored === "claude-opus-4.7") return "claude-opus-4-1";
+  if (stored === "claude-opus-4.5") return "claude-opus-4-7";
+  if (stored === "claude-opus-4.6") return "claude-opus-4-7";
+  if (stored === "claude-opus-4.7") return "claude-opus-4-7";
+  if (stored === "claude-opus-4-1") return "claude-opus-4-7"; // legacy rename
   if (stored === "gpt-4.1") return "gpt-5.3-codex"; // migrate legacy
   if (stored === "gpt-5.2") return "gpt-5.3-codex"; // migrate legacy
   if (stored === "claude-haiku-4.5") return "claude-sonnet-4-0"; // removed model

@@ -45,17 +45,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       model !== 'gpt-5.4' &&
       model !== 'gpt-5.2' && // backwards compat
       model !== 'gpt-4.1' && // backwards compat
-      model !== 'claude-sonnet-4.6' &&
+      model !== 'claude-sonnet-4-0' &&
       model !== 'claude-sonnet-4.5' && // backwards compat
+      model !== 'claude-sonnet-4.6' && // backwards compat
       model !== 'claude-haiku-4.5' && // removed → mapped to sonnet
-      model !== 'claude-opus-4.7' &&
+      model !== 'claude-opus-4-1' &&
       model !== 'claude-opus-4.6' && // backwards compat
+      model !== 'claude-opus-4.7' && // backwards compat
       model !== 'claude-opus-4.5' && // backwards compat
       model !== 'kimi-k2.5' && // removed → mapped to minimax
       model !== 'kimi-k2-thinking-turbo' && // removed → mapped to minimax
       model !== 'fireworks-minimax-m2p5' &&
       model !== 'fireworks-glm-5p1' &&
-      model !== 'fireworks-kimi-k2p6'
+      model !== 'fireworks-kimi-k2p6' &&
+      model !== 'gemini-3.1-pro-preview'
     ) {
       return NextResponse.json({ error: 'Invalid model' }, { status: 400 });
     }

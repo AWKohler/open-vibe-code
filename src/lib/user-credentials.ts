@@ -22,6 +22,7 @@ export interface UserCredentials {
   anthropicApiKey: string | null;
   moonshotApiKey: string | null;
   fireworksApiKey: string | null;
+  googleApiKey: string | null;
   // Claude OAuth
   claudeOAuthAccessToken: string | null;
   claudeOAuthRefreshToken: string | null;
@@ -85,6 +86,7 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
           anthropicApiKey: row.anthropicApiKey ?? null,
           moonshotApiKey: row.moonshotApiKey ?? null,
           fireworksApiKey: row.fireworksApiKey ?? null,
+          googleApiKey: row.googleApiKey ?? null,
           claudeOAuthAccessToken: row.claudeOAuthAccessToken ?? null,
           claudeOAuthRefreshToken: row.claudeOAuthRefreshToken ?? null,
           claudeOAuthExpiresAt: row.claudeOAuthExpiresAt ?? null,
@@ -110,6 +112,7 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
     anthropicApiKey: (meta.anthropicApiKey ?? neon.anthropicApiKey) ?? null,
     moonshotApiKey: (meta.moonshotApiKey ?? neon.moonshotApiKey) ?? null,
     fireworksApiKey: (meta.fireworksApiKey ?? neon.fireworksApiKey) ?? null,
+    googleApiKey: (meta.googleApiKey ?? neon.googleApiKey) ?? null,
     claudeOAuthAccessToken: (meta.claudeOAuthAccessToken ?? neon.claudeOAuthAccessToken) ?? null,
     claudeOAuthRefreshToken: (meta.claudeOAuthRefreshToken ?? neon.claudeOAuthRefreshToken) ?? null,
     claudeOAuthExpiresAt: (meta.claudeOAuthExpiresAt ?? neon.claudeOAuthExpiresAt) ?? null,

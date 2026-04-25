@@ -42,6 +42,7 @@ export default function Home() {
   const [hasMoonshotKey, setHasMoonshotKey] = useState<boolean | null>(null);
   const [hasCodexOAuth, setHasCodexOAuth] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
+  const [hasGoogleKey, setHasGoogleKey] = useState<boolean | null>(null);
   const [userTier, setUserTier] = useState<'free' | 'pro' | 'max'>('free');
   const [hasConvexOAuth, setHasConvexOAuth] = useState<boolean | null>(null);
   const [convexBackendType, setConvexBackendType] = useState<'platform' | 'user'>('platform');
@@ -69,13 +70,16 @@ export default function Home() {
     "gpt-5.3-codex",
     "gpt-5.4",
     "gpt-5.2", // legacy compat
-    "claude-sonnet-4.6",
-    "claude-opus-4.7",
+    "claude-sonnet-4-0",
+    "claude-opus-4-1",
+    "claude-sonnet-4.6", // legacy compat
+    "claude-opus-4.7", // legacy compat
     "claude-opus-4.6", // legacy compat
     "fireworks-minimax-m2p5",
     "fireworks-glm-5p1",
     "fireworks-glm-5", // legacy compat
     "fireworks-kimi-k2p6",
+    "gemini-3.1-pro-preview",
   ]);
 
   // Models served via platform keys — don't require BYOK at project start
@@ -85,8 +89,9 @@ export default function Home() {
     "fireworks-kimi-k2p6",
     "gpt-5.3-codex",
     "gpt-5.4",
-    "claude-sonnet-4.6",
-    "claude-opus-4.7",
+    "claude-sonnet-4-0",
+    "claude-opus-4-1",
+    "gemini-3.1-pro-preview",
   ]);
   const landingSignInModalAppearance = {
     elements: {
@@ -107,7 +112,8 @@ export default function Home() {
     // The tier gate handles access control for those models.
     anthropic: hasClaudeOAuth || hasAnthropicKey || null,
     fireworks: hasFireworksKey === true ? true : null,
-  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey]);
+    google: hasGoogleKey === true ? true : null,
+  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey, hasGoogleKey]);
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
@@ -292,6 +298,7 @@ export default function Home() {
         setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
         setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
         setHasFireworksKey(Boolean(data?.hasFireworksKey));
+        setHasGoogleKey(Boolean(data?.hasGoogleKey));
         setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
         // Server-authoritative backend type preference
         if (data?.convexBackendPreference === 'user' && data?.hasConvexOAuth) {

@@ -2330,7 +2330,7 @@ export default function LandingV2() {
       <section className="relative bg-[var(--sand-surface)]">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32">
           <Reveal>
-            <div className="text-center max-w-3xl mx-auto">
+            <div className="text-center max-w-4xl mx-auto">
               <SectionLabel>Showcase</SectionLabel>
               <h2
                 className={cn(

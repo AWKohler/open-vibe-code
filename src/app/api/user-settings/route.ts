@@ -17,6 +17,7 @@ export async function GET() {
       hasAnthropicKey: Boolean(creds.anthropicApiKey),
       hasMoonshotKey: Boolean(creds.moonshotApiKey),
       hasFireworksKey: Boolean(creds.fireworksApiKey),
+      hasGoogleKey: Boolean(creds.googleApiKey),
       hasClaudeOAuth: Boolean(creds.claudeOAuthAccessToken),
       hasCodexOAuth: Boolean(creds.codexOAuthAccessToken),
       hasConvexOAuth: Boolean(creds.convexOAuthAccessToken),
@@ -34,11 +35,12 @@ export async function POST(req: NextRequest) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { openaiApiKey, anthropicApiKey, moonshotApiKey, fireworksApiKey, convexBackendPreference } = body as {
+    const { openaiApiKey, anthropicApiKey, moonshotApiKey, fireworksApiKey, googleApiKey, convexBackendPreference } = body as {
       openaiApiKey?: string | null;
       anthropicApiKey?: string | null;
       moonshotApiKey?: string | null;
       fireworksApiKey?: string | null;
+      googleApiKey?: string | null;
       convexBackendPreference?: 'platform' | 'user';
     };
 
@@ -50,6 +52,7 @@ export async function POST(req: NextRequest) {
     if (anthropicApiKey !== undefined) updates.anthropicApiKey = anthropicApiKey || null;
     if (moonshotApiKey !== undefined) updates.moonshotApiKey = moonshotApiKey || null;
     if (fireworksApiKey !== undefined) updates.fireworksApiKey = fireworksApiKey || null;
+    if (googleApiKey !== undefined) updates.googleApiKey = googleApiKey || null;
     if (convexBackendPreference === 'platform' || convexBackendPreference === 'user') {
       updates.convexBackendPreference = convexBackendPreference;
     }
@@ -65,6 +68,7 @@ export async function POST(req: NextRequest) {
       hasAnthropicKey: Boolean(merged.anthropicApiKey),
       hasMoonshotKey: Boolean(merged.moonshotApiKey),
       hasFireworksKey: Boolean(merged.fireworksApiKey),
+      hasGoogleKey: Boolean(merged.googleApiKey),
     });
   } catch (e) {
     console.error('POST /api/user-settings failed:', e);

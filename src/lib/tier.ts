@@ -152,8 +152,9 @@ export const MODEL_TIER_REQUIREMENT: Record<string, Tier> = {
   'fireworks-kimi-k2p6': 'free',
   'gpt-5.3-codex': 'pro',            // Pro+ for server key; free requires BYOK/OAuth
   'gpt-5.4': 'pro',                  // Pro+ for server key
-  'claude-sonnet-4.6': 'pro',        // Pro+ for server key
-  'claude-opus-4.7': 'pro',          // Pro+ for server key
+  'claude-sonnet-4-0': 'pro',        // Pro+ for server key
+  'claude-opus-4-1': 'pro',          // Pro+ for server key
+  'gemini-3.1-pro-preview': 'pro',   // Pro+ for server key; free requires BYOK
 };
 
 const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, max: 2 };

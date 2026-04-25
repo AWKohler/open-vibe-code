@@ -17,7 +17,7 @@ interface SettingsModalProps {
 }
 
 type Tab = 'usage' | 'connections' | 'subscription';
-type Provider = 'openai' | 'anthropic' | 'moonshot' | 'fireworks';
+type Provider = 'openai' | 'anthropic' | 'moonshot' | 'fireworks' | 'google';
 type OAuthStep = 'idle' | 'tos' | 'connecting' | 'exchanging' | 'success';
 
 const PROVIDERS: Array<{
@@ -28,6 +28,7 @@ const PROVIDERS: Array<{
 }> = [
   { provider: 'openai', label: 'OpenAI API Key', field: 'openaiApiKey', placeholder: 'sk-...' },
   { provider: 'anthropic', label: 'Anthropic API Key', field: 'anthropicApiKey', placeholder: 'sk-ant-...' },
+  { provider: 'google', label: 'Google AI Studio API Key', field: 'googleApiKey', placeholder: 'AIza...' },
   { provider: 'moonshot', label: 'Moonshot API Key', field: 'moonshotApiKey', placeholder: 'moonshot-...' },
   { provider: 'fireworks', label: 'Fireworks AI API Key', field: 'fireworksApiKey', placeholder: 'fw-...' },
 ];
@@ -39,10 +40,10 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
   const [savingKey, setSavingKey] = useState<Provider | null>(null);
   const [removingKey, setRemovingKey] = useState<Provider | null>(null);
   const [keys, setKeys] = useState<Record<Provider, string>>({
-    openai: '', anthropic: '', moonshot: '', fireworks: '',
+    openai: '', anthropic: '', moonshot: '', fireworks: '', google: '',
   });
   const [hasKey, setHasKey] = useState<Record<Provider, boolean>>({
-    openai: false, anthropic: false, moonshot: false, fireworks: false,
+    openai: false, anthropic: false, moonshot: false, fireworks: false, google: false,
   });
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState(false);
   const [hasCodexOAuth, setHasCodexOAuth] = useState(false);
@@ -85,7 +86,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    setKeys({ openai: '', anthropic: '', moonshot: '', fireworks: '' });
+    setKeys({ openai: '', anthropic: '', moonshot: '', fireworks: '', google: '' });
     setOauthStep('idle');
     setTosChecked(false);
     setOauthCode('');
@@ -106,6 +107,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
               anthropic: Boolean(data?.hasAnthropicKey),
               moonshot: Boolean(data?.hasMoonshotKey),
               fireworks: Boolean(data?.hasFireworksKey),
+              google: Boolean(data?.hasGoogleKey),
             });
             setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
             setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
@@ -178,6 +180,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
           anthropic: Boolean(data?.hasAnthropicKey),
           moonshot: Boolean(data?.hasMoonshotKey),
           fireworks: Boolean(data?.hasFireworksKey),
+          google: Boolean(data?.hasGoogleKey),
         });
         setKeys(prev => ({ ...prev, [provider]: '' }));
         toast({ title: 'Key saved', description: `${config.label} has been updated.` });

@@ -36,10 +36,16 @@ const MODEL_DISPLAY: Record<string, string> = {
   // 'fireworks-glm-5': 'GLM-5',
   'fireworks-glm-5p1': 'GLM-5.1',
   'fireworks-kimi-k2p6': 'Kimi K2.6',
-  'claude-sonnet-4.6': 'Claude Sonnet 4.6',
-  'claude-opus-4.7': 'Claude Opus 4.7',
+  'claude-sonnet-4.5': 'Claude Sonnet 4',
+  'claude-sonnet-4.6': 'Claude Sonnet 4',
+  'claude-sonnet-4-0': 'Claude Sonnet 4',
+  'claude-opus-4.5': 'Claude Opus 4.1',
+  'claude-opus-4.6': 'Claude Opus 4.1',
+  'claude-opus-4.7': 'Claude Opus 4.1',
+  'claude-opus-4-1': 'Claude Opus 4.1',
   'gpt-5.3-codex': 'GPT-5.3',
   'gpt-5.4': 'GPT-5.4',
+  'gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
 };
 
 export function UsageTab() {

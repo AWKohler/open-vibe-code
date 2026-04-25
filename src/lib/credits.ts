@@ -77,19 +77,36 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachedInput: 0.25 / BASE_PRICE,   // 0.83
     output:      15.00 / BASE_PRICE,  // 50.0
   },
-  'claude-sonnet-4.6': {
+  'claude-sonnet-4-0': {
     input:       3.00 / BASE_PRICE,   // 10.0
     cachedInput: 0.30 / BASE_PRICE,   // 1.0  (cache hit/refresh)
     output:      15.00 / BASE_PRICE,  // 50.0
     cacheWrite:  3.75 / BASE_PRICE,   // 12.5 (5-min ephemeral cache write)
   },
-  'claude-opus-4.7': {
+  'claude-opus-4-1': {
     input:       5.00 / BASE_PRICE,   // 16.67
     cachedInput: 0.50 / BASE_PRICE,   // 1.67 (cache hit/refresh)
     output:      25.00 / BASE_PRICE,  // 83.33
     cacheWrite:  6.25 / BASE_PRICE,   // 20.83 (5-min ephemeral cache write)
   },
+  // Gemini 3.1 Pro pricing at ≤200K context — the >200K tier handled in calculateCredits()
+  'gemini-3.1-pro-preview': {
+    input:       2.00 / BASE_PRICE,   // 6.67
+    cachedInput: 0.20 / BASE_PRICE,   // 0.67
+    output:     12.00 / BASE_PRICE,   // 40.0
+    cacheWrite:  2.00 / BASE_PRICE,   // 6.67 — cache write billed at full input price
+  },
 };
+
+// Gemini 3.1 Pro pricing at >200K context length
+const GEMINI_LONG_CONTEXT_PRICING: ModelPricing = {
+  input:       4.00 / BASE_PRICE,   // 13.33
+  cachedInput: 0.40 / BASE_PRICE,   // 1.33
+  output:     18.00 / BASE_PRICE,   // 60.0
+  cacheWrite:  4.00 / BASE_PRICE,   // 13.33
+};
+
+const GEMINI_LONG_CONTEXT_THRESHOLD = 200_000;
 
 // GPT-5.4 pricing at >272K context length
 const GPT54_LONG_CONTEXT_PRICING: ModelPricing = {
@@ -109,9 +126,10 @@ export const MODEL_COST_MULTIPLIER: Record<ModelId, number> = {
   'fireworks-glm-5p1': 3,
   'fireworks-kimi-k2p6': 3,
   'gpt-5.3-codex': 4,
-  'claude-sonnet-4.6': 5,
+  'gemini-3.1-pro-preview': 5,
+  'claude-sonnet-4-0': 5,
   'gpt-5.4': 6,
-  'claude-opus-4.7': 10,
+  'claude-opus-4-1': 10,
 };
 
 export interface CreditCalculationInput {
@@ -138,6 +156,11 @@ export function calculateCredits(params: CreditCalculationInput): number {
   // GPT-5.4: use higher pricing tier if total input context exceeds 272K
   if (model === 'gpt-5.4' && (inputTokens + cachedReadTokens) > GPT54_LONG_CONTEXT_THRESHOLD) {
     pricing = GPT54_LONG_CONTEXT_PRICING;
+  }
+
+  // Gemini 3.1 Pro: use higher pricing tier if total input context exceeds 200K
+  if (model === 'gemini-3.1-pro-preview' && (inputTokens + cachedReadTokens) > GEMINI_LONG_CONTEXT_THRESHOLD) {
+    pricing = GEMINI_LONG_CONTEXT_PRICING;
   }
 
   const inputCredits = inputTokens * pricing.input;

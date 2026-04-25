@@ -23,6 +23,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   fireworks: 'Fireworks',
+  google: 'Google',
 };
 
 /** Minimum tier required to use a model on server-side keys (must match backend MODEL_TIER_REQUIREMENT) */
@@ -32,8 +33,9 @@ const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
   'fireworks-kimi-k2p6': 'free',
   'gpt-5.3-codex': 'pro',       // Pro+ for server key; free requires BYOK/OAuth
   'gpt-5.4': 'pro',             // Pro+
-  'claude-sonnet-4.6': 'pro',   // Pro+
-  'claude-opus-4.7': 'pro',     // Pro+
+  'claude-sonnet-4-0': 'pro',   // Pro+
+  'claude-opus-4-1': 'pro',     // Pro+
+  'gemini-3.1-pro-preview': 'pro', // Pro+ for server key; free requires BYOK
 };
 
 /**
@@ -46,8 +48,9 @@ const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-kimi-k2p6',
   'gpt-5.3-codex',
   'gpt-5.4',
-  'claude-sonnet-4.6',
-  'claude-opus-4.7',
+  'claude-sonnet-4-0',
+  'claude-opus-4-1',
+  'gemini-3.1-pro-preview',
 ]);
 
 /** Rounded per-model cost multiplier for user display */
@@ -56,9 +59,10 @@ const MODEL_COST_LABEL: Record<ModelId, string> = {
   'fireworks-glm-5p1': 'x3',
   'fireworks-kimi-k2p6': 'x3',
   'gpt-5.3-codex': 'x4',
-  'claude-sonnet-4.6': 'x5',
+  'gemini-3.1-pro-preview': 'x5',
+  'claude-sonnet-4-0': 'x5',
   'gpt-5.4': 'x6',
-  'claude-opus-4.7': 'x10',
+  'claude-opus-4-1': 'x10',
 };
 
 const TIER_RANK: Record<string, number> = { free: 0, pro: 1, max: 2 };
@@ -76,9 +80,10 @@ const MODEL_ORDER: ModelId[] = [
   'fireworks-glm-5p1',         // x3
   'fireworks-kimi-k2p6',     // x3
   'gpt-5.3-codex',           // x4
-  'claude-sonnet-4.6',       // x5
+  'gemini-3.1-pro-preview',  // x5
+  'claude-sonnet-4-0',       // x5
   'gpt-5.4',                 // x6
-  'claude-opus-4.7',         // x10
+  'claude-opus-4-1',         // x10
 ];
 
 export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className }: ModelSelectorProps) {

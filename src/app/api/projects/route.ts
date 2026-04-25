@@ -35,11 +35,12 @@ export async function POST(request: NextRequest) {
       model?:
         | 'gpt-5.3-codex'
         | 'gpt-5.4'
-        | 'claude-sonnet-4.6'
-        | 'claude-opus-4.7'
+        | 'claude-sonnet-4-0'
+        | 'claude-opus-4-1'
         | 'fireworks-minimax-m2p5'
         | 'fireworks-glm-5p1'
-        | 'fireworks-kimi-k2p6';
+        | 'fireworks-kimi-k2p6'
+        | 'gemini-3.1-pro-preview';
     };
 
     if (!name) {
@@ -71,16 +72,18 @@ export async function POST(request: NextRequest) {
         model:
           model === 'gpt-5.4'
             ? 'gpt-5.4'
-            : model === 'claude-sonnet-4.6'
-            ? 'claude-sonnet-4.6'
-            : model === 'claude-opus-4.7'
-            ? 'claude-opus-4.7'
+          : model === 'claude-sonnet-4-0'
+            ? 'claude-sonnet-4-0'
+            : model === 'claude-opus-4-1'
+            ? 'claude-opus-4-1'
             : model === 'fireworks-minimax-m2p5'
             ? 'fireworks-minimax-m2p5'
             : model === 'fireworks-glm-5p1'
             ? 'fireworks-glm-5p1'
             : model === 'fireworks-kimi-k2p6'
             ? 'fireworks-kimi-k2p6'
+            : model === 'gemini-3.1-pro-preview'
+            ? 'gemini-3.1-pro-preview'
             : 'gpt-5.3-codex',
       })
       .returning();

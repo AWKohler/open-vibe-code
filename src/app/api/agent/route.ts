@@ -2,6 +2,8 @@ import { streamText, tool, convertToModelMessages, type ModelMessage } from "ai"
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFireworks } from "@ai-sdk/fireworks";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
@@ -481,9 +483,63 @@ const SERVER_KEY_MODELS = new Set<ModelId>([
   'fireworks-kimi-k2p6',     // free tier
   'gpt-5.3-codex',           // pro+
   'gpt-5.4',                 // pro+
-  'claude-sonnet-4.6',       // pro+
-  'claude-opus-4.7',         // pro+
+  'claude-sonnet-4-0',       // pro+
+  'claude-opus-4-1',         // pro+
+  'gemini-3.1-pro-preview',  // pro+
 ]);
+
+// ============================================================================
+// Gemini explicit context cache (TTL ~10 min) — keyed by user/project/platform
+// ============================================================================
+//
+// We create one cache per (user, project, platform) holding the system prompt.
+// Subsequent calls within ~9 minutes reuse the cache — Google charges for cache
+// read tokens (~10x cheaper than fresh input) plus storage time.
+// Cache TTL is 600s on Google's side; Redis tracks the cache name for 540s
+// (slightly less to avoid serving stale references).
+
+const GEMINI_CACHE_TTL_SECS = 600;       // Google-side TTL
+const GEMINI_CACHE_REDIS_TTL = 540;      // Redis-side TTL (less to prevent stale reads)
+
+function geminiCacheKey(userId: string, projectId: string, platform: string): string {
+  return `gemini_cache:${userId}:${projectId}:${platform}`;
+}
+
+async function getOrCreateGeminiCache(
+  userId: string,
+  projectId: string,
+  platform: string,
+  systemPrompt: string,
+  apiKey: string,
+  modelApiId: string,
+): Promise<string | null> {
+  const key = geminiCacheKey(userId, projectId, platform);
+  const cached = await redis.get<string>(key).catch(() => null);
+  if (cached) return cached;
+
+  try {
+    const ai = new GoogleGenAI({ apiKey });
+    const created = await ai.caches.create({
+      model: modelApiId,
+      config: {
+        systemInstruction: systemPrompt,
+        ttl: `${GEMINI_CACHE_TTL_SECS}s`,
+      },
+    });
+    if (created.name) {
+      await redis.setex(key, GEMINI_CACHE_REDIS_TTL, created.name).catch(() => {});
+      return created.name;
+    }
+    return null;
+  } catch (err) {
+    // Common cause: prompt below 4096-token minimum for cache. Non-fatal —
+    // fall through to non-cached call.
+    agentLog.info('gemini_cache_create_failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
 
 function isServerKeyModel(model: ModelId): boolean {
   return SERVER_KEY_MODELS.has(model);
@@ -547,6 +603,9 @@ export async function POST(req: Request) {
       }
       if (selectedModel === 'fireworks-minimax-m2p5' || selectedModel === 'fireworks-glm-5p1' || selectedModel === 'fireworks-kimi-k2p6') {
         return Boolean(creds.fireworksApiKey) && !process.env.FIREWORKS_API_KEY;
+      }
+      if (selectedModel === 'gemini-3.1-pro-preview') {
+        return Boolean(creds.googleApiKey) && !process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       }
       // Anthropic models
       return Boolean(creds.claudeOAuthAccessToken || creds.anthropicApiKey);
@@ -854,6 +913,48 @@ export async function POST(req: Request) {
           JSON.stringify({ error: "Missing OpenAI credentials. Connect ChatGPT Codex or add an OpenAI API key in Settings.", errorType: "auth" }),
           { status: 400, headers: { "Content-Type": "application/json" } },
         );
+      }
+
+      if (selectedModel === "gemini-3.1-pro-preview") {
+        // Priority: BYOK googleApiKey → server-side GOOGLE_GENERATIVE_AI_API_KEY (Pro+ only)
+        const apiKey = creds.googleApiKey
+          ?? (isServerKeyModel(selectedModel) ? (process.env.GOOGLE_GENERATIVE_AI_API_KEY ?? null) : null);
+
+        if (!apiKey) {
+          const usingServer = isServerKeyModel(selectedModel) && !creds.googleApiKey;
+          const msg = usingServer
+            ? `${modelConfig.displayName} is temporarily unavailable (missing server configuration). Please try a different model or add your own Google API key in Settings.`
+            : "Missing Google API key. Please add it in Settings.";
+          return new Response(
+            JSON.stringify({ error: msg, errorType: usingServer ? "unavailable" : "auth" }),
+            { status: usingServer ? 503 : 400, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const cacheName = projectId
+          ? await getOrCreateGeminiCache(
+              userId,
+              projectId,
+              platform ?? "web",
+              systemPrompt,
+              apiKey,
+              modelConfig.apiModelId,
+            )
+          : null;
+
+        const google = createGoogleGenerativeAI({ apiKey });
+        const result = streamText({
+          model: google(modelConfig.apiModelId),
+          messages: resolvedMessages,
+          // Pass system inline only when no cache — when cache hit, the cache contains it
+          ...(cacheName ? {} : { system: systemPrompt }),
+          tools,
+          onFinish,
+          ...(cacheName
+            ? { providerOptions: { google: { cachedContent: cacheName } } }
+            : {}),
+        });
+        return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
       }
 
       if (selectedModel === "fireworks-minimax-m2p5" || selectedModel === "fireworks-glm-5p1" || selectedModel === "fireworks-kimi-k2p6") {

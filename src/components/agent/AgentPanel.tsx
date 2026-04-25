@@ -115,6 +115,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [hasCodexOAuth, setHasCodexOAuth] = useState<boolean | null>(null);
   const [hasMoonshotKey, setHasMoonshotKey] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
+  const [hasGoogleKey, setHasGoogleKey] = useState<boolean | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [agentError, setAgentError] = useState<StructuredError | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
@@ -170,7 +171,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     openai: hasCodexOAuth || hasOpenAIKey || null,
     anthropic: hasClaudeOAuth || hasAnthropicKey || null,
     fireworks: hasFireworksKey === true ? true : null,
-  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey]);
+    google: hasGoogleKey === true ? true : null,
+  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey, hasGoogleKey]);
 
   // --- Token tracking ---
   const [tokenEstimate, setTokenEstimate] = useState(0);
@@ -679,25 +681,30 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             proj?.model === 'gpt-5.4' ||
             proj?.model === 'gpt-5.2' ||
             proj?.model === 'gpt-4.1' || // legacy migration
-            proj?.model === 'claude-sonnet-4.6' ||
+            proj?.model === 'claude-sonnet-4-0' ||
             proj?.model === 'claude-sonnet-4.5' ||
+            proj?.model === 'claude-sonnet-4.6' ||
             proj?.model === 'claude-haiku-4.5' || // removed → sonnet
-            proj?.model === 'claude-opus-4.7' ||
+            proj?.model === 'claude-opus-4-1' ||
             proj?.model === 'claude-opus-4.6' || // legacy
+            proj?.model === 'claude-opus-4.7' ||
             proj?.model === 'claude-opus-4.5' ||
             proj?.model === 'kimi-k2.5' || // removed → minimax
             proj?.model === 'kimi-k2-thinking-turbo' || // removed → minimax
             proj?.model === 'fireworks-minimax-m2p5' ||
             proj?.model === 'fireworks-glm-5p1' ||
             proj?.model === 'fireworks-glm-5' || // legacy
-            proj?.model === 'fireworks-kimi-k2p6'
+            proj?.model === 'fireworks-kimi-k2p6' ||
+            proj?.model === 'gemini-3.1-pro-preview'
           ) {
             const m = proj.model === 'gpt-4.1' ? 'gpt-5.3-codex'
               : proj.model === 'gpt-5.2' ? 'gpt-5.3-codex'
-              : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4.6'
-              : proj.model === 'claude-haiku-4.5' ? 'claude-sonnet-4.6'
-              : proj.model === 'claude-opus-4.5' ? 'claude-opus-4.7'
-              : proj.model === 'claude-opus-4.6' ? 'claude-opus-4.7'
+              : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4-0'
+              : proj.model === 'claude-sonnet-4.6' ? 'claude-sonnet-4-0'
+              : proj.model === 'claude-haiku-4.5' ? 'claude-sonnet-4-0'
+              : proj.model === 'claude-opus-4.5' ? 'claude-opus-4-1'
+              : proj.model === 'claude-opus-4.6' ? 'claude-opus-4-1'
+              : proj.model === 'claude-opus-4.7' ? 'claude-opus-4-1'
               : proj.model === 'kimi-k2-thinking-turbo' ? 'fireworks-minimax-m2p5'
               : proj.model === 'kimi-k2.5' ? 'fireworks-minimax-m2p5'
               : proj.model;
@@ -715,6 +722,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
+          setHasGoogleKey(Boolean(data?.hasGoogleKey));
         }
       } catch {}
     })();
@@ -733,6 +741,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
+          setHasGoogleKey(Boolean(data?.hasGoogleKey));
         })
         .catch(() => {});
     };
@@ -798,7 +807,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     const hasImages = pendingImages.length > 0;
     if (!hasText && !hasImages) return;
 
-    const usingAnthropic = model === 'claude-sonnet-4.6' || model === 'claude-opus-4.7';
+    const usingAnthropic = model === 'claude-sonnet-4-0' || model === 'claude-opus-4-1';
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
     const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
     // Pro/Max users can use OpenAI and Anthropic models via platform server keys — only

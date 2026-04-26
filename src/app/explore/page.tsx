@@ -6,9 +6,10 @@ import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 import { Sparkles, Flame, Clock, Search as SearchIcon } from "lucide-react";
 import { ShowcaseCard, type ShowcaseProject } from "@/components/showcase/ShowcaseCard";
 import { cn } from "@/lib/utils";
+import { isPersistentPlatformEnabled } from "@/lib/project-platform";
 
 type SortKey = "top" | "recent";
-type PlatformFilter = "all" | "web";
+type PlatformFilter = "all" | "web" | "persistent";
 
 export default function ExplorePage() {
   const [projects, setProjects] = useState<ShowcaseProject[]>([]);
@@ -178,6 +179,17 @@ export default function ExplorePage() {
                   >
                     Web
                   </button>
+                  {isPersistentPlatformEnabled() && (
+                    <button
+                      onClick={() => setPlatform("persistent")}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                        platform === "persistent" ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
+                      )}
+                    >
+                      Persistent
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

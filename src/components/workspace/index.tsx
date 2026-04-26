@@ -41,6 +41,7 @@ import { UserButton } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { detectResourceError, RESOURCE_ERROR_MESSAGES, type ResourceErrorType } from "@/lib/resource-errors";
+import { normalizeProjectPlatform, type ProjectPlatform } from "@/lib/project-platform";
 import "@/lib/debug-storage"; // Make debug utilities available in console
 
 type WorkspaceView = "code" | "preview" | "database";
@@ -48,7 +49,7 @@ type WorkspaceView = "code" | "preview" | "database";
 interface WorkspaceProps {
   projectId: string;
   initialPrompt?: string;
-  platform?: "web" | "mobile" | "multiplatform";
+  platform?: ProjectPlatform;
 }
 
 export function Workspace({
@@ -86,7 +87,7 @@ export function Workspace({
   const [hydrating, setHydrating] = useState(true);
   const [initializationComplete, setInitializationComplete] = useState(false);
   const [expUrl, setExpUrl] = useState<string | null>(null);
-  const [platform, setPlatform] = useState<"web" | "mobile" | "multiplatform">(
+  const [platform, setPlatform] = useState<ProjectPlatform>(
     initialPlatform ?? "web",
   );
   const [cloudSyncStatus, setCloudSyncStatus] = useState<{
@@ -149,11 +150,8 @@ export function Workspace({
         ]);
         if (res.ok) {
           const proj = await res.json();
-          if (
-            !initialPlatform &&
-            (proj?.platform === "mobile" || proj?.platform === "web" || proj?.platform === "multiplatform")
-          ) {
-            setPlatform(proj.platform);
+          if (!initialPlatform && typeof proj?.platform === "string") {
+            setPlatform(normalizeProjectPlatform(proj.platform));
           }
           if (proj?.htmlSnapshotUrl) {
             setHtmlSnapshotUrl(proj.htmlSnapshotUrl);

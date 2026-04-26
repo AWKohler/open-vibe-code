@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { WebContainer } from "@webcontainer/api";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { ProjectPlatform } from "@/lib/project-platform";
 import {
   Globe,
   ExternalLink,
@@ -42,7 +43,7 @@ interface PublishPanelProps {
   customDomainStatus: DomainStatus;
   onCustomDomainChanged: (domain: string | null, status: DomainStatus) => void;
   canUseCustomDomain: boolean;
-  platform?: "web" | "mobile" | "multiplatform";
+  platform?: ProjectPlatform;
 }
 
 /** Recursively read all files under a directory as base64 strings */

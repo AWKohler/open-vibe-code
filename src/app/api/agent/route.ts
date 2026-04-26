@@ -56,6 +56,7 @@ import {
   getMonthlyLimit,
 } from "@/lib/credits";
 import { limitReachedResponse } from "@/lib/plan-response";
+import type { ProjectPlatform } from "@/lib/project-platform";
 
 // Allow long-running streamed responses on Vercel
 export const maxDuration = 300;
@@ -513,7 +514,7 @@ export async function POST(req: Request) {
       messages,
       projectId,
       platform,
-    }: { messages: unknown; projectId?: string; platform?: "web" | "mobile" | "multiplatform" } =
+    }: { messages: unknown; projectId?: string; platform?: ProjectPlatform } =
       await req.json();
 
     const db = getDb();

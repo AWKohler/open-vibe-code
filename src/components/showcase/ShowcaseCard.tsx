@@ -4,11 +4,15 @@ import { useState } from "react";
 import Link from "next/link";
 import { Star, Laptop, Smartphone, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  getProjectPlatformLabel,
+  type ProjectPlatform,
+} from "@/lib/project-platform";
 
 export interface ShowcaseProject {
   id: string;
   name: string;
-  platform: "web" | "mobile" | "multiplatform";
+  platform: ProjectPlatform;
   publicSlug: string;
   publicDescription: string | null;
   thumbnailUrl: string | null;
@@ -55,7 +59,7 @@ export function ShowcaseCard({ project, compact = false }: { project: ShowcasePr
         <div className="absolute top-3 left-3">
           <span className="inline-flex items-center gap-1 rounded-full bg-surface/90 backdrop-blur-sm px-2 py-1 text-[11px] font-medium text-fg shadow-sm">
             <Icon className="h-3 w-3" />
-            {project.platform === "web" ? "Web" : project.platform === "mobile" ? "Mobile" : "Universal"}
+            {getProjectPlatformLabel(project.platform)}
           </span>
         </div>
 

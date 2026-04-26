@@ -4,6 +4,7 @@ import { projects } from '@/db/schema';
 import { and, eq } from 'drizzle-orm';
 import Link from 'next/link';
 import { IsolationGuard } from './isolation-guard';
+import { normalizeProjectPlatform } from '@/lib/project-platform';
 
 export default async function WorkspacePage({
   params,
@@ -16,7 +17,9 @@ export default async function WorkspacePage({
   const { id: projectId } = await params;
   const searchParamsResolved = searchParams ? await searchParams : {};
   const initialPrompt = typeof searchParamsResolved.prompt === 'string' ? searchParamsResolved.prompt : undefined;
-  const platform = typeof searchParamsResolved.platform === 'string' ? (searchParamsResolved.platform as 'web' | 'mobile' | 'multiplatform') : undefined;
+  const platform = typeof searchParamsResolved.platform === 'string'
+    ? normalizeProjectPlatform(searchParamsResolved.platform)
+    : undefined;
 
   if (!userId) {
     return redirectToSignIn({ returnBackUrl: `/workspace/${projectId}` });

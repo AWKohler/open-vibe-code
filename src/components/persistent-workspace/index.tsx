@@ -408,7 +408,7 @@ export function PersistentWorkspace({ projectId, initialPrompt: _initialPrompt }
                     setHasUnsavedChanges(v !== fileContent);
                   }}
                   language={inferLanguage(selectedFile)}
-                  path={selectedFile}
+                  filename={selectedFile}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted text-sm">

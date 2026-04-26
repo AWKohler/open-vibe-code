@@ -22,6 +22,15 @@ import { checkDeviceSupport } from "@/lib/device";
 import { Anthropic } from "@/components/icons/anthropic";
 import { OpenAI } from "@/components/icons/openai";
 import { Convex } from "@/components/icons/convex";
+import {
+  getNextProjectPlatform,
+  getProjectPlatformLabel,
+  getProjectPlatformShortLabel,
+  isMobilePlatformsEnabled,
+  isPersistentPlatformEnabled,
+  normalizeProjectPlatform,
+  type ProjectPlatform,
+} from "@/lib/project-platform";
 
 interface LandingPendingImage {
   id: string;
@@ -33,7 +42,7 @@ export default function Home() {
   const router = useRouter();
   const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState("");
-  const [platform, setPlatform] = useState<"web" | "mobile" | "multiplatform">("web");
+  const [platform, setPlatform] = useState<ProjectPlatform>("web");
   const [model, setModel] = useState<ModelId>("fireworks-minimax-m2p5");
   const { toast } = useToast();
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
@@ -425,8 +434,13 @@ export default function Home() {
           const resolved = storedModel === 'gpt-5.2' ? 'gpt-5.3-codex' : storedModel;
           setModel(resolved as ModelId);
         }
-        if (storedPlatform === "web" || (storedPlatform === "mobile" && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP) || (storedPlatform === "multiplatform" && process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP)) {
-          setPlatform(storedPlatform);
+        if (
+          storedPlatform === "web" ||
+          (storedPlatform === "persistent" && isPersistentPlatformEnabled()) ||
+          ((storedPlatform === "mobile" || storedPlatform === "multiplatform") &&
+            isMobilePlatformsEnabled())
+        ) {
+          setPlatform(normalizeProjectPlatform(storedPlatform));
         }
         if (storedName) setProjectName(storedName);
       }
@@ -622,16 +636,28 @@ export default function Home() {
                             </div>
                           )}
                         </div>
-                        {process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP && (
+                        {(isPersistentPlatformEnabled() || isMobilePlatformsEnabled()) && (
                           <button
                             type="button"
-                            onClick={() => setPlatform(platform === "web" ? "multiplatform" : platform === "multiplatform" ? "mobile" : "web")}
+                            onClick={() => setPlatform(getNextProjectPlatform(platform))}
                             className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm shadow-soft hover:border-transparent hover:bg-accent/15 transition"
                             title="Toggle platform"
                           >
-                            {platform === "web" ? <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : platform === "multiplatform" ? <Monitor className="h-3.5 w-3.5 sm:h-4 sm:w-4" /> : <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />}
-                            <span className="hidden sm:inline">{platform === "web" ? "Web" : platform === "multiplatform" ? "Multiplatform" : "Mobile App (Experimental)"}</span>
-                            <span className="sm:hidden">{platform === "web" ? "Web" : platform === "multiplatform" ? "Multi" : "Mobile"}</span>
+                            {platform === "mobile" ? (
+                              <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            ) : platform === "multiplatform" ? (
+                              <Monitor className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            ) : (
+                              <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                            )}
+                            <span className="hidden sm:inline">
+                              {platform === "mobile"
+                                ? "Mobile App (Experimental)"
+                                : getProjectPlatformLabel(platform)}
+                            </span>
+                            <span className="sm:hidden">
+                              {getProjectPlatformShortLabel(platform)}
+                            </span>
                           </button>
                         )}
                         <ModelSelector

@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { provisionConvexBackend } from '@/lib/convex-platform';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { getUserCredentials, setUserCredentials, type UserCredentials } from '@/lib/user-credentials';
+import { normalizeProjectPlatform, type ProjectPlatform } from '@/lib/project-platform';
 
 const CONVEX_CLI_API = 'https://api.convex.dev/api';
 
@@ -75,11 +76,7 @@ export async function GET(request: Request) {
   const prompt = url.searchParams.get('prompt')?.slice(0, 30000) ?? '';
   const visibility = url.searchParams.get('visibility') ?? 'public';
   const platformParam = url.searchParams.get('platform');
-  const platform = (
-    platformParam === 'mobile' ? 'mobile' :
-    platformParam === 'multiplatform' ? 'multiplatform' :
-    'web'
-  ) as 'web' | 'mobile' | 'multiplatform';
+  const platform = normalizeProjectPlatform(platformParam) as ProjectPlatform;
   const backendTypeParam = url.searchParams.get('backendType');
   const modelParam = url.searchParams.get('model');
   const model = (

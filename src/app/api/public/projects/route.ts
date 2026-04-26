@@ -4,6 +4,7 @@ import { projects, projectStars } from '@/db/schema';
 import { eq, and, desc, sql, isNotNull } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 import { clerkClient } from '@clerk/nextjs/server';
+import { type ProjectPlatform } from '@/lib/project-platform';
 
 export async function GET(req: NextRequest) {
   try {
@@ -18,8 +19,13 @@ export async function GET(req: NextRequest) {
 
     const db = getDb();
     const whereClauses = [eq(projects.isPublic, true), isNotNull(projects.publicSlug)];
-    if (platformFilter === 'web' || platformFilter === 'mobile' || platformFilter === 'multiplatform') {
-      whereClauses.push(eq(projects.platform, platformFilter));
+    if (
+      platformFilter === 'web' ||
+      platformFilter === 'persistent' ||
+      platformFilter === 'mobile' ||
+      platformFilter === 'multiplatform'
+    ) {
+      whereClauses.push(eq(projects.platform, platformFilter as ProjectPlatform));
     }
 
     const orderBy =

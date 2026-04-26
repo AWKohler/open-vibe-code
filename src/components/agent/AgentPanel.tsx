@@ -21,8 +21,9 @@ import { CreditGauge } from '@/components/ui/CreditGauge';
 import type { AgentErrorType } from '@/lib/agent/errors';
 import { processImageForUpload } from '@/lib/image-processing';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import type { ProjectPlatform } from '@/lib/project-platform';
 
-type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: 'web' | 'mobile' | 'multiplatform' };
+type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: ProjectPlatform };
 
 interface PendingImage {
   id: string;

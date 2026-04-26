@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { Monitor } from 'lucide-react';
 import { Workspace } from '@/components/workspace';
 import { checkDeviceSupport } from '@/lib/device';
+import type { ProjectPlatform } from '@/lib/project-platform';
 
 interface Props {
   projectId: string;
   initialPrompt?: string;
-  platform?: 'web' | 'mobile' | 'multiplatform';
+  platform?: ProjectPlatform;
 }
 
 /**

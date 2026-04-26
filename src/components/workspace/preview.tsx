@@ -16,6 +16,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PreviewInfo } from "@/lib/preview-store";
+import {
+  isWebLikePlatform,
+  type ProjectPlatform,
+} from "@/lib/project-platform";
 
 interface PreviewProps {
   previews: PreviewInfo[];
@@ -32,7 +36,7 @@ interface PreviewProps {
   isInstalling?: boolean;
   isStartingServer?: boolean;
   onToggleDevServer?: () => void;
-  platform?: "web" | "mobile" | "multiplatform";
+  platform?: ProjectPlatform;
   expUrl?: string | null;
   htmlSnapshotUrl?: string | null;
   isAgentWorking?: boolean;
@@ -1546,7 +1550,7 @@ export function Preview({
       )}
 
       {/* Device Info */}
-      {platform === "web" &&
+      {platform && isWebLikePlatform(platform) &&
         (selectedDevice ?? internalDevice) !== "desktop" &&
         (selectedDevice ?? internalDevice) !== "responsive" &&
         (selectedDevice ?? internalDevice) !== "figma" && (

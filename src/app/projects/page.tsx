@@ -25,6 +25,7 @@ import {
 import { useToast } from '@/components/ui/toast';
 import { SettingsModal } from '@/components/settings/SettingsModal';
 import type { Project } from '@/db/schema';
+import { getProjectPlatformLabel } from '@/lib/project-platform';
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -307,6 +308,8 @@ export default function ProjectsPage() {
                               <div className="flex flex-col items-center text-muted">
                                 {project.platform === 'mobile' ? (
                                   <Smartphone className="h-10 w-10 mb-2" />
+                                ) : project.platform === 'multiplatform' ? (
+                                  <Layers className="h-10 w-10 mb-2" />
                                 ) : (
                                   <Laptop className="h-10 w-10 mb-2" />
                                 )}
@@ -326,10 +329,12 @@ export default function ProjectsPage() {
                             >
                               {project.platform === 'mobile' ? (
                                 <Smartphone className="h-3 w-3" />
+                              ) : project.platform === 'multiplatform' ? (
+                                <Layers className="h-3 w-3" />
                               ) : (
                                 <Laptop className="h-3 w-3" />
                               )}
-                              {project.platform === 'mobile' ? 'Mobile' : 'Web'}
+                              {getProjectPlatformLabel(project.platform)}
                             </span>
                           </div>
 

@@ -26,6 +26,10 @@ import { CodeEditor } from "@/components/workspace/code-editor";
 import { FileTree } from "@/components/workspace/file-tree";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import {
+  getProjectPlatformLabel,
+  type ProjectPlatform,
+} from "@/lib/project-platform";
 
 type PublicFile =
   | { path: string; type: "file"; content: string; hash: string }
@@ -35,7 +39,7 @@ export interface PublicProjectData {
   project: {
     id: string;
     name: string;
-    platform: "web" | "mobile" | "multiplatform";
+    platform: ProjectPlatform;
     publicSlug: string;
     publicDescription: string | null;
     thumbnailUrl: string | null;
@@ -313,7 +317,7 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
                 <div className="flex items-center gap-2 min-w-0">
                   <h1 className="font-semibold text-fg truncate" title={project.name}>{project.name}</h1>
                   <span className="hidden sm:inline-flex items-center gap-1 rounded-full bg-elevated px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted shrink-0">
-                    {project.platform === "web" ? "Web" : project.platform === "mobile" ? "Mobile" : "Universal"}
+                    {getProjectPlatformLabel(project.platform)}
                   </span>
                 </div>
                 <p className="text-xs text-muted truncate">by {project.author.name}</p>

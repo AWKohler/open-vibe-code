@@ -31,27 +31,39 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
     // beta SDK: Sandbox.get takes { name }; auto-resumes on next command if stopped
     return await Sandbox.get({ name });
   } catch (error) {
-    // 404 = doesn't exist yet; 400 can also indicate not found in some SDK versions
-    if (
-      !(error instanceof APIError) ||
-      (error.response.status !== 404 && error.response.status !== 400)
-    ) {
+    if (error instanceof APIError) {
+      // Log the full response body to help debug
+      try {
+        const body = await error.response.text();
+        console.error(`Sandbox.get 400/404 body: ${body}`);
+      } catch { /* ignore */ }
+      if (error.response.status !== 404 && error.response.status !== 400) {
+        throw error;
+      }
+    } else {
       throw error;
     }
   }
 
-  // New sandbox — expose common dev ports for preview
-  return Sandbox.create({
-    name,
-    runtime: DEFAULT_RUNTIME,
-    timeout: DEFAULT_TIMEOUT_MS,
-    snapshotExpiration: DEFAULT_SNAPSHOT_EXPIRATION_MS,
-    ports: [5173, 3000, 4321, 8080],
-    env: {
-      BOTFLOW_PROJECT_ID: projectId,
-      BOTFLOW_RUNTIME: "persistent",
-    },
-  });
+  // Minimal create — name + runtime + timeout only
+  try {
+    return await Sandbox.create({
+      name,
+      runtime: DEFAULT_RUNTIME,
+      timeout: DEFAULT_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (error instanceof APIError) {
+      try {
+        const body = await error.response.text();
+        console.error(`Sandbox.create error body: ${body}`);
+        throw new Error(`Sandbox.create failed (${error.response.status}): ${body}`);
+      } catch (inner) {
+        if (inner instanceof Error && inner.message.startsWith("Sandbox.create failed")) throw inner;
+      }
+    }
+    throw error;
+  }
 }
 
 // Seed a fresh sandbox with a Vite + React starter if /vercel/sandbox is empty

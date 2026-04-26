@@ -334,18 +334,7 @@ export function PersistentWorkspace({ projectId, initialPrompt: _initialPrompt }
             </span>
           )}
 
-          {sandboxStatus === "ready" && needsRecreate && (
-            <button
-              onClick={recreateSandbox}
-              disabled={isRecreating}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md bg-amber-500 text-white hover:opacity-90 transition disabled:opacity-50"
-            >
-              {isRecreating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              Fix Sandbox
-            </button>
-          )}
-
-          {sandboxStatus === "ready" && !isDevServerRunning && !needsRecreate && (
+          {sandboxStatus === "ready" && !isDevServerRunning && (
             <button
               onClick={startDevServer}
               disabled={isStartingServer}

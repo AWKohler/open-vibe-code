@@ -40,6 +40,8 @@ export function PersistentWorkspace({ projectId, initialPrompt: _initialPrompt }
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isDevServerRunning, setIsDevServerRunning] = useState(false);
   const [isStartingServer, setIsStartingServer] = useState(false);
+  const [needsRecreate, setNeedsRecreate] = useState(false);
+  const [isRecreating, setIsRecreating] = useState(false);
   const [view, setView] = useState<"code" | "preview">("code");
 
   // Terminal
@@ -202,22 +204,46 @@ export function PersistentWorkspace({ projectId, initialPrompt: _initialPrompt }
     await runCommand(parts[0]!, parts.slice(1));
   }, [terminalInput, isRunningCmd, runCommand]);
 
+  const recreateSandbox = useCallback(async () => {
+    setIsRecreating(true);
+    appendTerminal("info", "Recreating sandbox with port forwarding (files will be preserved)…");
+    setShowTerminal(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/sandbox/recreate`, { method: "POST" });
+      const data = await res.json() as { ok?: boolean; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Recreate failed");
+      appendTerminal("info", "Sandbox recreated. Refreshing files…");
+      setNeedsRecreate(false);
+      await loadFiles();
+      toast({ title: "Sandbox fixed", description: "Port forwarding is now enabled. Try starting the dev server again." });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Recreate failed";
+      appendTerminal("stderr", msg);
+      toast({ title: "Recreate failed", description: msg });
+    } finally {
+      setIsRecreating(false);
+    }
+  }, [projectId, appendTerminal, loadFiles, toast]);
+
   const startDevServer = useCallback(async () => {
     setIsStartingServer(true);
     appendTerminal("info", "Starting dev server…");
     setShowTerminal(true);
     try {
-      // Install first if no node_modules
       const checkRes = await fetch(`/api/projects/${projectId}/sandbox/devserver`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ installFirst: true }),
       });
-      if (!checkRes.ok) {
-        const err = await checkRes.json() as { error: string };
-        throw new Error(err.error);
+      const data = await checkRes.json() as { previewUrl?: string; error?: string; message?: string };
+      if (checkRes.status === 409 && data.error === "no_port_route") {
+        setNeedsRecreate(true);
+        setIsStartingServer(false);
+        appendTerminal("stderr", data.message ?? "Sandbox needs to be recreated with port forwarding.");
+        return;
       }
-      const { previewUrl: url } = await checkRes.json() as { previewUrl: string };
+      if (!checkRes.ok) throw new Error(data.error ?? "Dev server failed");
+      const url = data.previewUrl!;
       setPreviewUrl(url);
       setIsDevServerRunning(true);
       setView("preview");
@@ -308,7 +334,18 @@ export function PersistentWorkspace({ projectId, initialPrompt: _initialPrompt }
             </span>
           )}
 
-          {sandboxStatus === "ready" && !isDevServerRunning && (
+          {sandboxStatus === "ready" && needsRecreate && (
+            <button
+              onClick={recreateSandbox}
+              disabled={isRecreating}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md bg-amber-500 text-white hover:opacity-90 transition disabled:opacity-50"
+            >
+              {isRecreating ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+              Fix Sandbox
+            </button>
+          )}
+
+          {sandboxStatus === "ready" && !isDevServerRunning && !needsRecreate && (
             <button
               onClick={startDevServer}
               disabled={isStartingServer}

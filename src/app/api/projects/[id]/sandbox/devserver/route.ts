@@ -33,6 +33,16 @@ export async function POST(
   try {
     const sandbox = await getOrCreatePersistentSandbox(project.id);
 
+    // Check if port is registered before doing expensive install/start
+    try {
+      sandbox.domain(port);
+    } catch {
+      return NextResponse.json(
+        { error: "no_port_route", message: "Sandbox was created without port forwarding. Use the Fix Sandbox button to recreate it." },
+        { status: 409 },
+      );
+    }
+
     if (installFirst) {
       const installResult = await sandbox.runCommand({
         cmd: "pnpm",
@@ -57,7 +67,6 @@ export async function POST(
     await new Promise((r) => setTimeout(r, 3000));
 
     const previewUrl = sandbox.domain(port);
-
     return NextResponse.json({ previewUrl, port });
   } catch (error) {
     return NextResponse.json(

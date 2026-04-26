@@ -121,25 +121,20 @@ body {
     background-color: var(--sand-accent) !important;
 }
 
-/* Pricing page: ensure Clerk's PricingTable lays out plans on a single row.
-   Clerk's outer grid uses CSS grid; on the dedicated /pricing surface we
-   widen the gap and force a 3-column layout on large screens. */
-.pricing-clerk-wrapper [class*="cl-pricingTable"] {
-    --plan-min-width: 18rem;
-}
-.pricing-clerk-wrapper > div > div {
-    gap: 1.5rem !important;
-}
-@media (min-width: 900px) {
-    .pricing-clerk-wrapper [data-variant="default"][class*="cl-pricingTable"] {
-        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-    }
+/* Pricing page: widen the gap between Clerk's plan cards.
+   Target only the root PricingTable grid, NOT the cards (which have
+   `cl-pricingTableCard` as a substring of `cl-pricingTable`). */
+.pricing-clerk-wrapper [data-clerk-component="PricingTable"] > div {
+    gap: 1.25rem !important;
 }
 
-/* Tame Clerk's billing-period switch row so it matches the page typography */
-.pricing-clerk-wrapper [class*="cl-pricingTable"] [role="radiogroup"],
-.pricing-clerk-wrapper [class*="cl-pricingTable"] [class*="cl-pricingTableHeader"] {
-    margin-bottom: 1.5rem !important;
+/* On wide screens force three plans onto one row even if Clerk's
+   default grid would wrap. Scoped to the immediate PricingTable child
+   so it never reaches into individual cards. */
+@media (min-width: 960px) {
+    .pricing-clerk-wrapper [data-clerk-component="PricingTable"] > div {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
 }
 
 /* Custom scrollbar styles */

@@ -149,61 +149,28 @@ const faqs = [
 ];
 
 // ============================================================================
-// Clerk PricingTable — heavily restyled to match landing aesthetic
+// Clerk PricingTable — colors only. Clerk's internal flex/grid layout is
+// fragile, so we only swap palette tokens and let Clerk own positioning.
 // ============================================================================
 
 const pricingTableAppearance = {
   variables: {
     colorPrimary: 'var(--sand-text)',
-    colorBackground: 'var(--sand-bg)',
+    colorBackground: 'var(--sand-surface)',
     colorText: 'var(--sand-text)',
     colorTextSecondary: 'var(--sand-text-muted)',
     colorNeutral: 'var(--sand-text)',
     colorInputBackground: 'var(--sand-elevated)',
     colorInputText: 'var(--sand-text)',
-    fontFamily: 'var(--font-geist-sans)',
-    borderRadius: '1rem',
+    borderRadius: '0.875rem',
   },
   elements: {
-    pricingTable:
-      '!gap-6 [&>div]:!gap-6',
     pricingTableCard:
-      '!bg-[var(--sand-surface)] !border !border-[var(--sand-border)] !rounded-2xl !shadow-none !overflow-hidden hover:!border-[var(--sand-text-muted)]/40 transition-all duration-300',
-    pricingTableCardHeader:
-      '!p-7 !pb-5 !border-b !border-[var(--sand-border)]/60',
-    pricingTableCardTitle: cn(
-      serif.className,
-      '!text-3xl !font-normal !tracking-tight !text-[var(--sand-text)] !leading-none',
-    ),
-    pricingTableCardDescription:
-      '!mt-2 !text-sm !text-[var(--sand-text-muted)] !leading-relaxed',
-    pricingTableCardFeeContainer: '!mt-5 !flex !items-baseline !gap-1.5',
-    pricingTableCardFee: cn(
-      serif.className,
-      '!text-5xl !font-normal !tracking-tight !text-[var(--sand-text)] !leading-none',
-    ),
-    pricingTableCardFeePeriod:
-      '!text-sm !text-[var(--sand-text-muted)] !font-medium',
-    pricingTableCardFeePeriodNotice:
-      '!text-xs !text-[var(--sand-text-muted)]',
-    pricingTableCardBody: '!p-7 !pt-6',
-    pricingTableCardFeatures: '!gap-0',
-    pricingTableCardFeaturesList: '!space-y-3 !p-0',
-    pricingTableCardFeaturesListItem: '!gap-3 !items-start !p-0',
-    pricingTableCardFeaturesListItemTitle:
-      '!text-sm !text-[var(--sand-text)] !leading-relaxed',
-    pricingTableCardFeaturesListItemDescription:
-      '!text-xs !text-[var(--sand-text-muted)]',
-    pricingTableCardFooter: '!p-7 !pt-2 !border-0',
-    pricingTableCardFooterButton: cn(
-      '!w-full !justify-center !rounded-xl !px-5 !py-3 !text-sm !font-medium',
-      '!bg-[var(--sand-text)] !text-[var(--sand-bg)] !shadow-sm',
-      'hover:!opacity-90 transition-opacity',
-    ),
-    pricingTableCardFooterNotice:
-      '!text-xs !text-[var(--sand-text-muted)] !text-center !mt-3',
+      '!bg-[var(--sand-surface)] !border !border-[var(--sand-border)] !rounded-2xl !shadow-sm hover:!border-[var(--sand-text-muted)]/40 transition-colors',
+    pricingTableCardFooterButton:
+      '!bg-[var(--sand-text)] !text-[var(--sand-bg)] hover:!opacity-90',
     badge:
-      '!bg-[var(--sand-accent)] !text-[var(--sand-accent-contrast)] !rounded-full !px-2.5 !py-0.5 !text-[11px] !font-medium !tracking-wide !uppercase',
+      '!bg-[var(--sand-accent)] !text-[var(--sand-accent-contrast)]',
   },
 } as const;
 

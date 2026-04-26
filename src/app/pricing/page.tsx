@@ -28,26 +28,26 @@ import {
 // Plan highlight pills shown above the pricing table
 // ============================================================================
 
-const planHighlights = [
-  {
-    icon: Sparkles,
-    title: 'Bring your own keys',
-    description:
-      'Use OpenAI, Anthropic, Fireworks, or your existing Claude / Codex OAuth — no markup, ever.',
-  },
-  {
-    icon: Database,
-    title: 'Real backend included',
-    description:
-      'Convex is wired into every project from the first prompt. No setup, no extra bill.',
-  },
-  {
-    icon: Globe,
-    title: 'Deploys, not demos',
-    description:
-      'Ship to Cloudflare\'s global edge with one click. Custom domains and GitHub sync are built in.',
-  },
-];
+// const planHighlights = [
+//   {
+//     icon: Sparkles,
+//     title: 'Bring your own keys',
+//     description:
+//       'Use OpenAI, Anthropic, Fireworks, or your existing Claude / Codex OAuth — no markup, ever.',
+//   },
+//   {
+//     icon: Database,
+//     title: 'Real backend included',
+//     description:
+//       'Convex is wired into every project from the first prompt. No setup, no extra bill.',
+//   },
+//   {
+//     icon: Globe,
+//     title: 'Deploys, not demos',
+//     description:
+//       'Ship to Cloudflare\'s global edge with one click. Custom domains and GitHub sync are built in.',
+//   },
+// ];
 
 // ============================================================================
 // Cross-plan feature comparison
@@ -181,7 +181,7 @@ const pricingTableAppearance = {
     ),
     // Tagline under the plan name — slightly bigger, more breathing room.
     pricingTableCardDescription:
-      '!text-base !leading-relaxed !text-[var(--sand-text-muted)]',
+      '!text-base !leading-relaxed !text-[var(--sand-text-muted)] !py-4',
     // The price itself — big serif, the focal point of each card.
     pricingTableCardFee: cn(
       serif.className,
@@ -318,7 +318,7 @@ export default function PricingPage() {
 
       {/* ================================================================ */}
       {/* PLAN HIGHLIGHTS                                                  */}
-      {/* ================================================================ */}
+      {/* ================================================================ 
       <section className="relative">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-2 sm:pb-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-[var(--sand-border)] rounded-2xl overflow-hidden bg-[var(--sand-surface)]/50">
@@ -348,6 +348,7 @@ export default function PricingPage() {
           </div>
         </div>
       </section>
+      */}
 
       {/* ================================================================ */}
       {/* PRICING TABLE                                                    */}

@@ -221,6 +221,9 @@ export function LandingNav() {
               <a href="/convex" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Convex
               </a>
+              <a href="/blog" className="font-medium hover:text-[var(--sand-accent)] transition">
+                Blog
+              </a>
               <a href="/pricing" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Pricing
               </a>

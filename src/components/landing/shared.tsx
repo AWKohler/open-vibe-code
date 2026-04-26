@@ -215,18 +215,18 @@ export function LandingNav() {
                   My Projects
                 </a>
               </SignedIn>
-              <a href="/explore" className="font-medium hover:text-[var(--sand-accent)] transition">
+              <Link href="/explore" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Explore
-              </a>
-              <a href="/convex" className="font-medium hover:text-[var(--sand-accent)] transition">
+              </Link>
+              <Link href="/convex" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Convex
-              </a>
-              <a href="/blog" className="font-medium hover:text-[var(--sand-accent)] transition">
+              </Link>
+              <Link href="/blog" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Blog
-              </a>
-              <a href="/pricing" className="font-medium hover:text-[var(--sand-accent)] transition">
+              </Link>
+              <Link href="/pricing" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Pricing
-              </a>
+              </Link>
             </nav>
 
             <div className="flex items-center justify-end gap-2">

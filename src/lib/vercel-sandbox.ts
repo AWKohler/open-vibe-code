@@ -45,12 +45,16 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
     }
   }
 
-  // Minimal create — name + runtime + timeout only
   try {
     return await Sandbox.create({
       name,
       runtime: DEFAULT_RUNTIME,
       timeout: DEFAULT_TIMEOUT_MS,
+      ports: [5173, 3000, 4321, 8080],
+      env: {
+        BOTFLOW_PROJECT_ID: projectId,
+        BOTFLOW_RUNTIME: "persistent",
+      },
     });
   } catch (error) {
     if (error instanceof APIError) {
@@ -64,6 +68,57 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
     }
     throw error;
   }
+}
+
+// Re-create sandbox with ports registered, migrating files from the old one
+export async function recreateSandboxWithPorts(projectId: string) {
+  assertSandboxAuth();
+  const name = getPersistentSandboxName(projectId);
+
+  // Get the existing sandbox and read all files
+  const fileBackup: Array<{ path: string; content: Buffer }> = [];
+  try {
+    const existing = await Sandbox.get({ name });
+    const findResult = await existing.runCommand("find", [
+      "/vercel/sandbox",
+      "-type", "f",
+      "-not", "-path", "*/node_modules/*",
+      "-not", "-path", "*/.git/*",
+    ]);
+    const paths = (await findResult.stdout()).trim().split("\n").filter(Boolean);
+
+    for (const p of paths) {
+      const buf = await existing.readFileToBuffer({ path: p });
+      if (buf) fileBackup.push({ path: p, content: buf });
+    }
+
+    await existing.delete();
+  } catch {
+    // Old sandbox may already be gone — proceed to create
+  }
+
+  const fresh = await Sandbox.create({
+    name,
+    runtime: DEFAULT_RUNTIME,
+    timeout: DEFAULT_TIMEOUT_MS,
+    ports: [5173, 3000, 4321, 8080],
+    env: {
+      BOTFLOW_PROJECT_ID: projectId,
+      BOTFLOW_RUNTIME: "persistent",
+    },
+  });
+
+  // Restore files
+  if (fileBackup.length > 0) {
+    await fresh.mkDir("/vercel/sandbox");
+    for (const file of fileBackup) {
+      const dir = file.path.substring(0, file.path.lastIndexOf("/"));
+      if (dir) await fresh.mkDir(dir).catch(() => {});
+      await fresh.writeFiles([{ path: file.path, content: file.content }]);
+    }
+  }
+
+  return fresh;
 }
 
 // Seed a fresh sandbox with a Vite + React starter if /vercel/sandbox is empty

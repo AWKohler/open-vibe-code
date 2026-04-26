@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { PricingTable } from '@clerk/nextjs';
 import {
@@ -515,13 +516,13 @@ export default function PricingPage() {
               No credit card. No setup. Describe an app and watch it run.
             </p>
             <div className="mt-9 flex items-center justify-center">
-              <a
+              <Link
                 href="/sign-up"
                 className="group inline-flex items-center gap-2 rounded-xl bg-[var(--sand-text)] text-[var(--sand-bg)] px-6 py-3 text-base font-medium shadow-md hover:opacity-90 transition"
               >
                 <Layers className="h-4 w-4" />
                 Create your first project
-              </a>
+              </Link>
             </div>
           </Reveal>
         </div>

@@ -28,31 +28,28 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
   const name = getPersistentSandboxName(projectId);
 
   try {
-    return await Sandbox.get({
-      name,
-      resume: true,
-    });
+    // beta SDK: Sandbox.get takes { name }; auto-resumes on next command if stopped
+    return await Sandbox.get({ name });
   } catch (error) {
-    if (!(error instanceof APIError) || error.response.status !== 404) {
+    // 404 = doesn't exist yet; 400 can also indicate not found in some SDK versions
+    if (
+      !(error instanceof APIError) ||
+      (error.response.status !== 404 && error.response.status !== 400)
+    ) {
       throw error;
     }
   }
 
-  // New sandbox — expose port 5173 (Vite default) for preview
+  // New sandbox — expose common dev ports for preview
   return Sandbox.create({
     name,
     runtime: DEFAULT_RUNTIME,
     timeout: DEFAULT_TIMEOUT_MS,
     snapshotExpiration: DEFAULT_SNAPSHOT_EXPIRATION_MS,
-    persistent: true,
     ports: [5173, 3000, 4321, 8080],
     env: {
       BOTFLOW_PROJECT_ID: projectId,
       BOTFLOW_RUNTIME: "persistent",
-    },
-    tags: {
-      app: "botflow",
-      type: "persistent",
     },
   });
 }

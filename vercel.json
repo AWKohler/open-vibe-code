@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/blog-writer",
+      "schedule": "0 */12 * * *"
+    }
+  ]
+}

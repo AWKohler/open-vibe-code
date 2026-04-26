@@ -13,7 +13,7 @@ dotenv.config({ path: '.env.local' });
 import { neon } from '@neondatabase/serverless';
 import { createClerkClient } from '@clerk/backend';
 
-const SENSITIVE_FIELDS = [
+const SENSITIVE_FIELDS = [ // eslint-disable-line @typescript-eslint/no-unused-vars
   'openai_api_key',
   'anthropic_api_key',
   'moonshot_api_key',

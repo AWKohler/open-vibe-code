@@ -76,7 +76,7 @@ export async function recreateSandboxWithPorts(projectId: string) {
   const name = getPersistentSandboxName(projectId);
 
   // Get the existing sandbox and read all files
-  let fileBackup: Array<{ path: string; content: Buffer }> = [];
+  const fileBackup: Array<{ path: string; content: Buffer }> = [];
   try {
     const existing = await Sandbox.get({ name });
     const findResult = await existing.runCommand("find", [

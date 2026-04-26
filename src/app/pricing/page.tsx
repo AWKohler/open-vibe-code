@@ -1,79 +1,533 @@
 'use client';
 
-import Link from 'next/link';
+import { useState } from 'react';
 import { PricingTable } from '@clerk/nextjs';
-import { SignedIn, SignedOut, SignInButton, UserButton } from '@clerk/nextjs';
+import {
+  Bot,
+  Check,
+  Database,
+  Globe,
+  Layers,
+  Plus,
+  Sparkles,
+  Minus,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import {
+  EditorialGrid,
+  LandingFooter,
+  LandingNav,
+  LineDivider,
+  Reveal,
+  SectionLabel,
+  serif,
+} from '@/components/landing/shared';
+
+// ============================================================================
+// Plan highlight pills shown above the pricing table
+// ============================================================================
+
+const planHighlights = [
+  {
+    icon: Sparkles,
+    title: 'Bring your own keys',
+    description:
+      'Use OpenAI, Anthropic, Fireworks, or your existing Claude / Codex OAuth — no markup, ever.',
+  },
+  {
+    icon: Database,
+    title: 'Real backend included',
+    description:
+      'Convex is wired into every project from the first prompt. No setup, no extra bill.',
+  },
+  {
+    icon: Globe,
+    title: 'Deploys, not demos',
+    description:
+      'Ship to Cloudflare\'s global edge with one click. Custom domains and GitHub sync are built in.',
+  },
+];
+
+// ============================================================================
+// Cross-plan feature comparison
+// ============================================================================
+
+type PlanKey = 'free' | 'pro' | 'max';
+type CellValue = boolean | string;
+
+const comparisonGroups: {
+  label: string;
+  rows: { feature: string; values: Record<PlanKey, CellValue> }[];
+}[] = [
+  {
+    label: 'Building',
+    rows: [
+      {
+        feature: 'Active projects',
+        values: { free: '3', pro: '20', max: 'Unlimited' },
+      },
+      {
+        feature: 'AI agent (Claude, GPT-5, Fireworks)',
+        values: { free: true, pro: true, max: true },
+      },
+      {
+        feature: 'Bring your own model keys',
+        values: { free: true, pro: true, max: true },
+      },
+      {
+        feature: 'Platform-managed model credits',
+        values: { free: false, pro: 'Monthly allotment', max: 'Generous monthly allotment' },
+      },
+    ],
+  },
+  {
+    label: 'Backend',
+    rows: [
+      {
+        feature: 'Convex backend per project',
+        values: { free: 'Bring your own', pro: 'Platform-managed', max: 'Platform-managed' },
+      },
+      {
+        feature: 'Real-time database & functions',
+        values: { free: true, pro: true, max: true },
+      },
+      {
+        feature: 'Scheduled jobs & cron',
+        values: { free: true, pro: true, max: true },
+      },
+    ],
+  },
+  {
+    label: 'Shipping',
+    rows: [
+      {
+        feature: 'One-click deploy to Cloudflare',
+        values: { free: true, pro: true, max: true },
+      },
+      {
+        feature: 'GitHub sync & PRs',
+        values: { free: true, pro: true, max: true },
+      },
+      {
+        feature: 'Custom domains',
+        values: { free: false, pro: true, max: true },
+      },
+      {
+        feature: 'Priority support',
+        values: { free: false, pro: false, max: true },
+      },
+    ],
+  },
+];
+
+// ============================================================================
+// FAQ
+// ============================================================================
+
+const faqs = [
+  {
+    q: 'Can I start without a credit card?',
+    a: 'Yes. The Free plan lets you build, run, and ship real projects without entering any payment info. You can always upgrade later from inside the workspace.',
+  },
+  {
+    q: 'Do I have to use Botflow\'s AI credits?',
+    a: 'No. Every plan supports bringing your own keys for OpenAI, Anthropic, and Fireworks — or signing in with Claude / Codex OAuth. Use the platform credits when convenient and your own keys when you want zero markup.',
+  },
+  {
+    q: 'What happens to my projects if I downgrade?',
+    a: 'Your projects stay live. If you exceed the lower plan\'s active-project limit, the oldest projects move to read-only until you archive a few or upgrade again — nothing is deleted.',
+  },
+  {
+    q: 'Is Convex really included?',
+    a: 'Yes. On Pro and Max, every project gets a platform-managed Convex backend with real-time sync, typed functions, and the full Convex dashboard inside the IDE. On Free, you connect your own Convex account and we wire it up automatically.',
+  },
+  {
+    q: 'Can I cancel anytime?',
+    a: 'Yes. Cancel from the subscription tab in Settings — your plan stays active until the end of the current billing period, and you keep everything you\'ve built.',
+  },
+];
+
+// ============================================================================
+// Clerk PricingTable — heavily restyled to match landing aesthetic
+// ============================================================================
+
+const pricingTableAppearance = {
+  variables: {
+    colorPrimary: 'var(--sand-text)',
+    colorBackground: 'var(--sand-bg)',
+    colorText: 'var(--sand-text)',
+    colorTextSecondary: 'var(--sand-text-muted)',
+    colorNeutral: 'var(--sand-text)',
+    colorInputBackground: 'var(--sand-elevated)',
+    colorInputText: 'var(--sand-text)',
+    fontFamily: 'var(--font-geist-sans)',
+    borderRadius: '1rem',
+  },
+  elements: {
+    pricingTable:
+      '!gap-6 [&>div]:!gap-6',
+    pricingTableCard:
+      '!bg-[var(--sand-surface)] !border !border-[var(--sand-border)] !rounded-2xl !shadow-none !overflow-hidden hover:!border-[var(--sand-text-muted)]/40 transition-all duration-300',
+    pricingTableCardHeader:
+      '!p-7 !pb-5 !border-b !border-[var(--sand-border)]/60',
+    pricingTableCardTitle: cn(
+      serif.className,
+      '!text-3xl !font-normal !tracking-tight !text-[var(--sand-text)] !leading-none',
+    ),
+    pricingTableCardDescription:
+      '!mt-2 !text-sm !text-[var(--sand-text-muted)] !leading-relaxed',
+    pricingTableCardFeeContainer: '!mt-5 !flex !items-baseline !gap-1.5',
+    pricingTableCardFee: cn(
+      serif.className,
+      '!text-5xl !font-normal !tracking-tight !text-[var(--sand-text)] !leading-none',
+    ),
+    pricingTableCardFeePeriod:
+      '!text-sm !text-[var(--sand-text-muted)] !font-medium',
+    pricingTableCardFeePeriodNotice:
+      '!text-xs !text-[var(--sand-text-muted)]',
+    pricingTableCardBody: '!p-7 !pt-6',
+    pricingTableCardFeatures: '!gap-0',
+    pricingTableCardFeaturesList: '!space-y-3 !p-0',
+    pricingTableCardFeaturesListItem: '!gap-3 !items-start !p-0',
+    pricingTableCardFeaturesListItemTitle:
+      '!text-sm !text-[var(--sand-text)] !leading-relaxed',
+    pricingTableCardFeaturesListItemDescription:
+      '!text-xs !text-[var(--sand-text-muted)]',
+    pricingTableCardFooter: '!p-7 !pt-2 !border-0',
+    pricingTableCardFooterButton: cn(
+      '!w-full !justify-center !rounded-xl !px-5 !py-3 !text-sm !font-medium',
+      '!bg-[var(--sand-text)] !text-[var(--sand-bg)] !shadow-sm',
+      'hover:!opacity-90 transition-opacity',
+    ),
+    pricingTableCardFooterNotice:
+      '!text-xs !text-[var(--sand-text-muted)] !text-center !mt-3',
+    badge:
+      '!bg-[var(--sand-accent)] !text-[var(--sand-accent-contrast)] !rounded-full !px-2.5 !py-0.5 !text-[11px] !font-medium !tracking-wide !uppercase',
+  },
+} as const;
+
+// ============================================================================
+// FAQ accordion item
+// ============================================================================
+
+function FaqItem({ q, a, index }: { q: string; a: string; index: number }) {
+  const [open, setOpen] = useState(index === 0);
+  return (
+    <Reveal delay={index * 60}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'group w-full text-left transition-colors',
+          'border-b border-[var(--sand-border)] last:border-b-0',
+          'py-6 hover:bg-[var(--sand-surface)]/50',
+        )}
+      >
+        <div className="flex items-start justify-between gap-6 px-1">
+          <span className="text-base sm:text-lg font-medium text-[var(--sand-text)] leading-snug">
+            {q}
+          </span>
+          <span
+            aria-hidden
+            className="mt-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] text-[var(--sand-text-muted)] transition-transform duration-300"
+            style={{ transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
+          >
+            {open ? <Minus className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+          </span>
+        </div>
+        <div
+          className="grid overflow-hidden transition-[grid-template-rows] duration-300 ease-out px-1"
+          style={{ gridTemplateRows: open ? '1fr' : '0fr' }}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <p className="mt-3 max-w-3xl text-sm sm:text-base text-[var(--sand-text-muted)] leading-relaxed">
+              {a}
+            </p>
+          </div>
+        </div>
+      </button>
+    </Reveal>
+  );
+}
+
+// ============================================================================
+// Comparison cell renderer
+// ============================================================================
+
+function ComparisonCell({ value }: { value: CellValue }) {
+  if (value === true) {
+    return (
+      <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[var(--sand-accent)]/10 text-[var(--sand-accent)]">
+        <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </span>
+    );
+  }
+  if (value === false) {
+    return <span className="text-[var(--sand-text-muted)]/40">—</span>;
+  }
+  return (
+    <span className="text-sm text-[var(--sand-text)] font-medium">{value}</span>
+  );
+}
+
+// ============================================================================
+// Main page
+// ============================================================================
 
 export default function PricingPage() {
   return (
-    <div className="antialiased text-fg bg-bg min-h-screen">
-      {/* Ambient background */}
-      <div className="pointer-events-none fixed inset-0 -z-10">
-        <div
-          className="absolute -top-1/3 -left-1/4 h-[80vh] w-[80vw] rounded-full blur-3xl opacity-50"
-          style={{
-            background:
-              'radial-gradient(circle, color-mix(in oklab, var(--sand-accent) 26%, transparent) 0%, transparent 68%)',
-          }}
-        />
-        <div
-          className="absolute top-1/3 left-1/2 h-[90vh] w-[80vw] -translate-x-1/2 rounded-full blur-3xl opacity-40"
-          style={{
-            background:
-              'radial-gradient(circle, color-mix(in oklab, var(--sand-text-muted) 20%, transparent) 0%, transparent 72%)',
-          }}
-        />
-      </div>
+    <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen overflow-x-hidden">
+      <EditorialGrid />
+      <LandingNav />
 
-      {/* Header */}
-      <header>
-        <div className="mx-auto max-w-7xl px-6 py-5">
-          <div className="flex items-center justify-between">
-            <Link className="flex items-center gap-3" href="/">
-              <img src="/brand/botflow-glyph.svg" alt="" className="h-8 w-8" />
-              <img
-                src="/brand/botflow-wordmark.svg"
-                alt="Botflow"
-                className="h-5 w-auto botflow-wordmark-invert"
-              />
-            </Link>
+      {/* ================================================================ */}
+      {/* HERO                                                             */}
+      {/* ================================================================ */}
+      <section className="relative overflow-hidden hero-grid">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-16 sm:pt-24 pb-12 sm:pb-16">
+          <div className="max-w-3xl mx-auto text-center">
+            <Reveal>
+              <SectionLabel>Pricing</SectionLabel>
+            </Reveal>
 
-            <div className="flex items-center gap-3">
-              <Link
-                href="/projects"
-                className="text-sm text-muted hover:text-fg transition"
+            <Reveal delay={80}>
+              <h1
+                className={cn(
+                  serif.className,
+                  'text-5xl sm:text-6xl md:text-7xl lg:text-8xl tracking-tight leading-[1.05]',
+                )}
               >
-                My Projects
-              </Link>
-              <SignedOut>
-                <SignInButton>
-                  <button className="inline-flex items-center rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-soft transition">
-                    Log in
-                  </button>
-                </SignInButton>
-              </SignedOut>
-              <SignedIn>
-                <UserButton afterSignOutUrl="/" />
-              </SignedIn>
-            </div>
+                Build for free.{' '}
+                <em
+                  className={serif.className}
+                  style={{ color: 'var(--sand-accent)' }}
+                >
+                  Pay when it&apos;s real.
+                </em>
+              </h1>
+            </Reveal>
+
+            <Reveal delay={180}>
+              <p className="mt-6 text-lg sm:text-xl text-[var(--sand-text-muted)] max-w-2xl mx-auto leading-relaxed">
+                Start with a generous free tier. Upgrade when you need more
+                projects, more credits, or your apps go to production. Cancel
+                anytime — no surprises.
+              </p>
+            </Reveal>
           </div>
         </div>
-      </header>
+      </section>
 
-      {/* Main content */}
-      <main className="mx-auto max-w-7xl px-6 py-16">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-semibold tracking-tight mb-3">Simple, transparent pricing</h1>
-          <p className="text-muted text-lg max-w-xl mx-auto">
-            Start for free — no credit card required. Upgrade when you need more.
-          </p>
+      {/* ================================================================ */}
+      {/* PLAN HIGHLIGHTS                                                  */}
+      {/* ================================================================ */}
+      <section className="relative">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 pb-2 sm:pb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-[var(--sand-border)] rounded-2xl overflow-hidden bg-[var(--sand-surface)]/50">
+            {planHighlights.map((h, i) => (
+              <Reveal key={h.title} delay={i * 80}>
+                <div
+                  className={cn(
+                    'relative p-6 sm:p-7 h-full',
+                    i < planHighlights.length - 1 &&
+                      'md:border-r md:border-[var(--sand-border)]',
+                    i < planHighlights.length - 1 &&
+                      'max-md:border-b max-md:border-[var(--sand-border)]',
+                  )}
+                >
+                  <h.icon
+                    aria-hidden
+                    className="mb-4 h-6 w-6 text-[var(--sand-accent)]"
+                    strokeWidth={1.5}
+                  />
+                  <h3 className="text-base font-semibold mb-1.5">{h.title}</h3>
+                  <p className="text-sm text-[var(--sand-text-muted)] leading-relaxed">
+                    {h.description}
+                  </p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
+      </section>
 
-        <PricingTable
-          newSubscriptionRedirectUrl="/projects"
-          ctaPosition="bottom"
-        />
-      </main>
+      {/* ================================================================ */}
+      {/* PRICING TABLE                                                    */}
+      {/* ================================================================ */}
+      <section className="relative">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 pt-12 sm:pt-16 pb-20 sm:pb-28">
+          <Reveal>
+            <div className="pricing-clerk-wrapper">
+              <PricingTable
+                newSubscriptionRedirectUrl="/projects"
+                ctaPosition="bottom"
+                appearance={pricingTableAppearance}
+              />
+            </div>
+          </Reveal>
+
+          <Reveal delay={120}>
+            <p className="mt-8 text-center text-xs text-[var(--sand-text-muted)]">
+              All plans include unlimited collaborators, encrypted secrets, and
+              the full IDE. Prices in USD.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* COMPARISON                                                       */}
+      {/* ================================================================ */}
+      <LineDivider />
+      <section className="relative bg-[var(--sand-surface)]">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-20 sm:py-28">
+          <Reveal>
+            <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+              <SectionLabel>Compare</SectionLabel>
+              <h2
+                className={cn(
+                  serif.className,
+                  'text-4xl sm:text-5xl md:text-6xl tracking-tight',
+                )}
+              >
+                What&apos;s in{' '}
+                <em className={serif.className}>each plan</em>
+              </h2>
+            </div>
+          </Reveal>
+
+          <Reveal delay={120}>
+            <div className="rounded-2xl border border-[var(--sand-border)] bg-[var(--sand-bg)] overflow-hidden">
+              {/* Table header */}
+              <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr] sm:grid-cols-[2fr_1fr_1fr_1fr] border-b border-[var(--sand-border)]">
+                <div className="px-5 sm:px-7 py-5 text-xs font-medium uppercase tracking-[0.18em] text-[var(--sand-text-muted)]">
+                  Feature
+                </div>
+                {(['free', 'pro', 'max'] as PlanKey[]).map((p) => (
+                  <div
+                    key={p}
+                    className="px-3 sm:px-5 py-5 text-center text-xs font-medium uppercase tracking-[0.18em] text-[var(--sand-text-muted)]"
+                  >
+                    {p}
+                  </div>
+                ))}
+              </div>
+
+              {/* Groups */}
+              {comparisonGroups.map((group, gi) => (
+                <div key={group.label}>
+                  <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr] sm:grid-cols-[2fr_1fr_1fr_1fr] border-b border-[var(--sand-border)] bg-[var(--sand-elevated)]/40">
+                    <div
+                      className={cn(
+                        serif.className,
+                        'col-span-4 px-5 sm:px-7 py-3 text-base italic text-[var(--sand-text-muted)]',
+                      )}
+                    >
+                      {group.label}
+                    </div>
+                  </div>
+                  {group.rows.map((row, ri) => (
+                    <div
+                      key={row.feature}
+                      className={cn(
+                        'grid grid-cols-[1.5fr_1fr_1fr_1fr] sm:grid-cols-[2fr_1fr_1fr_1fr] items-center',
+                        (gi !== comparisonGroups.length - 1 ||
+                          ri !== group.rows.length - 1) &&
+                          'border-b border-[var(--sand-border)]',
+                      )}
+                    >
+                      <div className="px-5 sm:px-7 py-4 text-sm text-[var(--sand-text)]">
+                        {row.feature}
+                      </div>
+                      {(['free', 'pro', 'max'] as PlanKey[]).map((p) => (
+                        <div
+                          key={p}
+                          className="px-3 sm:px-5 py-4 text-center"
+                        >
+                          <ComparisonCell value={row.values[p]} />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* FAQ                                                              */}
+      {/* ================================================================ */}
+      <LineDivider />
+      <section className="relative">
+        <div className="mx-auto max-w-4xl px-4 sm:px-6 py-20 sm:py-28">
+          <Reveal>
+            <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
+              <SectionLabel>FAQ</SectionLabel>
+              <h2
+                className={cn(
+                  serif.className,
+                  'text-4xl sm:text-5xl md:text-6xl tracking-tight',
+                )}
+              >
+                Questions,{' '}
+                <em className={serif.className}>answered</em>
+              </h2>
+            </div>
+          </Reveal>
+
+          <div className="border-t border-[var(--sand-border)]">
+            {faqs.map((f, i) => (
+              <FaqItem key={f.q} q={f.q} a={f.a} index={i} />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ================================================================ */}
+      {/* CTA                                                              */}
+      {/* ================================================================ */}
+      <LineDivider />
+      <section className="relative">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 py-24 sm:py-32 text-center">
+          <Reveal>
+            <Bot
+              aria-hidden
+              className="mx-auto mb-6 h-10 w-10 text-[var(--sand-accent)]"
+              strokeWidth={1.5}
+            />
+            <h2
+              className={cn(
+                serif.className,
+                'text-4xl sm:text-5xl md:text-6xl tracking-tight max-w-2xl mx-auto',
+              )}
+            >
+              Start building.{' '}
+              <em
+                className={serif.className}
+                style={{ color: 'var(--sand-accent)' }}
+              >
+                Upgrade later.
+              </em>
+            </h2>
+            <p className="mt-5 text-lg text-[var(--sand-text-muted)] max-w-xl mx-auto leading-relaxed">
+              No credit card. No setup. Describe an app and watch it run.
+            </p>
+            <div className="mt-9 flex items-center justify-center">
+              <a
+                href="/sign-up"
+                className="group inline-flex items-center gap-2 rounded-xl bg-[var(--sand-text)] text-[var(--sand-bg)] px-6 py-3 text-base font-medium shadow-md hover:opacity-90 transition"
+              >
+                <Layers className="h-4 w-4" />
+                Create your first project
+              </a>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      <LandingFooter />
     </div>
   );
 }

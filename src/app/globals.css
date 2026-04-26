@@ -121,6 +121,27 @@ body {
     background-color: var(--sand-accent) !important;
 }
 
+/* Pricing page: ensure Clerk's PricingTable lays out plans on a single row.
+   Clerk's outer grid uses CSS grid; on the dedicated /pricing surface we
+   widen the gap and force a 3-column layout on large screens. */
+.pricing-clerk-wrapper [class*="cl-pricingTable"] {
+    --plan-min-width: 18rem;
+}
+.pricing-clerk-wrapper > div > div {
+    gap: 1.5rem !important;
+}
+@media (min-width: 900px) {
+    .pricing-clerk-wrapper [data-variant="default"][class*="cl-pricingTable"] {
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    }
+}
+
+/* Tame Clerk's billing-period switch row so it matches the page typography */
+.pricing-clerk-wrapper [class*="cl-pricingTable"] [role="radiogroup"],
+.pricing-clerk-wrapper [class*="cl-pricingTable"] [class*="cl-pricingTableHeader"] {
+    margin-bottom: 1.5rem !important;
+}
+
 /* Custom scrollbar styles */
 .modern-scrollbar {
     scrollbar-width: thin;

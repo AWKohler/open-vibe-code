@@ -16,7 +16,7 @@ const POST_FIELDS_BASE = /* groq */ `
   // Fall back to titleImage for legacy posts authored under the old schema
   "legacyImage": titleImage{
     ...,
-    asset->{ _ref, _type, metadata{ lqip, dimensions } }
+    asset->{ _id, _type, url, metadata{ lqip, dimensions } }
   },
   // smallDescription was the legacy field name for excerpt
   "legacyExcerpt": smallDescription,

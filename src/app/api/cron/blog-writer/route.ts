@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { revalidatePath, revalidateTag } from 'next/cache';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { generateObject, type ModelMessage } from 'ai';
+import { generateObject, generateText, tool, type ModelMessage } from 'ai';
 import { createFireworks } from '@ai-sdk/fireworks';
 import { createOpenAI } from '@ai-sdk/openai';
 import OpenAI from 'openai';
@@ -161,14 +161,25 @@ async function runWriter(args: {
 
   const userPrompt = buildWriterUserPrompt(args.feedSummary) + recentBit;
 
-  const { object } = await generateObject({
+  const result = await generateText({
     model: fireworks('accounts/fireworks/models/kimi-k2p6'),
     system: WRITER_SYSTEM_PROMPT,
     prompt: userPrompt,
-    schema: writerSchema,
-    mode: 'tool',
+    tools: {
+      submitArticle: tool({
+        description: 'Submit the chosen story as a fully written blog post.',
+        inputSchema: writerSchema,
+      }),
+    },
+    toolChoice: { type: 'tool', toolName: 'submitArticle' },
     maxRetries: 2,
   });
+
+  const call = result.toolCalls.find((c) => c.toolName === 'submitArticle');
+  if (!call) {
+    throw new Error('Writer model did not call submitArticle');
+  }
+  const object = call.input as WriterResult;
 
   if (!SLUG_RE.test(object.slug)) {
     throw new Error(`Writer returned invalid slug: "${object.slug}"`);

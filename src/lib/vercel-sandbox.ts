@@ -4,6 +4,24 @@ const DEFAULT_RUNTIME = "node22";
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const DEFAULT_SNAPSHOT_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000;
 
+type AccessTokenParams = {
+  token: string;
+  teamId: string;
+  projectId: string;
+};
+
+/**
+ * Returns explicit auth params when VERCEL_TOKEN/TEAM/PROJECT are set.
+ * When undefined, the SDK falls back to VERCEL_OIDC_TOKEN (auto-injected on Vercel).
+ */
+function getAccessTokenParams(): AccessTokenParams | undefined {
+  const token = process.env.VERCEL_TOKEN;
+  const teamId = process.env.VERCEL_TEAM_ID;
+  const projectId = process.env.VERCEL_PROJECT_ID;
+  if (token && teamId && projectId) return { token, teamId, projectId };
+  return undefined;
+}
+
 function assertSandboxAuth(): void {
   const hasOidcToken = Boolean(process.env.VERCEL_OIDC_TOKEN);
   const hasAccessTokenAuth =
@@ -11,32 +29,48 @@ function assertSandboxAuth(): void {
     Boolean(process.env.VERCEL_PROJECT_ID) &&
     Boolean(process.env.VERCEL_TEAM_ID);
 
+  // In a deployed Vercel function the OIDC token is injected via request header —
+  // we can't check for it here at startup, so only throw when we have no static creds.
   if (!hasOidcToken && !hasAccessTokenAuth) {
-    throw new Error(
-      "Missing Vercel Sandbox credentials. Run `vercel link` and `vercel env pull`, or set VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID.",
+    console.warn(
+      "No static Vercel credentials found. Will rely on runtime OIDC injection. " +
+      "If this fails, set VERCEL_TOKEN + VERCEL_TEAM_ID + VERCEL_PROJECT_ID.",
     );
   }
 }
 
 export function getPersistentSandboxName(projectId: string): string {
-  return `botflow-project-${projectId}`;
+  // Keep names short: prefix (8 chars) + first 8 chars of project ID
+  return `bfp-${projectId.replace(/-/g, "").slice(0, 20)}`;
 }
+
+const SANDBOX_CREATE_PARAMS = (projectId: string) => ({
+  runtime: DEFAULT_RUNTIME,
+  timeout: DEFAULT_TIMEOUT_MS,
+  snapshotExpiration: DEFAULT_SNAPSHOT_EXPIRATION_MS,
+  ports: [5173, 3000, 4321, 8080],
+  env: {
+    BOTFLOW_PROJECT_ID: projectId,
+    BOTFLOW_RUNTIME: "persistent",
+  },
+  ...getAccessTokenParams(),
+});
 
 export async function getOrCreatePersistentSandbox(projectId: string) {
   assertSandboxAuth();
 
   const name = getPersistentSandboxName(projectId);
+  const auth = getAccessTokenParams();
 
   try {
-    // beta SDK: Sandbox.get takes { name }; auto-resumes on next command if stopped
-    return await Sandbox.get({ name });
+    return await Sandbox.get({ name, ...(auth ?? {}) });
   } catch (error) {
     if (error instanceof APIError) {
-      // Log the full response body to help debug
       try {
         const body = await error.response.text();
-        console.error(`Sandbox.get 400/404 body: ${body}`);
+        console.error(`Sandbox.get failed (${error.response.status}): ${body}`);
       } catch { /* ignore */ }
+      // 404 = not found, 400 = name-based lookup not supported on this instance
       if (error.response.status !== 404 && error.response.status !== 400) {
         throw error;
       }
@@ -48,20 +82,15 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
   try {
     return await Sandbox.create({
       name,
-      runtime: DEFAULT_RUNTIME,
-      timeout: DEFAULT_TIMEOUT_MS,
-      ports: [5173, 3000, 4321, 8080],
-      env: {
-        BOTFLOW_PROJECT_ID: projectId,
-        BOTFLOW_RUNTIME: "persistent",
-      },
+      ...SANDBOX_CREATE_PARAMS(projectId),
     });
   } catch (error) {
     if (error instanceof APIError) {
       try {
         const body = await error.response.text();
-        console.error(`Sandbox.create error body: ${body}`);
-        throw new Error(`Sandbox.create failed (${error.response.status}): ${body}`);
+        const msg = `Sandbox.create failed (${error.response.status}): ${body}`;
+        console.error(msg);
+        throw new Error(msg);
       } catch (inner) {
         if (inner instanceof Error && inner.message.startsWith("Sandbox.create failed")) throw inner;
       }
@@ -74,11 +103,12 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
 export async function recreateSandboxWithPorts(projectId: string) {
   assertSandboxAuth();
   const name = getPersistentSandboxName(projectId);
+  const auth = getAccessTokenParams();
 
-  // Get the existing sandbox and read all files
+  // Back up all user files from the existing sandbox
   const fileBackup: Array<{ path: string; content: Buffer }> = [];
   try {
-    const existing = await Sandbox.get({ name });
+    const existing = await Sandbox.get({ name, ...(auth ?? {}) });
     const findResult = await existing.runCommand("find", [
       "/vercel/sandbox",
       "-type", "f",
@@ -86,12 +116,10 @@ export async function recreateSandboxWithPorts(projectId: string) {
       "-not", "-path", "*/.git/*",
     ]);
     const paths = (await findResult.stdout()).trim().split("\n").filter(Boolean);
-
     for (const p of paths) {
       const buf = await existing.readFileToBuffer({ path: p });
       if (buf) fileBackup.push({ path: p, content: buf });
     }
-
     await existing.delete();
   } catch {
     // Old sandbox may already be gone — proceed to create
@@ -99,13 +127,7 @@ export async function recreateSandboxWithPorts(projectId: string) {
 
   const fresh = await Sandbox.create({
     name,
-    runtime: DEFAULT_RUNTIME,
-    timeout: DEFAULT_TIMEOUT_MS,
-    ports: [5173, 3000, 4321, 8080],
-    env: {
-      BOTFLOW_PROJECT_ID: projectId,
-      BOTFLOW_RUNTIME: "persistent",
-    },
+    ...SANDBOX_CREATE_PARAMS(projectId),
   });
 
   // Restore files
@@ -130,9 +152,8 @@ export async function seedSandboxIfEmpty(projectId: string): Promise<boolean> {
     "ls /vercel/sandbox/package.json 2>/dev/null && echo EXISTS || echo EMPTY",
   ]);
   const out = (await check.stdout()).trim();
-  if (out.includes("EXISTS")) return false; // already seeded
+  if (out.includes("EXISTS")) return false;
 
-  // Clone a minimal Vite + React template
   await sandbox.runCommand("sh", ["-c",
     "cd /vercel && npm create vite@latest sandbox -- --template react-ts && cd sandbox && pnpm install",
   ]);

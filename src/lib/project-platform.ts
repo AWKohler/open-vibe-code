@@ -22,6 +22,15 @@ export function getEnabledProjectPlatforms(): ProjectPlatform[] {
   return platforms;
 }
 
+export function isProjectPlatform(value: string): value is ProjectPlatform {
+  return (
+    value === "web" ||
+    value === "persistent" ||
+    value === "mobile" ||
+    value === "multiplatform"
+  );
+}
+
 export function normalizeProjectPlatform(
   platform: string | null | undefined,
 ): ProjectPlatform {
@@ -29,10 +38,7 @@ export function normalizeProjectPlatform(
     return "persistent";
   }
 
-  if (
-    (platform === "mobile" || platform === "multiplatform") &&
-    isMobilePlatformsEnabled()
-  ) {
+  if ((platform === "mobile" || platform === "multiplatform") && isMobilePlatformsEnabled()) {
     return platform;
   }
 
@@ -52,7 +58,7 @@ export function getNextProjectPlatform(
   return platforms[(currentIndex + 1) % platforms.length] ?? "web";
 }
 
-export function getProjectPlatformLabel(platform: ProjectPlatform): string {
+export function getProjectPlatformLabel(platform: string): string {
   switch (platform) {
     case "persistent":
       return "Persistent";
@@ -66,7 +72,7 @@ export function getProjectPlatformLabel(platform: ProjectPlatform): string {
   }
 }
 
-export function getProjectPlatformShortLabel(platform: ProjectPlatform): string {
+export function getProjectPlatformShortLabel(platform: string): string {
   switch (platform) {
     case "persistent":
       return "Persist";
@@ -80,6 +86,6 @@ export function getProjectPlatformShortLabel(platform: ProjectPlatform): string 
   }
 }
 
-export function isWebLikePlatform(platform: ProjectPlatform): boolean {
+export function isWebLikePlatform(platform: string): boolean {
   return platform === "web" || platform === "persistent";
 }

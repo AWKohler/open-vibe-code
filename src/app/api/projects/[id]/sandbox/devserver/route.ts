@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-// POST: start the dev server and return the preview URL
-// body: { port?: number, installFirst?: boolean }
+// POST: start the dev server
+// Returns previewUrl if the sandbox has port forwarding, otherwise a no_port_route error.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -33,12 +33,12 @@ export async function POST(
   try {
     const sandbox = await getOrCreatePersistentSandbox(project.id);
 
-    // Check if port is registered before doing expensive install/start
+    // Check if port forwarding is available before doing expensive work
     try {
       sandbox.domain(port);
     } catch {
       return NextResponse.json(
-        { error: "no_port_route", message: "Sandbox was created without port forwarding. Use the Fix Sandbox button to recreate it." },
+        { error: "no_port_route", message: "Live preview requires port forwarding, which must be enabled when the sandbox is created. This sandbox was created without it." },
         { status: 409 },
       );
     }
@@ -55,7 +55,6 @@ export async function POST(
       }
     }
 
-    // Start the dev server detached — it runs in the background
     await sandbox.runCommand({
       cmd: "pnpm",
       args: ["dev", "--host"],
@@ -63,7 +62,6 @@ export async function POST(
       detached: true,
     });
 
-    // Give it a moment to bind
     await new Promise((r) => setTimeout(r, 3000));
 
     const previewUrl = sandbox.domain(port);

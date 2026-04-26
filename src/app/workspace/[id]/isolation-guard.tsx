@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Monitor } from 'lucide-react';
 import { Workspace } from '@/components/workspace';
+import { PersistentWorkspace } from '@/components/persistent-workspace';
 import { checkDeviceSupport } from '@/lib/device';
 import type { ProjectPlatform } from '@/lib/project-platform';
 
@@ -74,6 +75,11 @@ export function IsolationGuard({ projectId, initialPrompt, platform }: Props) {
         </div>
       </div>
     );
+  }
+
+  // Persistent projects don't need WebContainer / cross-origin isolation
+  if (platform === 'persistent') {
+    return <PersistentWorkspace projectId={projectId} initialPrompt={initialPrompt} />;
   }
 
   if (!ready) return null;

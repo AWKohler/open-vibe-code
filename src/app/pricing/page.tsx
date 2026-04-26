@@ -149,8 +149,11 @@ const faqs = [
 ];
 
 // ============================================================================
-// Clerk PricingTable — colors only. Clerk's internal flex/grid layout is
-// fragile, so we only swap palette tokens and let Clerk own positioning.
+// Clerk PricingTable — typography only. We only restyle text elements
+// (size, font-family, color) and palette tokens. We deliberately avoid
+// touching `display`, `flex`, `grid`, `padding`, and `leading-none` on any
+// container element — those break Clerk's internal layout, which previously
+// caused the description to wrap one character per line.
 // ============================================================================
 
 const pricingTableAppearance = {
@@ -165,12 +168,39 @@ const pricingTableAppearance = {
     borderRadius: '0.875rem',
   },
   elements: {
-    pricingTableCard:
-      '!bg-[var(--sand-surface)] !border !border-[var(--sand-border)] !rounded-2xl !shadow-sm hover:!border-[var(--sand-text-muted)]/40 transition-colors',
-    pricingTableCardFooterButton:
-      '!bg-[var(--sand-text)] !text-[var(--sand-bg)] hover:!opacity-90',
+    // Card shell — safe: bg / border / radius / hover.
+    pricingTableCard: cn(
+      '!bg-[var(--sand-surface)] !border !border-[var(--sand-border)]',
+      '!rounded-2xl !shadow-sm transition-colors',
+      'hover:!border-[var(--sand-text-muted)]/40',
+    ),
+    // Plan name — serif, larger. NO leading-none (it broke alignment last time).
+    pricingTableCardTitle: cn(
+      serif.className,
+      '!text-4xl sm:!text-5xl !font-normal !tracking-tight',
+    ),
+    // Tagline under the plan name — slightly bigger, more breathing room.
+    pricingTableCardDescription:
+      '!text-base !leading-relaxed !text-[var(--sand-text-muted)]',
+    // The price itself — big serif, the focal point of each card.
+    pricingTableCardFee: cn(
+      serif.className,
+      '!text-6xl sm:!text-7xl !font-normal !tracking-tight',
+    ),
+    // " / month" next to the price — readable, not cramped.
+    pricingTableCardFeePeriod:
+      '!text-base !font-normal !text-[var(--sand-text-muted)]',
+    // "Always free" caption under the $0 price.
+    pricingTableCardFeePeriodNotice:
+      '!text-sm !text-[var(--sand-text-muted)]',
+    // CTA — a little more presence than Clerk's default.
+    pricingTableCardFooterButton: cn(
+      '!bg-[var(--sand-text)] !text-[var(--sand-bg)]',
+      '!text-base !font-medium hover:!opacity-90',
+    ),
+    // Active-plan pill.
     badge:
-      '!bg-[var(--sand-accent)] !text-[var(--sand-accent-contrast)]',
+      '!bg-[var(--sand-accent)] !text-[var(--sand-accent-contrast)] !text-xs !font-semibold',
   },
 } as const;
 

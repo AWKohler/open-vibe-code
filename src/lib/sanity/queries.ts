@@ -7,8 +7,9 @@ const POST_FIELDS_BASE = /* groq */ `
     ...,
     "alt": coalesce(alt, ""),
     asset->{
-      _ref,
+      _id,
       _type,
+      url,
       metadata{ lqip, dimensions }
     }
   },
@@ -25,12 +26,12 @@ const POST_FIELDS_BASE = /* groq */ `
     name,
     role,
     twitter,
-    avatar{ asset->{ _ref, _type } }
+    avatar{ asset->{ _id, _type, url } }
   },
   // Inline author fallback for legacy
   "authorInline": author{
     name, role, twitter,
-    avatar{ asset->{ _ref, _type } }
+    avatar{ asset->{ _id, _type, url } }
   },
   categories[]->{
     title,
@@ -61,8 +62,9 @@ export const postBySlugQuery = /* groq */ `
         ...,
         "alt": coalesce(alt, ""),
         asset->{
-          _ref,
+          _id,
           _type,
+          url,
           metadata{ lqip, dimensions }
         }
       },
@@ -78,7 +80,7 @@ export const postBySlugQuery = /* groq */ `
       canonicalUrl,
       ogImage{
         ...,
-        asset->{ _ref, _type, metadata{ dimensions } }
+        asset->{ _id, _type, url, metadata{ dimensions } }
       }
     }
   }

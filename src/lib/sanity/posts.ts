@@ -23,11 +23,22 @@ type RawFullPost = BlogPost &
     legacyBody?: BlogPost['body'] | null;
   };
 
+function hasAsset(img: unknown): img is SanityImage {
+  if (!img || typeof img !== 'object') return false;
+  const asset = (img as { asset?: { _id?: string; _ref?: string } }).asset;
+  return Boolean(asset && (asset._id || asset._ref));
+}
+
 function normalizeListItem(p: RawPost): BlogPostListItem {
+  const mainImage = hasAsset(p.mainImage)
+    ? p.mainImage
+    : hasAsset(p.legacyImage)
+      ? p.legacyImage
+      : undefined;
   return {
     ...p,
     excerpt: p.excerpt ?? p.legacyExcerpt ?? undefined,
-    mainImage: p.mainImage ?? p.legacyImage ?? undefined,
+    mainImage: mainImage ?? undefined,
     author: p.author ?? p.authorInline ?? undefined,
   };
 }

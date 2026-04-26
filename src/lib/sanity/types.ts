@@ -1,10 +1,12 @@
 import type { PortableTextBlock } from '@portabletext/react';
 
 export interface SanityImage {
-  _type: 'image';
+  _type?: 'image';
   asset: {
-    _ref: string;
-    _type: 'reference';
+    _id?: string;
+    _ref?: string;
+    _type?: string;
+    url?: string;
     metadata?: {
       lqip?: string;
       dimensions?: { width: number; height: number; aspectRatio: number };

@@ -166,6 +166,7 @@ async function runWriter(args: {
     system: WRITER_SYSTEM_PROMPT,
     prompt: userPrompt,
     schema: writerSchema,
+    mode: 'tool',
     maxRetries: 2,
   });
 

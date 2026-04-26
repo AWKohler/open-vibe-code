@@ -1,0 +1,76 @@
+import { NextRequest } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import { projects } from "@/db/schema";
+import { getOrCreatePersistentSandbox } from "@/lib/vercel-sandbox";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 300;
+
+// POST: run a command in the sandbox, stream output as SSE
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { userId } = await auth();
+  if (!userId) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+  }
+
+  const { id } = await params;
+  const db = getDb();
+  const [project] = await db.select().from(projects).where(eq(projects.id, id));
+
+  if (!project || project.userId !== userId || project.platform !== "persistent") {
+    return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+  }
+
+  const body = await req.json() as { cmd: string; args?: string[]; cwd?: string };
+  const { cmd, args = [], cwd = "/vercel/sandbox" } = body;
+
+  if (!cmd) {
+    return new Response(JSON.stringify({ error: "cmd required" }), { status: 400 });
+  }
+
+  const encoder = new TextEncoder();
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (event: string, data: string) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+
+      try {
+        const sandbox = await getOrCreatePersistentSandbox(project.id);
+
+        const command = await sandbox.runCommand({
+          cmd,
+          args,
+          cwd,
+          detached: true,
+        });
+
+        for await (const log of command.logs()) {
+          send(log.stream, log.data);
+        }
+
+        const finished = await command.wait();
+        send("exit", String(finished.exitCode));
+      } catch (error) {
+        send("error", error instanceof Error ? error.message : "Command failed");
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    },
+  });
+}

@@ -17,9 +17,6 @@ export default async function WorkspacePage({
   const { id: projectId } = await params;
   const searchParamsResolved = searchParams ? await searchParams : {};
   const initialPrompt = typeof searchParamsResolved.prompt === 'string' ? searchParamsResolved.prompt : undefined;
-  const platform = typeof searchParamsResolved.platform === 'string'
-    ? normalizeProjectPlatform(searchParamsResolved.platform)
-    : undefined;
 
   if (!userId) {
     return redirectToSignIn({ returnBackUrl: `/workspace/${projectId}` });
@@ -30,6 +27,11 @@ export default async function WorkspacePage({
     .select()
     .from(projects)
     .where(and(eq(projects.id, projectId), eq(projects.userId, userId)));
+
+  // Prefer query param, fall back to the project's saved platform
+  const platform = typeof searchParamsResolved.platform === 'string'
+    ? normalizeProjectPlatform(searchParamsResolved.platform)
+    : (proj ? normalizeProjectPlatform(proj.platform) : undefined);
 
   if (!proj) {
     return (

@@ -38,12 +38,14 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
     }
   }
 
+  // New sandbox — expose port 5173 (Vite default) for preview
   return Sandbox.create({
     name,
     runtime: DEFAULT_RUNTIME,
     timeout: DEFAULT_TIMEOUT_MS,
     snapshotExpiration: DEFAULT_SNAPSHOT_EXPIRATION_MS,
     persistent: true,
+    ports: [5173, 3000, 4321, 8080],
     env: {
       BOTFLOW_PROJECT_ID: projectId,
       BOTFLOW_RUNTIME: "persistent",
@@ -53,6 +55,24 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
       type: "persistent",
     },
   });
+}
+
+// Seed a fresh sandbox with a Vite + React starter if /vercel/sandbox is empty
+export async function seedSandboxIfEmpty(projectId: string): Promise<boolean> {
+  const sandbox = await getOrCreatePersistentSandbox(projectId);
+
+  const check = await sandbox.runCommand("sh", [
+    "-c",
+    "ls /vercel/sandbox/package.json 2>/dev/null && echo EXISTS || echo EMPTY",
+  ]);
+  const out = (await check.stdout()).trim();
+  if (out.includes("EXISTS")) return false; // already seeded
+
+  // Clone a minimal Vite + React template
+  await sandbox.runCommand("sh", ["-c",
+    "cd /vercel && npm create vite@latest sandbox -- --template react-ts && cd sandbox && pnpm install",
+  ]);
+  return true;
 }
 
 export type PersistentSandboxSmokeTest = {

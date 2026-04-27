@@ -588,6 +588,73 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     }
   }, [messages.length]);
 
+  // For server-executed tools (e.g. persistent platform) onToolCall does not fire.
+  // Derive endTurn detection and live action entries from the streamed message parts.
+  const seenServerToolsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (platform !== 'persistent') return;
+    let endTurnFound = false;
+    const newActions: ToolCallData[] = [];
+    for (const m of messages) {
+      if (m.role !== 'assistant') continue;
+      for (const part of m.parts) {
+        if (!isToolUIPart(part)) continue;
+        const toolName = getToolName(part);
+        const tc = part as { toolCallId?: string; state?: string; input?: unknown; output?: unknown };
+        const toolCallId = tc.toolCallId ?? '';
+        const state = tc.state ?? '';
+        if (toolName === 'endTurn' && state === 'output-available') {
+          endTurnFound = true;
+          continue;
+        }
+        const key = `${toolCallId}:${state}`;
+        if (seenServerToolsRef.current.has(key)) continue;
+        seenServerToolsRef.current.add(key);
+
+        const args = (tc.input ?? {}) as Record<string, unknown>;
+        const isDone = state === 'output-available';
+        const isError = state === 'output-error';
+
+        if (state === 'input-streaming' || state === 'input-available') {
+          newActions.push({
+            toolCallId,
+            toolName,
+            args,
+            status: 'invoked',
+            startedAt: Date.now(),
+          });
+        } else if (isDone || isError) {
+          let preview = '';
+          try {
+            const out = (tc.output as unknown) ?? '';
+            preview = typeof out === 'string' ? out : JSON.stringify(out);
+          } catch { preview = ''; }
+          newActions.push({
+            toolCallId,
+            toolName,
+            args,
+            status: isError ? 'error' : 'success',
+            startedAt: Date.now(),
+            finishedAt: Date.now(),
+            resultPreview: preview.slice(0, 400),
+          });
+        }
+      }
+    }
+    if (endTurnFound) {
+      setEndTurnCalled(true);
+      setShowCompletionWarning(false);
+    }
+    if (newActions.length > 0) {
+      setActions(prev => {
+        // Merge: replace existing entries with same toolCallId, append new
+        const map = new Map(prev.map(a => [a.toolCallId, a]));
+        for (const na of newActions) map.set(na.toolCallId, na);
+        return Array.from(map.values());
+      });
+    }
+  }, [messages, platform]);
+
   // Estimate total tokens in conversation (messages + system prompt + tools overhead)
   // Only recalculate when message count changes (not on every content update during streaming)
   useEffect(() => {

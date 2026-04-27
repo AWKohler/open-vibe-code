@@ -1,137 +1,123 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { useToast } from "@/components/ui/toast";
 import { CodeEditor } from "@/components/workspace/code-editor";
+import { FileTree } from "@/components/workspace/file-tree";
+import { EnvPanel } from "@/components/workspace/env-panel";
+import { AgentPanel } from "@/components/agent/AgentPanel";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabOption } from "@/components/ui/tabs";
 import { UserButton } from "@clerk/nextjs";
 import { cn } from "@/lib/utils";
-import {
-  PanelLeft,
-  Save,
-  Play,
-  Square,
-  Loader2,
-  ArrowUpRight,
-  ChevronRight,
-  ChevronDown,
-  FileIcon,
-  FolderIcon,
-  Terminal as TerminalIcon,
-} from "lucide-react";
+import { FileSearch } from "./file-search";
+import { PanelLeft, Save, Loader2 } from "lucide-react";
+
+const PersistentTerminal = dynamic(
+  () => import("./terminal").then((m) => m.PersistentTerminal),
+  { ssr: false, loading: () => <div className="h-full w-full bg-elevated" /> },
+);
+
+type WorkspaceView = "preview" | "code";
+type SandboxStatus = "idle" | "booting" | "ready" | "error";
+type FileEntry = { type: "file" | "folder" };
 
 interface PersistentWorkspaceProps {
   projectId: string;
   initialPrompt?: string;
 }
 
-type FileEntry = { type: "file" | "folder" };
-type SandboxStatus = "idle" | "booting" | "ready" | "error";
-
-export function PersistentWorkspace({ projectId, initialPrompt: _initialPrompt }: PersistentWorkspaceProps) {
+export function PersistentWorkspace({
+  projectId,
+  initialPrompt,
+}: PersistentWorkspaceProps) {
   const { toast } = useToast();
 
   const [sandboxStatus, setSandboxStatus] = useState<SandboxStatus>("idle");
+  const [bootError, setBootError] = useState<string | null>(null);
+
   const [files, setFiles] = useState<Record<string, FileEntry>>({});
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set([""]));
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>("");
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isDevServerRunning, setIsDevServerRunning] = useState(false);
-  const [isStartingServer, setIsStartingServer] = useState(false);
-  const [needsRecreate, setNeedsRecreate] = useState(false);
-  const [isRecreating, setIsRecreating] = useState(false);
-  const [view, setView] = useState<"code" | "preview">("code");
+  const [sidebarTab, setSidebarTab] = useState<"files" | "search" | "env">("files");
+  const [currentView, setCurrentView] = useState<WorkspaceView>("code");
+  const initializedRef = useRef(false);
 
-  // Terminal
-  const [terminalLines, setTerminalLines] = useState<{ stream: "stdout" | "stderr" | "info"; text: string }[]>([]);
-  const [terminalInput, setTerminalInput] = useState("");
-  const [isRunningCmd, setIsRunningCmd] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false);
-  const terminalEndRef = useRef<HTMLDivElement>(null);
+  const refreshFiles = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/sandbox/files`);
+      if (!res.ok) return;
+      const data = await res.json() as { files: Record<string, FileEntry> };
+      setFiles(data.files ?? {});
+    } catch (e) {
+      console.warn("Failed to load files", e);
+    }
+  }, [projectId]);
 
-  const appendTerminal = useCallback((stream: "stdout" | "stderr" | "info", text: string) => {
-    setTerminalLines(prev => [...prev, { stream, text }]);
-  }, []);
-
+  // Boot sandbox + seed + load files
   useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [terminalLines]);
+    if (initializedRef.current) return;
+    initializedRef.current = true;
 
-  // Boot sandbox on mount
-  useEffect(() => {
     let cancelled = false;
-
-    async function boot() {
+    (async () => {
       setSandboxStatus("booting");
-      appendTerminal("info", "Starting persistent sandbox…");
+      setBootError(null);
       try {
         const sessionRes = await fetch(`/api/projects/${projectId}/sandbox/session`, { method: "POST" });
-        if (!sessionRes.ok) throw new Error(await sessionRes.text());
-        const session = await sessionRes.json() as { sandboxName: string; status: string };
+        if (!sessionRes.ok) throw new Error(await sessionRes.text() || "Failed to start sandbox");
         if (cancelled) return;
-        appendTerminal("info", `Sandbox ready: ${session.sandboxName}`);
 
-        // Seed if empty (first visit)
-        appendTerminal("info", "Checking project files…");
         const seedRes = await fetch(`/api/projects/${projectId}/sandbox/seed`, { method: "POST" });
         if (seedRes.ok) {
           const { seeded } = await seedRes.json() as { seeded: boolean };
-          if (seeded) appendTerminal("info", "Seeded starter template.");
+          if (seeded) toast({ title: "Project initialized", description: "Seeded the swift-template starter." });
         }
+        if (cancelled) return;
 
-        // Load file tree
-        await loadFiles();
+        await refreshFiles();
         if (cancelled) return;
         setSandboxStatus("ready");
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : "Failed to start sandbox";
-        appendTerminal("stderr", msg);
+        setBootError(msg);
         setSandboxStatus("error");
         toast({ title: "Sandbox error", description: msg });
       }
-    }
+    })();
 
-    boot();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, refreshFiles, toast]);
 
-  const loadFiles = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/sandbox/files`);
-    if (!res.ok) return;
-    const data = await res.json() as { files: Record<string, FileEntry> };
-    setFiles(data.files);
-  }, [projectId]);
-
-  const handleFileSelect = useCallback(async (path: string, entry: FileEntry) => {
-    if (entry.type === "folder") {
-      setExpandedFolders(prev => {
-        const next = new Set(prev);
-        if (next.has(path)) next.delete(path);
-        else next.add(path);
-        return next;
-      });
-      return;
-    }
-
+  const handleFileSelect = useCallback(async (filePath: string) => {
+    if (files[filePath]?.type !== "file") return;
     try {
-      const res = await fetch(`/api/projects/${projectId}/sandbox/files?path=${encodeURIComponent(path)}`);
-      if (!res.ok) return;
-      const data = await res.json() as { content: string; binary: boolean };
-      if (!data.binary) {
-        setSelectedFile(path);
-        setFileContent(data.content);
-        setHasUnsavedChanges(false);
-      } else {
-        toast({ title: "Binary file", description: "Binary files cannot be edited in the browser." });
+      const res = await fetch(`/api/projects/${projectId}/sandbox/files?path=${encodeURIComponent(filePath)}`);
+      if (!res.ok) {
+        toast({ title: "Failed to read file", description: await res.text() });
+        return;
       }
+      const data = await res.json() as { content: string; binary: boolean };
+      if (data.binary) {
+        toast({ title: "Binary file", description: "Binary files cannot be edited here." });
+        return;
+      }
+      setSelectedFile(filePath);
+      setFileContent(data.content);
+      setHasUnsavedChanges(false);
     } catch (e) {
-      console.error("Failed to read file", e);
+      console.error("Failed to read file:", e);
     }
-  }, [projectId, toast]);
+  }, [projectId, files, toast]);
+
+  const handleContentChange = useCallback((next: string) => {
+    setFileContent(next);
+    setHasUnsavedChanges(true);
+  }, []);
 
   const handleSaveFile = useCallback(async () => {
     if (!selectedFile) return;
@@ -143,376 +129,244 @@ export function PersistentWorkspace({ projectId, initialPrompt: _initialPrompt }
       });
       if (!res.ok) throw new Error(await res.text());
       setHasUnsavedChanges(false);
-      toast({ title: "File saved" });
     } catch (err) {
       toast({ title: "Save failed", description: err instanceof Error ? err.message : "Unknown error" });
     }
   }, [projectId, selectedFile, fileContent, toast]);
 
-  const runCommand = useCallback(async (cmd: string, args: string[] = [], cwd?: string) => {
-    setIsRunningCmd(true);
-    setShowTerminal(true);
-    appendTerminal("info", `$ ${cmd} ${args.join(" ")}`);
-
-    try {
-      const res = await fetch(`/api/projects/${projectId}/sandbox/exec`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cmd, args, cwd }),
-      });
-
-      if (!res.body) throw new Error("No response stream");
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-
-        const parts = buf.split("\n\n");
-        buf = parts.pop() ?? "";
-
-        for (const part of parts) {
-          const lines = part.split("\n");
-          let event = "stdout";
-          let data = "";
-          for (const line of lines) {
-            if (line.startsWith("event: ")) event = line.slice(7).trim();
-            else if (line.startsWith("data: ")) {
-              try { data = JSON.parse(line.slice(6)); } catch { data = line.slice(6); }
-            }
-          }
-          if (data) appendTerminal(event as "stdout" | "stderr", data);
-        }
+  // Cmd/Ctrl+S to save
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        if (selectedFile && hasUnsavedChanges) handleSaveFile();
       }
-    } catch (err) {
-      appendTerminal("stderr", err instanceof Error ? err.message : "Command failed");
-    } finally {
-      setIsRunningCmd(false);
-    }
-  }, [projectId, appendTerminal]);
-
-  const handleTerminalSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    const input = terminalInput.trim();
-    if (!input || isRunningCmd) return;
-    setTerminalInput("");
-    const parts = input.split(" ");
-    await runCommand(parts[0]!, parts.slice(1));
-  }, [terminalInput, isRunningCmd, runCommand]);
-
-  const recreateSandbox = useCallback(async () => {
-    setIsRecreating(true);
-    appendTerminal("info", "Recreating sandbox with port forwarding (files will be preserved)…");
-    setShowTerminal(true);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/sandbox/recreate`, { method: "POST" });
-      const data = await res.json() as { ok?: boolean; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Recreate failed");
-      appendTerminal("info", "Sandbox recreated. Refreshing files…");
-      setNeedsRecreate(false);
-      await loadFiles();
-      toast({ title: "Sandbox fixed", description: "Port forwarding is now enabled. Try starting the dev server again." });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Recreate failed";
-      appendTerminal("stderr", msg);
-      toast({ title: "Recreate failed", description: msg });
-    } finally {
-      setIsRecreating(false);
-    }
-  }, [projectId, appendTerminal, loadFiles, toast]);
-
-  const startDevServer = useCallback(async () => {
-    setIsStartingServer(true);
-    appendTerminal("info", "Starting dev server…");
-    setShowTerminal(true);
-    try {
-      const checkRes = await fetch(`/api/projects/${projectId}/sandbox/devserver`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ installFirst: true }),
-      });
-      const data = await checkRes.json() as { previewUrl?: string; error?: string; message?: string };
-      if (checkRes.status === 409 && data.error === "no_port_route") {
-        setNeedsRecreate(true);
-        setIsStartingServer(false);
-        appendTerminal("stderr", data.message ?? "Sandbox needs to be recreated with port forwarding.");
-        return;
-      }
-      if (!checkRes.ok) throw new Error(data.error ?? "Dev server failed");
-      const url = data.previewUrl!;
-      setPreviewUrl(url);
-      setIsDevServerRunning(true);
-      setView("preview");
-      appendTerminal("info", `Dev server running at ${url}`);
-      toast({ title: "Dev server started", description: url });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to start dev server";
-      appendTerminal("stderr", msg);
-      toast({ title: "Dev server failed", description: msg });
-    } finally {
-      setIsStartingServer(false);
-    }
-  }, [projectId, appendTerminal, toast]);
-
-  // Build a simple sorted file tree
-  const sortedPaths = Object.keys(files).sort((a, b) => {
-    const aIsFolder = files[a]?.type === "folder";
-    const bIsFolder = files[b]?.type === "folder";
-    if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1;
-    return a.localeCompare(b);
-  });
-
-  // Only show direct children of a given parent
-  const getChildren = (parent: string) => {
-    return sortedPaths.filter(p => {
-      const rel = parent ? p.slice(parent.length + 1) : p.slice(1);
-      return p.startsWith(parent ? parent + "/" : "/") && !rel.slice(1).includes("/") && rel !== "";
-    });
-  };
-
-  const renderTree = (parent = "") => {
-    const children = parent === "" ? getChildren("") : getChildren(parent);
-    return children.map(path => {
-      const name = path.split("/").pop() ?? path;
-      const entry = files[path]!;
-      const isExpanded = expandedFolders.has(path);
-      return (
-        <div key={path}>
-          <button
-            onClick={() => handleFileSelect(path, entry)}
-            className={cn(
-              "w-full flex items-center gap-1.5 px-2 py-0.5 text-xs rounded hover:bg-[var(--sand-soft)] transition text-left",
-              selectedFile === path && "bg-[var(--sand-soft)] font-medium",
-            )}
-            style={{ paddingLeft: `${(path.split("/").length - 1) * 12 + 8}px` }}
-          >
-            {entry.type === "folder" ? (
-              isExpanded ? <ChevronDown className="h-3 w-3 shrink-0 text-muted" /> : <ChevronRight className="h-3 w-3 shrink-0 text-muted" />
-            ) : null}
-            {entry.type === "folder"
-              ? <FolderIcon className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-              : <FileIcon className="h-3.5 w-3.5 shrink-0 text-[var(--sand-text-muted)]" />}
-            <span className="truncate">{name}</span>
-          </button>
-          {entry.type === "folder" && isExpanded && renderTree(path)}
-        </div>
-      );
-    });
-  };
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedFile, hasUnsavedChanges, handleSaveFile]);
 
   return (
-    <div className="flex flex-col h-screen bg-[var(--sand-bg)] text-[var(--sand-text)]">
-      {/* Header */}
-      <div className="flex items-center gap-2 px-3 h-10 border-b border-border bg-[var(--sand-elevated)] shrink-0">
-        <button
-          onClick={() => setShowSidebar(v => !v)}
-          className="p-1 rounded hover:bg-[var(--sand-soft)] transition"
-          title="Toggle sidebar"
-        >
-          <PanelLeft className="h-4 w-4" />
-        </button>
-
-        <div className="flex items-center gap-1 text-xs border border-border rounded-md overflow-hidden">
-          <button
-            onClick={() => setView("code")}
-            className={cn("px-2.5 py-1 transition", view === "code" ? "bg-[var(--sand-soft)] font-medium" : "hover:bg-[var(--sand-soft)]")}
-          >Code</button>
-          <button
-            onClick={() => setView("preview")}
-            className={cn("px-2.5 py-1 transition", view === "preview" ? "bg-[var(--sand-soft)] font-medium" : "hover:bg-[var(--sand-soft)]")}
-          >Preview</button>
-        </div>
-
-        <div className="flex items-center gap-1 ml-auto">
-          {sandboxStatus === "booting" && (
-            <span className="flex items-center gap-1 text-xs text-muted">
-              <Loader2 className="h-3 w-3 animate-spin" /> Booting…
-            </span>
-          )}
-
-          {sandboxStatus === "ready" && !isDevServerRunning && (
-            <button
-              onClick={startDevServer}
-              disabled={isStartingServer}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-md bg-[var(--sand-accent)] text-[var(--sand-accent-foreground)] hover:opacity-90 transition disabled:opacity-50"
-            >
-              {isStartingServer ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-              Run
-            </button>
-          )}
-
-          {isDevServerRunning && (
-            <>
-              <span className="flex items-center gap-1 text-xs text-emerald-600">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Live
-              </span>
-              {previewUrl && (
-                <a
-                  href={previewUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 text-xs text-muted hover:text-[var(--sand-text)] transition"
-                >
-                  <ArrowUpRight className="h-3.5 w-3.5" />
-                </a>
-              )}
-              <button
-                onClick={() => { setIsDevServerRunning(false); setPreviewUrl(null); }}
-                className="p-1 rounded hover:bg-[var(--sand-soft)] transition"
-                title="Stop"
-              >
-                <Square className="h-3.5 w-3.5" />
-              </button>
-            </>
-          )}
-
-          {hasUnsavedChanges && (
-            <button
-              onClick={handleSaveFile}
-              className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-border hover:bg-[var(--sand-soft)] transition"
-            >
-              <Save className="h-3 w-3" /> Save
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowTerminal(v => !v)}
-            className={cn("p-1 rounded hover:bg-[var(--sand-soft)] transition", showTerminal && "bg-[var(--sand-soft)]")}
-            title="Terminal"
-          >
-            <TerminalIcon className="h-4 w-4" />
-          </button>
-
-          <div className="ml-1">
-            <UserButton />
-          </div>
-        </div>
+    <div className="h-screen flex bolt-bg text-fg">
+      {/* Agent sidebar */}
+      <div className="w-96 flex flex-col bg-elevated/70 backdrop-blur-sm">
+        <AgentPanel
+          className="h-full"
+          projectId={projectId}
+          initialPrompt={initialPrompt}
+          platform="persistent"
+        />
       </div>
 
-      {/* Body */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        {showSidebar && (
-          <div className="w-52 shrink-0 border-r border-border bg-[var(--sand-elevated)] overflow-y-auto flex flex-col">
-            <div className="px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted border-b border-border">
-              Files
-            </div>
-            <div className="flex-1 py-1 overflow-y-auto">
-              {sandboxStatus === "booting" ? (
-                <div className="flex items-center justify-center py-8 text-muted text-xs">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                </div>
-              ) : (
-                renderTree()
-              )}
-            </div>
-            <div className="border-t border-border p-2">
-              <button
-                onClick={loadFiles}
-                className="w-full text-xs text-muted hover:text-[var(--sand-text)] transition py-1"
-              >
-                Refresh files
-              </button>
-            </div>
+      {/* Main column */}
+      <div className="flex-1 flex flex-col">
+        {bootError && (
+          <div className="px-4 py-2 bg-red-900/80 border-b border-red-700 text-white text-xs flex items-center gap-3">
+            <span className="font-semibold">Sandbox failed to start</span>
+            <span className="opacity-80">{bootError}</span>
           </div>
         )}
 
-        {/* Main area */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {view === "code" ? (
-            <div className="flex-1 overflow-hidden">
-              {selectedFile ? (
-                <CodeEditor
-                  key={selectedFile}
-                  value={fileContent}
-                  onChange={(v) => {
-                    setFileContent(v);
-                    setHasUnsavedChanges(v !== fileContent);
-                  }}
-                  language={inferLanguage(selectedFile)}
-                  filename={selectedFile}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted text-sm">
-                  Select a file to edit
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex-1 overflow-hidden">
-              {previewUrl ? (
-                <iframe
-                  src={previewUrl}
-                  className="w-full h-full border-0"
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full text-muted text-sm gap-3">
-                  <p>No preview running</p>
-                  <button
-                    onClick={startDevServer}
-                    disabled={isStartingServer || sandboxStatus !== "ready"}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-[var(--sand-accent)] text-[var(--sand-accent-foreground)] hover:opacity-90 transition disabled:opacity-50"
-                  >
-                    {isStartingServer ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                    Start dev server
-                  </button>
-                </div>
-              )}
+        {/* Header */}
+        <div className="h-12 flex items-center pr-2.5 gap-4 bg-surface backdrop-blur-sm">
+          <Tabs
+            options={
+              [
+                { value: "preview", text: "Preview" },
+                { value: "code", text: "Code" },
+              ] as TabOption<WorkspaceView>[]
+            }
+            selected={currentView}
+            onSelect={setCurrentView}
+          />
+
+          {currentView === "code" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowSidebar((v) => !v)}
+              className="text-muted hover:text-fg bolt-hover"
+              title={showSidebar ? "Hide explorer" : "Show explorer"}
+            >
+              <PanelLeft size={16} />
+            </Button>
+          )}
+
+          {currentView === "code" && selectedFile && (
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted">/</span>
+              <span className="text-fg font-medium bg-elevated/70 px-2 py-1 rounded flex items-center gap-2">
+                {selectedFile.split("/").pop()}
+                {hasUnsavedChanges && (
+                  <span className="w-2 h-2 rounded-full bg-orange-500" title="Unsaved changes" />
+                )}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSaveFile}
+                className="text-muted hover:text-fg bolt-hover"
+                title="Save file"
+              >
+                <Save size={16} />
+                <span className="ml-1">Save</span>
+              </Button>
             </div>
           )}
 
-          {/* Terminal panel */}
-          {showTerminal && (
-            <div className="h-48 border-t border-border bg-black flex flex-col shrink-0">
-              <div className="flex items-center justify-between px-3 py-1 border-b border-white/10 text-xs text-white/60">
-                <span>Terminal</span>
-                <button onClick={() => setShowTerminal(false)} className="hover:text-white transition">✕</button>
-              </div>
-              <div className="flex-1 overflow-y-auto px-3 py-2 font-mono text-xs">
-                {terminalLines.map((line, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "whitespace-pre-wrap leading-5",
-                      line.stream === "stderr" ? "text-red-400" : line.stream === "info" ? "text-blue-400" : "text-white/90",
-                    )}
-                  >
-                    {line.text}
-                  </div>
-                ))}
-                <div ref={terminalEndRef} />
-              </div>
-              <form onSubmit={handleTerminalSubmit} className="flex items-center border-t border-white/10 px-3 py-1.5">
-                <span className="text-white/40 text-xs mr-2 font-mono">$</span>
-                <input
-                  value={terminalInput}
-                  onChange={e => setTerminalInput(e.target.value)}
-                  disabled={isRunningCmd || sandboxStatus !== "ready"}
-                  placeholder="Enter command…"
-                  className="flex-1 bg-transparent text-white/90 text-xs font-mono outline-none placeholder:text-white/30"
-                />
-                {isRunningCmd && <Loader2 className="h-3 w-3 animate-spin text-white/40" />}
-              </form>
+          <div className="ml-auto flex items-center gap-2">
+            <div className="text-xs text-muted flex items-center gap-1.5 px-2 py-1 rounded-md bg-elevated">
+              {sandboxStatus === "booting" ? (
+                <>
+                  <Loader2 size={12} className="animate-spin text-blue-500" />
+                  <span>Booting sandbox…</span>
+                </>
+              ) : sandboxStatus === "ready" ? (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span>Sandbox ready</span>
+                </>
+              ) : sandboxStatus === "error" ? (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <span>Sandbox error</span>
+                </>
+              ) : null}
             </div>
-          )}
+
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{ elements: { userButtonAvatarBox: "w-8 h-8" } }}
+            />
+
+            <Button
+              variant="default"
+              size="sm"
+              className="font-bold text-sm"
+              onClick={() => toast({ title: "Coming soon", description: "Publishing for persistent projects isn't available yet." })}
+              title="Publish (coming soon)"
+            >
+              Publish
+            </Button>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-h-0 relative bg-surface">
+          {/* Code view */}
+          <div
+            className={cn(
+              "absolute inset-0",
+              currentView === "code" ? "flex flex-col" : "hidden",
+              "rounded-xl border border-border overflow-hidden",
+            )}
+          >
+            <div className="flex-1 min-h-0 flex">
+              {showSidebar && (
+                <div className="w-80 bolt-border border-r flex flex-col backdrop-blur-sm">
+                  <div className="p-2 bolt-border border-b">
+                    <Tabs
+                      options={
+                        [
+                          { value: "files", text: "Files" },
+                          { value: "search", text: "Search" },
+                          { value: "env", text: "ENV" },
+                        ] as TabOption<"files" | "search" | "env">[]
+                      }
+                      selected={sidebarTab}
+                      onSelect={(v) => setSidebarTab(v as "files" | "search" | "env")}
+                      stretch
+                    />
+                  </div>
+                  <div className="flex-1 overflow-auto modern-scrollbar">
+                    {sidebarTab === "files" ? (
+                      sandboxStatus === "booting" ? (
+                        <div className="flex items-center justify-center py-8 text-muted text-xs gap-2">
+                          <Loader2 size={14} className="animate-spin" />
+                          Loading files…
+                        </div>
+                      ) : (
+                        <FileTree
+                          files={files}
+                          selectedFile={selectedFile}
+                          onFileSelect={handleFileSelect}
+                        />
+                      )
+                    ) : sidebarTab === "search" ? (
+                      <FileSearch
+                        projectId={projectId}
+                        onOpenFile={(path) => {
+                          setCurrentView("code");
+                          handleFileSelect(path);
+                        }}
+                      />
+                    ) : (
+                      <EnvPanel projectId={projectId} />
+                    )}
+                  </div>
+                </div>
+              )}
+              <div className="flex-1 min-h-0 relative">
+                <div className="absolute inset-0 bg-elevated/90 backdrop-blur-sm">
+                  {selectedFile ? (
+                    <CodeEditor
+                      value={fileContent}
+                      onChange={handleContentChange}
+                      language={getLanguageFromFilename(selectedFile)}
+                      filename={selectedFile}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted text-sm">
+                      {sandboxStatus === "ready"
+                        ? "Select a file to edit"
+                        : sandboxStatus === "booting"
+                          ? "Booting sandbox…"
+                          : "Sandbox not ready"}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Terminal */}
+            <div className="h-64 bolt-border border-t bg-elevated backdrop-blur-sm">
+              <PersistentTerminal projectId={projectId} ready={sandboxStatus === "ready"} />
+            </div>
+          </div>
+
+          {/* Preview view — intentionally blank for persistent projects */}
+          <div
+            className={cn(
+              "absolute inset-0 pb-2.5 pr-2.5",
+              currentView === "preview" ? "block" : "hidden",
+            )}
+          >
+            <div className="w-full h-full rounded-xl border border-border overflow-hidden bg-elevated/60 flex items-center justify-center">
+              <div className="text-center text-muted text-sm max-w-sm px-6">
+                <p className="text-fg font-semibold mb-2">No preview</p>
+                <p>Persistent projects build remotely. Use the agent and terminal to develop, then publish to your build target.</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function inferLanguage(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+function getLanguageFromFilename(filename: string): string {
+  const ext = filename.split(".").pop()?.toLowerCase();
   const map: Record<string, string> = {
-    ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript",
-    json: "json", css: "css", html: "html", md: "markdown", yaml: "yaml",
-    yml: "yaml", toml: "toml", sh: "shell", py: "python", rs: "rust",
-    go: "go", sql: "sql", graphql: "graphql",
+    js: "javascript", jsx: "javascript",
+    ts: "typescript", tsx: "typescript",
+    json: "json", md: "markdown",
+    html: "html", css: "css", scss: "scss",
+    py: "python", rb: "ruby", php: "php",
+    java: "java", cpp: "cpp", c: "c",
+    go: "go", rs: "rust", sh: "shell",
+    yml: "yaml", yaml: "yaml",
+    xml: "xml", sql: "sql",
+    swift: "swift",
   };
-  return map[ext] ?? "plaintext";
+  return map[ext ?? ""] ?? "plaintext";
 }

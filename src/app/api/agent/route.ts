@@ -9,7 +9,8 @@ import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 
-import { SYSTEM_PROMPT_WEB, SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM } from "@/lib/agent/prompts";
+import { SYSTEM_PROMPT_WEB, SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM, SYSTEM_PROMPT_PERSISTENT } from "@/lib/agent/prompts";
+import { getPersistentTools } from "@/lib/agent/persistent-tools";
 import { MODEL_CONFIGS, resolveModelId, type ModelId } from "@/lib/agent/models";
 import { agentLog, generateRequestId, setRequestId } from "@/lib/agent/logger";
 import { classifyError, formatErrorResponse } from "@/lib/agent/errors";
@@ -539,8 +540,21 @@ export async function POST(req: Request) {
     const creds = await getUserCredentials(userId);
 
     const modelConfig = MODEL_CONFIGS[selectedModel];
-    const systemPrompt = platform === "mobile" ? SYSTEM_PROMPT_MOBILE : platform === "multiplatform" ? SYSTEM_PROMPT_MULTIPLATFORM : SYSTEM_PROMPT_WEB;
-    const tools = getTools();
+    const systemPrompt =
+      platform === "persistent"
+        ? SYSTEM_PROMPT_PERSISTENT
+        : platform === "mobile"
+          ? SYSTEM_PROMPT_MOBILE
+          : platform === "multiplatform"
+            ? SYSTEM_PROMPT_MULTIPLATFORM
+            : SYSTEM_PROMPT_WEB;
+
+    // Persistent platform: tools execute server-side against the user's Vercel
+    // sandbox. Client never sees onToolCall — keeps platform creds off-browser.
+    const tools =
+      platform === "persistent" && projectId
+        ? getPersistentTools(projectId)
+        : getTools();
 
     // ── Tier enforcement for server-key models ──────────────────────────────
     // Detect if this request uses personal BYOK/OAuth credentials (skip credit checks)

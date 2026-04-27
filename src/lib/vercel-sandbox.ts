@@ -186,7 +186,11 @@ export async function sandboxWriteFile(
   const sandbox = await getOrCreatePersistentSandbox(projectId);
   const abs = toAbsPath(projectRelativePath);
   const dir = abs.substring(0, abs.lastIndexOf("/"));
-  if (dir) await sandbox.mkDir(dir);
+  if (dir && dir !== SANDBOX_ROOT) {
+    // mkDir from the SDK throws APIError 400 if the dir already exists, so
+    // shell out to `mkdir -p` instead — idempotent and recursive.
+    await sandbox.runCommand("mkdir", ["-p", dir]);
+  }
   await sandbox.writeFiles([{
     path: abs,
     content: Buffer.from(content, "utf-8"),

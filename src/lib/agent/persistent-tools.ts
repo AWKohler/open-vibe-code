@@ -23,6 +23,22 @@ function truncate(s: string, max = MAX_OUTPUT): string {
   return `${head}\n\n…(truncated ${s.length - max} chars)…\n\n${tail}`;
 }
 
+function errMsg(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  try { return JSON.stringify(e); } catch { return String(e); }
+}
+
+// Wrap an async tool body so any thrown error is returned as a JSON string
+// the model can read and recover from, rather than aborting the stream.
+function safe<T>(fn: () => Promise<T>): Promise<string> {
+  return fn().then(
+    (result) =>
+      typeof result === "string" ? result : JSON.stringify(result),
+    (e) => JSON.stringify({ ok: false, error: errMsg(e) }),
+  );
+}
+
 export function getPersistentTools(projectId: string) {
   return {
     bash: tool({
@@ -39,10 +55,14 @@ export function getPersistentTools(projectId: string) {
         cwd: z.string().optional().describe("Working directory inside the sandbox (default: /vercel/sandbox)."),
       }),
       async execute({ command, cwd }) {
-        const res = await sandboxBash(projectId, command, cwd ? { cwd } : {});
-        const stdout = truncate(res.stdout);
-        const stderr = truncate(res.stderr);
-        return JSON.stringify({ exitCode: res.exitCode, stdout, stderr });
+        return safe(async () => {
+          const res = await sandboxBash(projectId, command, cwd ? { cwd } : {});
+          return {
+            exitCode: res.exitCode,
+            stdout: truncate(res.stdout),
+            stderr: truncate(res.stderr),
+          };
+        });
       },
     }),
 
@@ -58,8 +78,10 @@ export function getPersistentTools(projectId: string) {
           .describe("Project-relative directory to search inside (default: '/')"),
       }),
       async execute({ pattern, path }) {
-        const matches = await sandboxGlob(projectId, pattern, { path });
-        return JSON.stringify({ count: matches.length, files: matches });
+        return safe(async () => {
+          const matches = await sandboxGlob(projectId, pattern, { path });
+          return { count: matches.length, files: matches };
+        });
       },
     }),
 
@@ -74,8 +96,10 @@ export function getPersistentTools(projectId: string) {
         caseInsensitive: z.boolean().optional().describe("Case-insensitive match (default: false)"),
       }),
       async execute({ pattern, path, glob, caseInsensitive }) {
-        const results = await sandboxGrep(projectId, pattern, { path, glob, caseInsensitive });
-        return JSON.stringify({ count: results.length, matches: results });
+        return safe(async () => {
+          const results = await sandboxGrep(projectId, pattern, { path, glob, caseInsensitive });
+          return { count: results.length, matches: results };
+        });
       },
     }),
 
@@ -87,10 +111,12 @@ export function getPersistentTools(projectId: string) {
         path: z.string().describe("Project-relative path, e.g. '/Sources/Views/ContentView.swift'"),
       }),
       async execute({ path }) {
-        const result = await sandboxReadFile(projectId, path);
-        if (!result) return JSON.stringify({ error: "File not found", path });
-        if (result.binary) return JSON.stringify({ binary: true, path });
-        return JSON.stringify({ path, content: truncate(result.content) });
+        return safe(async () => {
+          const result = await sandboxReadFile(projectId, path);
+          if (!result) return { ok: false, error: "File not found", path };
+          if (result.binary) return { ok: true, binary: true, path };
+          return { ok: true, path, content: truncate(result.content) };
+        });
       },
     }),
 
@@ -103,8 +129,10 @@ export function getPersistentTools(projectId: string) {
         content: z.string().describe("Full file contents to write."),
       }),
       async execute({ path, content }) {
-        await sandboxWriteFile(projectId, path, content);
-        return JSON.stringify({ ok: true, path, bytes: content.length });
+        return safe(async () => {
+          await sandboxWriteFile(projectId, path, content);
+          return { ok: true, path, bytes: content.length };
+        });
       },
     }),
 
@@ -123,42 +151,43 @@ export function getPersistentTools(projectId: string) {
           .describe("Replace every occurrence (use for renames). Default: false."),
       }),
       async execute({ path, oldString, newString, replaceAll }) {
-        const file = await sandboxReadFile(projectId, path);
-        if (!file) return JSON.stringify({ ok: false, error: "File not found", path });
-        if (file.binary) return JSON.stringify({ ok: false, error: "Cannot edit binary file", path });
+        return safe(async () => {
+          const file = await sandboxReadFile(projectId, path);
+          if (!file) return { ok: false, error: "File not found", path };
+          if (file.binary) return { ok: false, error: "Cannot edit binary file", path };
 
-        const original = file.content;
-        if (!original.includes(oldString)) {
-          return JSON.stringify({
-            ok: false,
-            error: "oldString not found in file. Read the file again and retry with exact contents.",
-            path,
-          });
-        }
-
-        let updated: string;
-        let count = 0;
-        if (replaceAll) {
-          // global, literal replace
-          const parts = original.split(oldString);
-          count = parts.length - 1;
-          updated = parts.join(newString);
-        } else {
-          const occurrences = original.split(oldString).length - 1;
-          if (occurrences > 1) {
-            return JSON.stringify({
+          const original = file.content;
+          if (!original.includes(oldString)) {
+            return {
               ok: false,
-              error: `oldString matched ${occurrences} times — make it unique by adding surrounding context, or pass replaceAll=true.`,
+              error: "oldString not found in file. Read the file again and retry with exact contents.",
               path,
-              occurrences,
-            });
+            };
           }
-          count = 1;
-          updated = original.replace(oldString, newString);
-        }
 
-        await sandboxWriteFile(projectId, path, updated);
-        return JSON.stringify({ ok: true, path, replacements: count });
+          let updated: string;
+          let count = 0;
+          if (replaceAll) {
+            const parts = original.split(oldString);
+            count = parts.length - 1;
+            updated = parts.join(newString);
+          } else {
+            const occurrences = original.split(oldString).length - 1;
+            if (occurrences > 1) {
+              return {
+                ok: false,
+                error: `oldString matched ${occurrences} times — make it unique by adding surrounding context, or pass replaceAll=true.`,
+                path,
+                occurrences,
+              };
+            }
+            count = 1;
+            updated = original.replace(oldString, newString);
+          }
+
+          await sandboxWriteFile(projectId, path, updated);
+          return { ok: true, path, replacements: count };
+        });
       },
     }),
 
@@ -172,28 +201,30 @@ export function getPersistentTools(projectId: string) {
         diff: z.string().describe("One or more SEARCH/REPLACE blocks."),
       }),
       async execute({ path, diff }) {
-        const file = await sandboxReadFile(projectId, path);
-        if (!file) return JSON.stringify({ ok: false, error: "File not found", path });
-        if (file.binary) return JSON.stringify({ ok: false, error: "Cannot edit binary file", path });
+        return safe(async () => {
+          const file = await sandboxReadFile(projectId, path);
+          if (!file) return { ok: false, error: "File not found", path };
+          if (file.binary) return { ok: false, error: "Cannot edit binary file", path };
 
-        const result = applyDiff(file.content, diff);
-        if (!result.success || !result.content) {
-          return JSON.stringify({
-            ok: false,
-            applied: result.appliedCount,
-            failed: result.failedBlocks.length,
-            error: result.error ?? "Diff failed",
-            failedBlocks: result.failedBlocks.map(b => ({
-              index: b.index,
-              reason: b.reason,
-              searchPreview: b.searchPreview,
-              bestMatch: b.bestMatch,
-            })),
-          });
-        }
+          const result = applyDiff(file.content, diff);
+          if (!result.success || !result.content) {
+            return {
+              ok: false,
+              applied: result.appliedCount,
+              failed: result.failedBlocks.length,
+              error: result.error ?? "Diff failed",
+              failedBlocks: result.failedBlocks.map(b => ({
+                index: b.index,
+                reason: b.reason,
+                searchPreview: b.searchPreview,
+                bestMatch: b.bestMatch,
+              })),
+            };
+          }
 
-        await sandboxWriteFile(projectId, path, result.content);
-        return JSON.stringify({ ok: true, applied: result.appliedCount, path });
+          await sandboxWriteFile(projectId, path, result.content);
+          return { ok: true, applied: result.appliedCount, path };
+        });
       },
     }),
 
@@ -206,8 +237,10 @@ export function getPersistentTools(projectId: string) {
         recursive: z.boolean().optional().describe("Walk subdirectories (default: false)"),
       }),
       async execute({ path, recursive }) {
-        const entries = await sandboxListFiles(projectId, path, Boolean(recursive));
-        return JSON.stringify({ count: entries.length, entries });
+        return safe(async () => {
+          const entries = await sandboxListFiles(projectId, path, Boolean(recursive));
+          return { count: entries.length, entries };
+        });
       },
     }),
 

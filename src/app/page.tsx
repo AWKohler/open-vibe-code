@@ -987,6 +987,7 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef, useCallback, type ReactNode } from 'react';
+import Script from 'next/script';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { SignedIn, SignedOut, SignInButton, useUser } from '@clerk/nextjs';
@@ -1702,8 +1703,37 @@ export default function LandingV2() {
     }
   }, [isSignedIn, pendingParams, userTier, convexBackendType, hasConvexOAuth, allowedModels]);
 
+  const orgJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'Botflow',
+    url: 'https://botflow.io',
+    logo: 'https://botflow.io/botflow_white.svg',
+    sameAs: [],
+  };
+
+  const websiteJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'Botflow',
+    url: 'https://botflow.io',
+    description:
+      'Create full-stack web apps by chatting with AI. Botflow runs a real Node.js environment in your browser.',
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: { '@type': 'EntryPoint', urlTemplate: 'https://botflow.io/explore?q={search_term_string}' },
+      'query-input': 'required name=search_term_string',
+    },
+  };
+
   return (
     <>
+    <Script id="org-jsonld" type="application/ld+json" strategy="afterInteractive"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
+    />
+    <Script id="website-jsonld" type="application/ld+json" strategy="afterInteractive"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+    />
     <div className="antialiased text-[var(--sand-text)] bg-[var(--sand-bg)] min-h-screen">
       <EditorialGrid />
       <LandingNav />
@@ -2044,7 +2074,7 @@ export default function LandingV2() {
                   ],
                 },
               ]}
-              previewSrc="/botflow-compute/index.html"
+              previewSrc="https://bf-demo-app.pages.dev/"
               creditPct={47}
               agentWorking={true}
               defaultView="preview"

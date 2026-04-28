@@ -17,19 +17,32 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = "https://botflow.io";
+
 export const metadata: Metadata = {
-  title: "Botflow",
-  description: "Build and run full-stack apps in your browser with AI.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: "Botflow — Build Full-Stack Apps with AI",
+    template: "%s — Botflow",
+  },
+  description:
+    "Create full-stack web apps by chatting with AI. Botflow runs a real Node.js environment in your browser — no setup, no deploys, just ship.",
+  alternates: { canonical: "/" },
   openGraph: {
-    title: "Botflow",
-    description: "Build and run full-stack apps in your browser with AI.",
+    title: "Botflow — Build Full-Stack Apps with AI",
+    description:
+      "Create full-stack web apps by chatting with AI. Botflow runs a real Node.js environment in your browser — no setup, no deploys, just ship.",
     type: "website",
     siteName: "Botflow",
+    url: SITE_URL,
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Botflow" }],
   },
   twitter: {
-    card: "summary",
-    title: "Botflow",
-    description: "Build and run full-stack apps in your browser with AI.",
+    card: "summary_large_image",
+    title: "Botflow — Build Full-Stack Apps with AI",
+    description:
+      "Create full-stack web apps by chatting with AI. Botflow runs a real Node.js environment in your browser — no setup, no deploys, just ship.",
+    images: ["/og-image.png"],
   },
 };
 

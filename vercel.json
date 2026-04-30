@@ -1,5 +1,15 @@
 {
   "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ':(exclude)docs'",
+  "rewrites": [
+    {
+      "source": "/docs",
+      "destination": "https://botflowio.mintlify.dev/docs"
+    },
+    {
+      "source": "/docs/:match*",
+      "destination": "https://botflowio.mintlify.dev/docs/:match*"
+    }
+  ],
   "crons": [
     {
       "path": "/api/cron/blog-writer",

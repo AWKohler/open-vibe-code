@@ -177,6 +177,7 @@ export default function ProjectsPage() {
                 <a className="text-fg font-medium" href="/projects">My Projects</a>
                 <a className="hover:text-fg transition" href="/explore">Explore</a>
                 <a className="hover:text-fg transition" href="/pricing">Pricing</a>
+                <a className="hover:text-fg transition" href="/docs">Docs</a>
               </nav>
 
               <div className="flex items-center justify-end gap-2">

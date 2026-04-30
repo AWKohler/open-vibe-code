@@ -33,12 +33,20 @@ const nextConfig: NextConfig = {
     return {
       beforeFiles: [
         {
+          source: '/_mintlify/:path*',
+          destination: 'https://botflowio.mintlify.app/_mintlify/:path*',
+        },
+        {
+          source: '/mintlify-assets/:path+',
+          destination: 'https://botflowio.mintlify.app/mintlify-assets/:path+',
+        },
+        {
           source: '/docs',
-          destination: 'https://botflowio.mintlify.app',
+          destination: 'https://botflowio.mintlify.app/docs',
         },
         {
           source: '/docs/:path*',
-          destination: 'https://botflowio.mintlify.app/:path*',
+          destination: 'https://botflowio.mintlify.app/docs/:path*',
         },
       ],
     };

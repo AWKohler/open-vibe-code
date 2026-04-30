@@ -1,4 +1,5 @@
 {
+  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- . ':(exclude)docs'",
   "crons": [
     {
       "path": "/api/cron/blog-writer",

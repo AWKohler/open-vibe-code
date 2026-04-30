@@ -1,0 +1,39 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Botflow",
+  "basePath": "/docs",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/logo/light.svg",
+  "colors": {
+    "primary": "#1d52f1",
+    "light": "#4d7af5",
+    "dark": "#1540c9"
+  },
+  "topbarLinks": [
+    {
+      "name": "Dashboard",
+      "url": "https://botflow.io/projects"
+    }
+  ],
+  "topbarCtaButton": {
+    "name": "Get Started",
+    "url": "https://botflow.io"
+  },
+  "navigation": [
+    {
+      "group": "Get Started",
+      "pages": ["introduction", "quickstart"]
+    },
+    {
+      "group": "Features",
+      "pages": ["features/editor", "features/ai", "features/deploy"]
+    }
+  ],
+  "footerSocials": {
+    "x": "https://x.com/botflow_io",
+    "github": "https://github.com/AWKohler"
+  }
+}

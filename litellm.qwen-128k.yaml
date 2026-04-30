@@ -1,0 +1,29 @@
+model_list:
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: openai/nvidia/Qwen3.5-397B-A17B-NVFP4
+      api_base: http://216.243.220.86:8000/v1
+      api_key: dummy
+      max_tokens: 8192
+    model_info:
+      mode: chat
+      max_input_tokens: 131072
+      max_output_tokens: 8192
+  - model_name: qwen-coder
+    litellm_params:
+      model: openai/nvidia/Qwen3.5-397B-A17B-NVFP4
+      api_base: http://216.243.220.86:8000/v1
+      api_key: dummy
+      max_tokens: 8192
+    model_info:
+      mode: chat
+      max_input_tokens: 131072
+      max_output_tokens: 8192
+
+litellm_settings:
+  drop_params: true
+  request_timeout: 600
+  telemetry: false
+
+general_settings:
+  master_key: sk-75hWdkPgiLxePI6a4CUtpjHuvvIS1efY

@@ -20,6 +20,20 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: '/docs',
+          destination: 'https://botflowio.mintlify.app/docs',
+        },
+        {
+          source: '/docs/:path*',
+          destination: 'https://botflowio.mintlify.app/docs/:path*',
+        },
+      ],
+    };
+  },
   headers: async () => {
     // WebContainer requires cross-origin isolation (SharedArrayBuffer) — apply to
     // routes that boot WebContainer: /workspace/* (owner) and /p/* (public view).

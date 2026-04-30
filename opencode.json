@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "vllm/nvidia/Qwen3.5-397B-A17B-NVFP4",
+  "provider": {
+    "vllm": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "My vLLM",
+      "options": {
+        "baseURL": "http://216.243.220.86:8000/v1"
+      },
+      "models": {
+        "nvidia/Qwen3.5-397B-A17B-NVFP4": {
+          "name": "Qwen 3.5 397B via vLLM",
+          "options": {
+            "max_tokens": 32000
+          }
+        }
+      }
+    }
+  }
+}

@@ -20,6 +20,15 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
+  async redirects() {
+    return [
+      {
+        source: '/introduction',
+        destination: '/docs/introduction',
+        permanent: false,
+      },
+    ];
+  },
   async rewrites() {
     return {
       beforeFiles: [

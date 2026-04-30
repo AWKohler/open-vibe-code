@@ -209,9 +209,9 @@ export function LandingNav() {
               />
             </Link>
 
-            <nav className="hidden md:flex items-center justify-center gap-8 text-sm">
+            <nav className="hidden md:flex items-center justify-center gap-6 text-sm">
               <SignedIn>
-                <a href="/projects" className="font-medium hover:text-[var(--sand-accent)] transition">
+                <a href="/projects" className="font-medium hover:text-[var(--sand-accent)] transition whitespace-nowrap">
                   My Projects
                 </a>
               </SignedIn>

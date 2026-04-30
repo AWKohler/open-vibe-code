@@ -13,26 +13,32 @@
     "light": "#4d7af5",
     "dark": "#1540c9"
   },
-  "topbarLinks": [
-    {
-      "name": "Dashboard",
-      "url": "https://botflow.io/projects"
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Docs",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Features",
+            "pages": ["features/editor", "features/ai", "features/deploy"]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Dashboard",
+          "href": "https://botflow.io/projects",
+          "icon": "grid-2"
+        }
+      ]
     }
-  ],
-  "topbarCtaButton": {
-    "name": "Get Started",
-    "url": "https://botflow.io"
   },
-  "navigation": [
-    {
-      "group": "Get Started",
-      "pages": ["introduction", "quickstart"]
-    },
-    {
-      "group": "Features",
-      "pages": ["features/editor", "features/ai", "features/deploy"]
-    }
-  ],
   "footerSocials": {
     "x": "https://x.com/botflow_io",
     "github": "https://github.com/AWKohler"

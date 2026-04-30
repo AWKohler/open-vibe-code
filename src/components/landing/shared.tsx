@@ -227,6 +227,9 @@ export function LandingNav() {
               <Link href="/pricing" className="font-medium hover:text-[var(--sand-accent)] transition">
                 Pricing
               </Link>
+              <Link href="/docs" className="font-medium hover:text-[var(--sand-accent)] transition">
+                Docs
+              </Link>
             </nav>
 
             <div className="flex items-center justify-end gap-2">

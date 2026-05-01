@@ -1,6 +1,119 @@
 ---
-title: AI Assistant
-description: Generate and edit code with AI.
+title: AI Agent
+description: Chat with AI to build, edit, and debug your app — no copy-pasting required.
 ---
 
-The AI assistant understands your entire project context. Ask it to add features, fix bugs, or explain code — it reads your file tree and makes targeted edits rather than rewriting from scratch.
+The AI agent is the heart of Botflow. It has full access to your project's file system: it reads files, writes diffs, installs packages, and runs terminal commands — all in response to plain-English instructions.
+
+## How the agent works
+
+When you send a message, the agent:
+
+1. **Reads context** — it inspects your file tree and loads the files most relevant to your request.
+2. **Plans** — it decides which files need to change and how.
+3. **Executes tool calls** — each action (read, edit, command, preview refresh) is shown in the chat as a collapsible step.
+4. **Replies** — it summarises what it did and explains any tricky choices.
+
+You can see every tool call in real time as it happens. Click any step to expand it and read the raw diff or command output.
+
+## Models
+
+Botflow supports a curated selection of frontier models. Switch between them at any time using the model selector in the top-left of the workspace.
+
+| Model | Provider | Context window | Images |
+|-------|----------|---------------|--------|
+| **GPT-5.3** (default) | OpenAI | 400k tokens | ✓ |
+| **GPT-5.4** | OpenAI | 400k tokens | ✓ |
+| **Claude Sonnet 4** | Anthropic | 200k tokens | ✓ |
+| **Claude Opus 4.7** | Anthropic | 200k tokens | ✓ |
+| **Gemini 3.1 Pro** | Google | 1M tokens | ✓ |
+| **MiniMax-M2.5** | Fireworks | 32k tokens | — |
+| **GLM-5.1** | Fireworks | 202k tokens | — |
+| **Kimi K2.6** | Fireworks | 131k tokens | — |
+
+<Note>
+The token counter at the bottom of the agent panel shows your estimated usage against the selected model's limit. When you approach the limit, start a new session with **Reset** or break your work into smaller tasks.
+</Note>
+
+## Provider setup
+
+The agent needs credentials to call a model. You can supply these three ways:
+
+### 1. Platform credits (Pro / Max)
+
+Pro and Max plans include a monthly allotment of platform-managed credits. Credits are normalised across models — 1 MiniMax token = 1 credit, for example, while cached input tokens cost less. No API key required.
+
+### 2. Bring your own API key
+
+In [Settings → Connections](/features/settings#connections), paste your key for any of these providers:
+
+- **OpenAI** (`sk-...`)
+- **Anthropic** (`sk-ant-...`)
+- **Google AI Studio** (`AIza...`)
+- **Fireworks AI**
+- **Moonshot**
+
+Your key is stored encrypted and never exposed to the frontend.
+
+### 3. OAuth sign-in
+
+For OpenAI and Anthropic you can sign in via OAuth instead of pasting a key:
+
+- **Claude OAuth** — authorise Botflow to use your Anthropic account. Click **Connect with Claude** in Settings → Connections and follow the PKCE flow.
+- **Codex OAuth** — authorise Botflow to use your OpenAI account via a device-code flow. You'll be shown a short code to enter at `openai.com/device`.
+
+OAuth tokens are refreshed automatically and never exposed in the UI.
+
+## Writing good prompts
+
+### Be specific about what you want
+
+| Vague | Better |
+|-------|--------|
+| "Fix the login" | "The login form doesn't show an error when the password is wrong. Show a red message below the input." |
+| "Make it look nicer" | "Use a dark background (#0f0f0f), white text, and Inter font. Increase the card border radius to 12px." |
+| "Add a feature" | "Add a sidebar that lists all users from the /api/users endpoint and highlights the currently selected one." |
+
+### Ask for explanations
+
+```
+Explain what the useKanban hook does and why the state is structured that way
+```
+
+The agent will walk through the code in plain English — useful when you inherit an AI-generated project and want to understand it before editing.
+
+### Scope your requests
+
+The agent works best when asked to do one thing at a time. Instead of "refactor the entire app", try "refactor the card component to use a compound-component pattern".
+
+## Attaching images
+
+Models that support vision (GPT-5.3, GPT-5.4, Claude, Gemini) can accept images alongside your message. Click the **paperclip icon** in the input bar to attach a screenshot, mockup, or design file.
+
+Use cases:
+- "Make the UI look like this design" (attach a Figma export or screenshot)
+- "What's wrong with this error?" (attach a browser screenshot)
+- "Recreate this chart component" (attach a reference image)
+
+## Context window and Reset
+
+Every message you send adds to the conversation context. When the token counter approaches the model's limit, responses may become slower or less accurate. Click **Reset** in the toolbar to start a fresh conversation — your files are untouched, only the chat history is cleared.
+
+<Warning>
+Reset clears the entire chat history permanently. There is no undo. If you want to save a particularly useful exchange, copy it before resetting.
+</Warning>
+
+## Tool calls reference
+
+The agent uses a set of built-in tools to interact with your project. These are shown in the chat as expandable steps.
+
+| Tool | What it does |
+|------|-------------|
+| `readFile` | Reads the contents of a file |
+| `applyDiff` | Applies a targeted edit to a file (patch-style) |
+| `writeFile` | Writes an entire file |
+| `executeCommand` | Runs a shell command in the WebContainer |
+| `listFiles` | Lists files in a directory |
+| `grep` | Searches for a pattern across the project |
+| `refreshPreview` | Reloads the live preview after a change |
+| `endTurn` | Signals the agent has finished its task |

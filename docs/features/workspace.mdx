@@ -1,0 +1,99 @@
+---
+title: The Workspace
+description: A tour of every panel and control in the Botflow IDE.
+---
+
+<img
+  src="/images/workspace-overview.png"
+  alt="Botflow workspace overview"
+  style={{ borderRadius: '0.75rem' }}
+/>
+
+The workspace is where you spend most of your time in Botflow. It opens automatically when you create or re-open a project and has four main regions.
+
+## Toolbar
+
+The slim bar running across the top of the screen is your command center.
+
+| Control | What it does |
+|---------|-------------|
+| **Gear icon** | Opens [Settings](/features/settings) — API keys, usage, subscription |
+| **Credit gauge** | Shows your platform credit usage for the current period (Pro/Max only) |
+| **Model selector** | Picks the AI model for the agent |
+| **Reset** | Clears the current agent conversation (does not touch your files) |
+| **Preview / Code / Database** | Switches the right panel between the live preview, code editor, and Convex dashboard |
+| **Start / Stop** | Manually starts or stops the dev server |
+| **Sidebar toggle** | Hides or shows the file-tree sidebar in Code view |
+| **Download** | Downloads the entire project as a `.zip` file |
+| **GitHub** | Opens the [GitHub panel](/features/github) |
+| **Publish** | Opens the [Publish panel](/features/deploy) |
+
+## Left panel — AI agent
+
+The left panel contains the AI agent chat. It's always visible regardless of which view (Preview, Code, Database) is active on the right.
+
+- **Conversation history** — Every message you've sent and every reply the agent has made is preserved here for the life of the project.
+- **Tool calls** — Each agent step is shown as a collapsible row (e.g. `applyDiff`, `readFile`, `executeCommand`). Click any row to see exactly what the agent read or wrote.
+- **Input bar** — Type your next instruction at the bottom. Press `Enter` to send. Attach images with the paperclip icon (supported on GPT-5.3, GPT-5.4, Claude, and Gemini).
+- **Token counter** — Shows estimated context usage against the selected model's limit (e.g. `25.0k / 1000.0k`).
+
+## Right panel — Preview
+
+The default view shows your running application in an embedded browser frame. The address bar at the top lets you navigate to specific routes. Use the device icons to switch viewport:
+
+- **Desktop** — full width
+- **Tablet** — 768 px
+- **Mobile** — 390 px
+- **Responsive** — drag the handle to set any width
+- **Figma** — frame dimensions matching common Figma artboards
+
+See [Live Preview](/features/preview) for details.
+
+## Right panel — Code
+
+<img
+  src="/images/workspace-code.png"
+  alt="Workspace code view with file tree and terminal"
+  style={{ borderRadius: '0.75rem' }}
+/>
+
+Clicking the **Code** tab reveals:
+
+- **Sidebar** with three sub-tabs:
+  - **Files** — the project file tree. Click a file to open it; right-click for rename/delete options. You can also drag files from your computer into any folder.
+  - **Search** — full-text search across all project files.
+  - **ENV** — view and manage [environment variables](/features/env-vars).
+- **Editor** — Monaco editor for the selected file. Supports syntax highlighting, autocomplete, go-to-definition, and multi-cursor editing.
+- **Terminal** — one or more terminal tabs at the bottom. Each tab is an independent shell inside the WebContainer.
+
+See [Editor](/features/editor) and [Terminal](/features/editor#terminal) for more.
+
+## Right panel — Database
+
+Clicking **Database** embeds the Convex dashboard directly in the workspace. Browse tables, run queries, inspect function logs, and manage scheduled jobs without leaving the IDE.
+
+See [Convex Backend](/features/convex) for details.
+
+## Projects page
+
+<img
+  src="/images/projects-page.png"
+  alt="My Projects dashboard"
+  style={{ borderRadius: '0.75rem' }}
+/>
+
+The [My Projects](https://botflow.io/projects) page lists all your projects as cards showing:
+
+- **Thumbnail** — an auto-generated snapshot of the last preview render
+- **Platform badge** — Web, Universal, etc.
+- **Public badge** — shown when the project is publicly visible, with its star count
+- **Last opened date** and the model used to build it
+
+Click any card to open the project's workspace. Click the **⋯** menu on a card to:
+
+- Open the project
+- Open the **Database Manager** (if Convex is configured)
+- Toggle **public / private** visibility
+- **Copy share link** (public projects only)
+- **View public page**
+- **Delete** the project

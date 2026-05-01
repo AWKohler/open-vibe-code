@@ -1,24 +1,109 @@
 ---
 title: Quickstart
-description: Create your first project in under a minute.
+description: From zero to a running app in under two minutes.
 ---
 
-## 1. Create a project
+## 1. Open Botflow
 
-Sign in at [botflow.io](https://botflow.io) and click **New Project**. Choose a template — React, Next.js, or a blank Node.js starter.
+Go to [botflow.io](https://botflow.io) and sign in. First time? You can start with a free account — no credit card needed.
 
-## 2. Edit your code
+## 2. Describe your app
 
-The workspace opens with a file tree on the left, an editor in the center, and a live preview on the right. Every save re-runs your app instantly — no manual refresh needed.
-
-## 3. Use the AI assistant
-
-Open the AI panel and describe what you want to build. The assistant can create files, modify existing code, and explain what it did.
+On the homepage you'll see a prompt bar at the center of the screen. Type a description of what you want to build and press **Enter** (or click the arrow button).
 
 ```
-"Add a dark mode toggle to the navbar"
+Build me a kanban board with drag-and-drop columns and cards
 ```
 
-## 4. Deploy
+Below the prompt you can choose:
 
-When you're ready, click **Deploy** in the toolbar. Your app is published to a unique URL within seconds.
+- **Model** — the AI that will build your app. The default is GPT-5.3 Codex.
+- **Managed** / **Your key** — whether to use platform credits or your own API key.
+
+Press **Enter** and Botflow will scaffold a project, install dependencies, and open the workspace automatically.
+
+<Tip>
+The more specific your prompt, the better the first result. Include the tech you want ("with Convex for the backend"), the UI style ("dark theme, minimal"), and the core feature ("real-time updates across browser tabs").
+</Tip>
+
+## 3. The workspace
+
+<img
+  src="/images/workspace-overview.png"
+  alt="Botflow workspace — AI panel and live preview"
+  style={{ borderRadius: '0.75rem' }}
+/>
+
+The workspace has two main areas:
+
+- **Left panel** — the AI agent chat. Your build conversation lives here. The agent shows you exactly which files it touches (every `applyDiff`, `executeCommand`, and `readFile` call is listed as a collapsible step).
+- **Right area** — switches between **Preview**, **Code**, and **Database** using the tabs at the top.
+
+The **Preview** tab is active by default and shows your running app as the agent builds it.
+
+## 4. Edit code manually
+
+Click the **Code** tab at the top to open the editor view.
+
+<img
+  src="/images/workspace-code.png"
+  alt="Workspace code view — file tree, Monaco editor, and terminal"
+  style={{ borderRadius: '0.75rem' }}
+/>
+
+- **Files** — click any file in the left sidebar to open it in the Monaco editor.
+- **Terminal** — the panel at the bottom is a full WebContainer terminal. Run `pnpm install`, `pnpm dev`, or anything else.
+- **Save** — press `Cmd+S` / `Ctrl+S` or click the **Save** button in the toolbar.
+
+## 5. Iterate with the AI
+
+Switch back to the **Preview** tab and keep chatting with the agent. Some example follow-up prompts:
+
+```
+Add a dark mode toggle in the top-right corner
+```
+
+```
+The drag-and-drop is broken on mobile — fix it
+```
+
+```
+Explain what the useKanban hook does
+```
+
+The agent will read the relevant files, make targeted edits, re-run the dev server if needed, and reply with a summary of what changed.
+
+## 6. Deploy
+
+When you're happy with your app, click **Publish** in the top-right corner of the workspace.
+
+<Steps>
+  <Step title="Build">
+    Botflow runs `pnpm run build` (or the equivalent for your template) inside the WebContainer and bundles your app.
+  </Step>
+  <Step title="Upload">
+    The compiled output is sent to Cloudflare Pages.
+  </Step>
+  <Step title="Live URL">
+    Within seconds you'll get a unique URL like `your-app.pages.dev`. Share it with anyone — no account required to view.
+  </Step>
+</Steps>
+
+That's it. Your app is live on the global edge. For custom domains, automatic GitHub syncing, and more, keep reading the feature docs.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="AI Agent" icon="sparkles" href="/features/ai">
+    Learn how to get the best results from the AI
+  </Card>
+  <Card title="Deploy" icon="rocket" href="/features/deploy">
+    Custom domains and re-deployments
+  </Card>
+  <Card title="GitHub Sync" icon="github" href="/features/github">
+    Connect a repository to your project
+  </Card>
+  <Card title="Settings" icon="gear" href="/features/settings">
+    Add your own API keys
+  </Card>
+</CardGroup>

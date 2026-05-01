@@ -1,0 +1,58 @@
+---
+title: Live Preview
+description: See your app running in real time, in any viewport.
+---
+
+The **Preview** tab shows your application running inside a browser frame directly in the workspace. It updates automatically as the AI agent makes changes or as you save files manually.
+
+## Starting the dev server
+
+When you first open a project, the dev server may not be running. You'll see a **"Click to start dev server"** overlay on the preview. Click it (or click the **Start** button in the toolbar) to boot up the development environment.
+
+The **Start** button turns into a **Stop** button once the server is running. Click **Stop** to shut down the dev server — useful when you want to run a different command in the terminal or conserve resources.
+
+<Tip>
+The AI agent starts the dev server automatically when it needs to show you a live result. You rarely need to touch the Start/Stop button manually.
+</Tip>
+
+## Navigation bar
+
+At the top of the preview area you'll find a simple browser-like navigation bar:
+
+- **Path input** — shows the current route (e.g. `/`, `/about`, `/dashboard`). Edit it directly to navigate to a specific page.
+- **Open in new tab** — the arrow-out icon opens the current preview in a full browser tab so you can test it without the workspace chrome.
+- **Reload** — the refresh icon forces a hard reload of the preview without restarting the dev server.
+
+## Viewport modes
+
+Use the device icons to the right of the toolbar to switch viewport:
+
+| Icon | Mode | Width |
+|------|------|-------|
+| 🖥 Desktop | Full workspace width | Unconstrained |
+| Tablet | iPad-size | ~768 px |
+| 📱 Mobile | Phone-size | ~390 px |
+| ↔ Responsive | Free-drag | Any |
+| ☐ Figma | Artboard frames | Various |
+
+Viewport mode affects only the preview iframe — it does not change your code.
+
+## Auto-refresh on save
+
+Every time you save a file (`Cmd+S` / `Ctrl+S`), the dev server detects the change via hot module replacement (HMR) and the preview updates without a full page reload. React state is preserved across most HMR updates.
+
+If HMR isn't available for a particular change (e.g. a config file changed), the preview performs a full reload automatically.
+
+## Preview for mobile projects
+
+For **Universal** (Expo) projects, the preview defaults to a mobile-frame layout showing the web version of your Expo app. You can still switch to desktop mode to see how the web build fills a wider layout.
+
+<Note>
+Native iOS and Android builds require Expo's EAS Build service and are triggered from the [Publish panel](/features/deploy). The in-workspace preview always shows the web render.
+</Note>
+
+## Sharing the preview URL
+
+The preview URL is internal to your workspace session and not shareable. To give someone a live link, [deploy your app](/features/deploy) first.
+
+If your project is [marked as public](/features/explore), anyone can view a read-only version of your workspace at `botflow.io/p/your-project-slug`.

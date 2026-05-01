@@ -23,7 +23,25 @@
           },
           {
             "group": "Features",
-            "pages": ["features/editor", "features/ai", "features/deploy"]
+            "pages": [
+              "features/workspace",
+              "features/ai",
+              "features/editor",
+              "features/preview",
+              "features/convex",
+              "features/env-vars",
+              "features/github",
+              "features/deploy",
+              "features/settings"
+            ]
+          },
+          {
+            "group": "Community",
+            "pages": ["features/explore"]
+          },
+          {
+            "group": "Plans",
+            "pages": ["pricing"]
           }
         ]
       }
@@ -34,6 +52,11 @@
           "anchor": "Dashboard",
           "href": "https://botflow.io/projects",
           "icon": "grid-2"
+        },
+        {
+          "anchor": "Explore",
+          "href": "https://botflow.io/explore",
+          "icon": "compass"
         }
       ]
     }

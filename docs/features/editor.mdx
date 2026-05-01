@@ -1,6 +1,88 @@
 ---
-title: Editor
-description: Monaco-powered code editor with full language support.
+title: Editor & Terminal
+description: Monaco-powered code editing and a full in-browser terminal.
 ---
 
-The Botflow editor is built on Monaco (the same engine as VS Code). It supports syntax highlighting, autocomplete, and error detection for TypeScript, JavaScript, JSX, CSS, and more.
+<img
+  src="/images/workspace-code.png"
+  alt="Code editor with file tree, Monaco editor, and terminal"
+  style={{ borderRadius: '0.75rem' }}
+/>
+
+Click the **Code** tab at the top of the workspace to open the editor view. The right panel splits into a file sidebar and the editor/terminal area.
+
+## File tree
+
+The **Files** tab in the sidebar shows your entire project as a collapsible tree.
+
+- **Open a file** — click its name. The file opens in the Monaco editor.
+- **Expand / collapse folders** — click the folder icon or the disclosure arrow.
+- **Right-click a file or folder** for context-menu options (rename, delete).
+- **Drag files from your computer** into any folder in the tree to upload them. Text files (`.ts`, `.tsx`, `.json`, `.md`, etc.) are imported as UTF-8; binary files (images, fonts, WASM) are written as raw bytes.
+
+<Note>
+Large files (`.zip`, video, etc.) may be slow to upload because everything goes through the in-browser filesystem. Import only what your project actually needs.
+</Note>
+
+## Monaco editor
+
+The editor is built on [Monaco](https://microsoft.github.io/monaco-editor/) — the same engine that powers VS Code.
+
+**What it supports out of the box:**
+
+- Syntax highlighting for TypeScript, JavaScript, JSX, TSX, CSS, JSON, HTML, Markdown, and more
+- IntelliSense autocomplete based on the current file
+- Go-to-definition and hover documentation
+- Multi-cursor editing (`Cmd+D` / `Ctrl+D` to add a cursor at the next match)
+- Auto-closing brackets, quotes, and tags
+- Find and replace (`Cmd+H` / `Ctrl+H`)
+- Code folding on function and block boundaries
+
+**Saving your work:**
+
+Press `Cmd+S` (Mac) or `Ctrl+S` (Windows/Linux), or click the **Save** button that appears in the toolbar when there are unsaved changes. Saving writes the file to the WebContainer filesystem immediately — the dev server picks up the change and the preview reloads.
+
+<Warning>
+Files in the WebContainer filesystem are persisted to cloud storage periodically, but it's good practice to save regularly and use [GitHub sync](/features/github) if you're making important changes.
+</Warning>
+
+## File search
+
+Click the **Search** tab in the sidebar to do a full-text search across all files in your project. Type a query and results appear as you type, grouped by file with surrounding context lines. Click any result to jump directly to that line in the editor.
+
+## Terminal
+
+The terminal panel lives at the bottom of the Code view. It's a real shell running inside the WebContainer — you can run Node.js, `pnpm`, and any CLI tool that ships as a Node package.
+
+**Opening terminals:**
+
+- Click the **`>_` Terminal** tab to open the first terminal.
+- Click the **`+`** icon next to the terminal tab to open a second (or third) terminal in a new tab.
+- Multiple terminals run independently in parallel.
+
+**Common commands:**
+
+```bash
+# Install dependencies
+pnpm install
+
+# Start the dev server manually
+pnpm dev
+
+# Run tests
+pnpm test
+
+# Add a new package
+pnpm add zod
+
+# Check TypeScript types
+pnpm tsc --noEmit
+```
+
+**Limitations:**
+
+The WebContainer terminal supports Node.js-based tools natively. Some tools (like native binaries, Rust toolchains, or Python heavy scientific stacks) are not available because there is no Linux kernel — only a WASI-based Node.js runtime.
+
+## Downloading your project
+
+Click the **Download** button (arrow icon) in the top-right toolbar to export the entire project as a `.zip` file. This includes all source files, `node_modules` is excluded. Use this to move your project to a local machine or another host.

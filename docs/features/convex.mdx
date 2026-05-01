@@ -1,0 +1,111 @@
+---
+title: Convex Backend
+description: A real-time database and serverless functions, built into every project.
+---
+
+Every Botflow project that uses the **Web** or **Universal** template comes with [Convex](https://convex.dev) as its backend. Convex gives your app a typed database, reactive queries, serverless functions, scheduled jobs, and file storage — all defined in TypeScript alongside your frontend code.
+
+## What Convex gives you
+
+- **Real-time database** — a document store where data changes stream to connected clients the moment they happen. No polling, no manual cache invalidation.
+- **Typed queries and mutations** — reads and writes are TypeScript functions (`query`, `mutation`). Call them from React with `useQuery` and `useMutation`.
+- **Actions** — async server-side functions that can call external APIs, send emails, or do anything you can't do in a pure query.
+- **HTTP endpoints** — expose individual functions as REST endpoints for webhooks and third-party integrations.
+- **Scheduled jobs** — run a function on a recurring cron schedule or delay it to a specific time.
+- **File storage** — upload, store, and serve files through the same TypeScript API.
+
+## Accessing the database in the workspace
+
+Click the **Database** tab at the top of the workspace to open the embedded Convex dashboard.
+
+From here you can:
+- **Browse tables** — see all documents in every table, paginated
+- **Run queries** — call any query or mutation function with custom arguments
+- **Inspect logs** — view real-time function execution logs
+- **Manage scheduled jobs** — see pending and past cron jobs
+- **View the schema** — inspect the current `schema.ts` definition
+
+<Note>
+The Database tab shows the real Convex dashboard embedded in an iframe. Any changes you make here are immediately reflected in your live app.
+</Note>
+
+## How Convex is wired up per plan
+
+| Plan | What you get |
+|------|-------------|
+| **Free** | Bring your own Convex account. Connect it in [Settings → Connections](/features/settings#connections) and Botflow injects `VITE_CONVEX_URL` (or `EXPO_PUBLIC_CONVEX_URL`) automatically. |
+| **Pro** | A platform-managed Convex deployment per project. No setup needed — just build. |
+| **Max** | Same as Pro, with higher function limits and priority support. |
+
+## Connecting your own Convex (Free plan)
+
+1. Go to [dashboard.convex.dev](https://dashboard.convex.dev) and create a free Convex account.
+2. Create a new deployment in the Convex dashboard.
+3. In Botflow, go to **Settings → Connections** and click **Connect Convex**.
+4. Paste your Convex deployment URL.
+
+Botflow will inject the URL as an environment variable. The AI agent knows to use `VITE_CONVEX_URL` (or `EXPO_PUBLIC_CONVEX_URL` for mobile) when generating Convex client code.
+
+## Writing Convex code
+
+Convex schema, queries, mutations, and actions live in the `convex/` directory of your project. The AI agent writes and edits these files like any other source file.
+
+A typical Convex file structure:
+
+```
+convex/
+  schema.ts       # Table definitions with validators
+  tasks.ts        # Queries and mutations for the tasks table
+  auth.config.ts  # Auth configuration (if using Clerk)
+  _generated/     # Auto-generated API types (don't edit)
+```
+
+Example `convex/tasks.ts`:
+
+```typescript
+import { query, mutation } from "./_generated/server";
+import { v } from "convex/values";
+
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("tasks").order("desc").collect();
+  },
+});
+
+export const create = mutation({
+  args: { text: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("tasks", { text: args.text, completed: false });
+  },
+});
+```
+
+Call these from your React component:
+
+```tsx
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../convex/_generated/api";
+
+export function TaskList() {
+  const tasks = useQuery(api.tasks.list);
+  const create = useMutation(api.tasks.create);
+  // ...
+}
+```
+
+## Prompting the AI to use Convex
+
+The agent understands Convex and will use it automatically in Web and Universal projects. You can be explicit:
+
+```
+Add a Convex mutation that marks a task as complete. Update the task list component to call it when the checkbox is clicked.
+```
+
+```
+Add a scheduled job that sends a daily digest email via Resend at 9am UTC
+```
+
+```
+Create a Convex HTTP endpoint at /api/webhook/stripe that processes payment events
+```

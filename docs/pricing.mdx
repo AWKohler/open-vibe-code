@@ -1,0 +1,91 @@
+---
+title: Pricing
+description: Plans, credits, and what's included at each tier.
+---
+
+<img
+  src="/images/pricing-page.png"
+  alt="Botflow pricing page"
+  style={{ borderRadius: '0.75rem' }}
+/>
+
+Botflow has three plans: **Free**, **Pro**, and **Max**. You can start for free with no credit card required and upgrade at any time from inside the workspace.
+
+## Plans at a glance
+
+| | Free | Pro | Max |
+|---|---|---|---|
+| **Active projects** | 3 | 20 | Unlimited |
+| **AI agent** | ✓ | ✓ | ✓ |
+| **Bring your own model keys** | ✓ | ✓ | ✓ |
+| **Platform-managed credits** | — | Monthly allotment | Generous monthly allotment |
+| **Convex backend** | Bring your own | Platform-managed | Platform-managed |
+| **One-click Cloudflare deploy** | ✓ | ✓ | ✓ |
+| **GitHub sync** | ✓ | ✓ | ✓ |
+| **Custom domains** | — | ✓ | ✓ |
+| **Priority support** | — | — | ✓ |
+
+All plans include unlimited collaborators, encrypted secrets, and the full IDE.
+
+## Credits
+
+Platform-managed credits let you use Botflow's AI models without providing your own API keys. Credits are included on Pro and Max plans as a monthly allotment.
+
+### How credits are calculated
+
+Credits are normalised across models so you can switch models freely:
+
+- **MiniMax-M2.5** — 1 token = 1 credit
+- **Claude Sonnet 4 / GPT-5.3** — weighted proportionally (higher capability = higher cost per token)
+- **Cached input tokens** — cost significantly less than uncached tokens
+
+Credits reset on the first of each month.
+
+### Avoiding credit usage
+
+Any request made with **your own API keys** or via **Claude OAuth / Codex OAuth** does not draw from your platform credit balance. You can mix and match — use your own key for heavy tasks and platform credits for quick edits.
+
+See [Settings → Connections](/features/settings#connections) for how to add your own keys.
+
+## Convex
+
+Every project gets a Convex real-time backend. The difference between plans is who manages it:
+
+- **Free** — you connect your own Convex account (free at [convex.dev](https://convex.dev)) and paste the deployment URL into Settings. Botflow injects it automatically.
+- **Pro / Max** — Botflow provisions and manages a Convex deployment for each project. No setup required.
+
+See [Convex Backend](/features/convex) for details on what Convex provides.
+
+## Custom domains
+
+Custom domains let you serve your Cloudflare Pages deployment from your own domain (e.g. `myapp.com`). This feature is available on **Pro and Max** plans. See [Deploy → Custom domains](/features/deploy#custom-domains-pro-and-max) for setup instructions.
+
+## Upgrading, downgrading, and cancelling
+
+You can change your plan at any time from the **Subscription** tab in Settings. The pricing table is embedded directly — no need to navigate away from the workspace.
+
+- **Upgrading** — takes effect immediately. You're charged a prorated amount for the remainder of the billing period.
+- **Downgrading** — takes effect at the end of the current billing period.
+- **Cancelling** — your plan stays active until the end of the period. Your projects and data are preserved; you return to the Free tier limits.
+
+If you downgrade past the Free plan's 3-project limit, older projects move to read-only until you archive some or upgrade again. Nothing is deleted.
+
+## FAQ
+
+<AccordionGroup>
+  <Accordion title="Can I start without a credit card?">
+    Yes. The Free plan lets you build, run, and ship real projects without entering any payment info. You can always upgrade later from inside the workspace.
+  </Accordion>
+  <Accordion title="Do I have to use Botflow's AI credits?">
+    No. Every plan supports bringing your own keys for OpenAI, Anthropic, and Fireworks — or signing in with Claude or Codex OAuth. Use the platform credits when convenient and your own keys when you want zero markup.
+  </Accordion>
+  <Accordion title="What happens to my projects if I downgrade?">
+    Your projects stay live. If you exceed the lower plan's active-project limit, the oldest projects move to read-only until you archive a few or upgrade again — nothing is deleted.
+  </Accordion>
+  <Accordion title="Is Convex really included?">
+    Yes. On Pro and Max, every project gets a platform-managed Convex backend with real-time sync, typed functions, and the full Convex dashboard inside the IDE. On Free, you connect your own Convex account and Botflow wires it up automatically.
+  </Accordion>
+  <Accordion title="Can I cancel anytime?">
+    Yes. Cancel from the Subscription tab in Settings — your plan stays active until the end of the current billing period, and you keep everything you've built.
+  </Accordion>
+</AccordionGroup>

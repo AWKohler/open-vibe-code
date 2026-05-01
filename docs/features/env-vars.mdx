@@ -1,0 +1,61 @@
+---
+title: Environment Variables
+description: Manage secrets and configuration for your project.
+---
+
+The **ENV** tab (in the sidebar when Code view is active) lets you manage environment variables for your project. Variables are injected into the WebContainer's process environment and are available to your app at runtime.
+
+## Viewing variables
+
+Switch to **Code** view, then click the **ENV** tab in the left sidebar. The panel shows two sections:
+
+### System variables (read-only)
+
+These are set automatically by the platform and cannot be changed. A common example is `VITE_CONVEX_URL`, which is injected whenever your project has a Convex backend configured. Your app can read these like any other env variable.
+
+### User variables
+
+Variables you add yourself. These are persisted with the project and restored every time you open the workspace.
+
+## Adding a variable
+
+In the **ADD VARIABLE** section at the bottom of the ENV panel:
+
+1. Enter the **key** (automatically uppercased, e.g. `STRIPE_SECRET_KEY`).
+2. Enter the **value**.
+3. Optionally check **Mark as secret** — secret values are masked in the UI after saving and never shown in plaintext again.
+4. Click **+ Add**.
+
+The variable is immediately available in new terminal sessions and on the next dev server start. Running processes need to be restarted to pick up changes.
+
+<Tip>
+Prefix variables with `VITE_` (for Vite-based web projects) to make them accessible in browser-side code. Without the prefix, the variable is only available in Node.js/server contexts.
+</Tip>
+
+## Bulk import
+
+Click the **upload icon** at the top of the ENV panel to paste in a `.env` file's contents all at once. The format is standard dotenv:
+
+```
+DATABASE_URL=postgres://user:password@host/db
+STRIPE_SECRET_KEY=sk_live_...
+NEXT_PUBLIC_API_URL=https://api.example.com
+```
+
+All variables are parsed and added. Duplicates overwrite existing values.
+
+## Exporting variables
+
+Click the **download icon** to export all user variables as a `.env` file. Secrets are excluded from the export for security.
+
+## How variables are used
+
+- **Dev server** — variables are injected into the WebContainer's environment before the dev server starts. Your Vite or Next.js app can read them via `import.meta.env.VITE_*` or `process.env.*`.
+- **Deploy** — when you publish to Cloudflare Pages, user variables are bundled into the build environment. Secrets are passed as encrypted Cloudflare environment variables.
+- **AI agent** — the agent does not read variable values, only their keys. This means the agent can reference `VITE_CONVEX_URL` in generated code without ever seeing the actual URL.
+
+## Security
+
+- **Secrets** are stored encrypted in Botflow's database and are never included in exports or logs.
+- **Non-secret variables** are stored in plaintext and visible to anyone with access to the project.
+- Never put production secrets (payment keys, database passwords) in non-secret variables.

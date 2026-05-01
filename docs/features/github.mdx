@@ -1,0 +1,75 @@
+---
+title: GitHub Sync
+description: Connect a repository, commit changes, push, and pull — without leaving the workspace.
+---
+
+Botflow has a built-in GitHub integration that lets you version-control your project using a real Git workflow. You connect a repository once; after that, committing, pushing, and pulling are one click away.
+
+## Connecting GitHub
+
+1. Click the **GitHub** button (the octocat icon) in the top-right toolbar.
+2. If you haven't connected GitHub yet, you'll be prompted to authorise Botflow via GitHub OAuth. Click the link — you'll be redirected to GitHub and back automatically.
+3. After authorising, you'll see a list of your repositories and organisations.
+4. Select the repository you want to link to this project.
+
+<Note>
+You can connect a fresh empty repository or an existing one. If you connect an existing repository with files, Botflow will pull the default branch into your WebContainer.
+</Note>
+
+## Viewing the status
+
+Once a repository is connected, opening the GitHub panel shows a status summary:
+
+- **Branch** — the current branch name (matches the repository's default branch after connecting)
+- **Changed files** — a list of files that have been modified since the last commit (added, modified, deleted)
+- **Pending commits** — commits that have been created locally but not yet pushed to GitHub
+
+## Committing changes
+
+1. Open the **GitHub** panel.
+2. Review the list of changed files.
+3. Type a commit message in the input field.
+4. Click **Commit**.
+
+The commit is created and added to the pending-commits list. Your files are unchanged.
+
+## Pushing to GitHub
+
+After creating one or more commits, click **Push** to upload them to GitHub. Botflow uses the GitHub REST API to write files in batches — no `git` binary is needed in the WebContainer.
+
+<Tip>
+Push frequently to avoid divergence between your local workspace and the remote. If you're building something significant, push after each logical chunk of work.
+</Tip>
+
+## Pulling from GitHub
+
+If the remote branch has new commits (e.g. from a collaborator or from another device), click **Pull** to fetch and apply them.
+
+Botflow performs a three-way merge:
+
+1. It downloads the remote files.
+2. It compares them against your last-known remote state.
+3. It applies the diff to your local files.
+
+If the merge is clean, your WebContainer is updated silently. If there are conflicts, Botflow opens the **Conflict Resolution** dialog.
+
+## Resolving conflicts
+
+When a pull results in conflicting changes (the same file was modified both locally and remotely), the conflict modal lists each conflicted file and asks you to choose how to resolve it:
+
+- **Keep mine** — discard the remote change, keep your local version
+- **Use theirs** — discard your local change, apply the remote version
+- **Manual** — Botflow applies both sets of changes and you edit the resulting file in the editor
+
+After resolving all conflicts, the pull completes and you can continue working.
+
+## Disconnecting a repository
+
+To unlink the repository from this project, open the GitHub panel and click the **disconnect** option. This does not delete your GitHub repository or your local files — it simply removes the link so the GitHub panel no longer shows push/pull controls.
+
+## Tips
+
+- **One repository per project** — each Botflow project maps to a single GitHub repository (or a single branch of a repository).
+- **No `.git` folder needed** — Botflow's GitHub integration works via the GitHub API, not the `git` binary. You won't see a `.git` directory in your file tree.
+- **Large files** — GitHub has a 100 MB file size limit per file. Files larger than that will fail to push. Use [Git LFS](https://git-lfs.com) or keep large assets in cloud storage.
+- **Private repos** — fully supported. The OAuth token Botflow stores is scoped to repository read/write access only.

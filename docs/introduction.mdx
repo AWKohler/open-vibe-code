@@ -1,25 +1,62 @@
 ---
 title: Introduction
-description: Build and deploy full-stack apps directly in your browser with Botflow.
+description: Botflow is a browser-based IDE for building and deploying full-stack apps with AI.
 ---
+
+<img
+  src="/images/homepage.png"
+  alt="Botflow — From idea to production in one conversation"
+  style={{ borderRadius: '0.75rem' }}
+/>
 
 ## What is Botflow?
 
-Botflow is a browser-based IDE that lets you build, run, and deploy full-stack web applications without installing anything locally. Powered by WebContainers, your code runs in a real Node.js environment right inside the tab.
+Botflow is a browser-based IDE that lets you build, run, and deploy full-stack web applications without installing anything locally. Describe what you want to build in plain English, and the AI agent writes the code, installs packages, and shows you a live preview — all inside a single browser tab.
 
-## Key Features
+Under the hood, every project runs in a real Node.js environment powered by [WebContainers](https://webcontainers.io/). There is no virtual machine, no remote server spinning up for you — your code executes directly in your browser with full file system access, `pnpm`, and a proper terminal.
+
+## Key features
 
 <CardGroup cols={2}>
-  <Card title="In-Browser Editor" icon="code" href="/docs/features/editor">
-    Monaco-powered editor with syntax highlighting, autocomplete, and multi-file support.
+  <Card title="AI Agent" icon="sparkles" href="/features/ai">
+    Chat with GPT-5, Claude, Gemini, and more. The agent reads your files, writes targeted diffs, runs commands, and explains every change.
   </Card>
-  <Card title="AI Assistant" icon="sparkles" href="/docs/features/ai">
-    Generate, edit, and debug code with AI models from OpenAI and Anthropic.
+  <Card title="Monaco Editor" icon="code" href="/features/editor">
+    The same editor that powers VS Code — syntax highlighting, autocomplete, multi-file editing, and a built-in terminal.
   </Card>
-  <Card title="Live Preview" icon="eye" href="/docs/features/deploy">
-    See your app running instantly with a built-in preview pane and terminal.
+  <Card title="Live Preview" icon="eye" href="/features/preview">
+    See your app running instantly. Switch between desktop, tablet, and mobile viewports without leaving the workspace.
   </Card>
-  <Card title="One-Click Deploy" icon="rocket" href="/docs/features/deploy">
-    Publish your project to the web in seconds.
+  <Card title="One-Click Deploy" icon="rocket" href="/features/deploy">
+    Publish to Cloudflare's global edge network in seconds. Add a custom domain when you're ready to go production.
+  </Card>
+  <Card title="Convex Backend" icon="database" href="/features/convex">
+    Every project gets a real-time database and serverless functions — no setup required on Pro and Max plans.
+  </Card>
+  <Card title="GitHub Sync" icon="github" href="/features/github">
+    Connect a repository, commit your changes, push branches, and pull updates without leaving the IDE.
   </Card>
 </CardGroup>
+
+## How it works
+
+1. **Describe your app** — Type a prompt on the homepage. The AI agent scaffolds the project using a template that matches what you're building.
+2. **Build in your browser** — The workspace opens with a file tree, editor, and live preview. Chat with the agent to add features, fix bugs, or explain code.
+3. **Ship it** — Click **Publish** to deploy to Cloudflare Pages. Share the link. Done.
+
+## Platform types
+
+Botflow supports multiple project types, each with a tailored template:
+
+| Type | Stack | Use when |
+|------|-------|----------|
+| **Web** | Vite + React + Convex | Building web apps, dashboards, tools |
+| **Universal** | Expo + NativeWind + Convex | Targeting iOS, Android, and web from one codebase |
+
+## Bring your own model
+
+Every plan supports bringing your own API keys (OpenAI, Anthropic, Google, Fireworks, Moonshot) or signing in with Claude or Codex OAuth. You pay the provider directly with no markup. Pro and Max plans also include a monthly allotment of platform-managed credits so you can get started without wiring up a key.
+
+---
+
+Ready to build something? Head to the [Quickstart](/quickstart) or go straight to [botflow.io](https://botflow.io).

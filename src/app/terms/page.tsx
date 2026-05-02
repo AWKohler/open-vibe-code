@@ -22,14 +22,14 @@ export default function TermsPage() {
 
           <Section title="1. Agreement to Terms">
             <p>
-              These Terms of Service ("Terms") form a legally binding agreement between you and{" "}
-              <strong className="text-[var(--sand-text)]">Botflow LLC</strong> ("Botflow," "we,"
-              "us," or "our"), a limited liability company organized under the laws of North Carolina.
+              These Terms of Service (&quot;Terms&quot;) form a legally binding agreement between you and{" "}
+              <strong className="text-[var(--sand-text)]">Botflow LLC</strong> (&quot;Botflow,&quot; &quot;we,&quot;
+              &quot;us,&quot; or &quot;our&quot;), a limited liability company organized under the laws of North Carolina.
               By creating an account or using Botflow at{" "}
               <a href="https://botflow.io" className="text-[var(--sand-text)] hover:underline">
                 botflow.io
               </a>{" "}
-              (the "Service"), you agree to be bound by these Terms. If you do not agree, do not use
+              (the &quot;Service&quot;), you agree to be bound by these Terms. If you do not agree, do not use
               the Service.
             </p>
             <p className="mt-3">
@@ -103,7 +103,7 @@ export default function TermsPage() {
                 defamatory, obscene, or otherwise objectionable.
               </li>
               <li>
-                Attempt to gain unauthorized access to Botflow's systems or another user's account.
+                Attempt to gain unauthorized access to Botflow&apos;s systems or another user&apos;s account.
               </li>
               <li>
                 Reverse-engineer, decompile, or extract proprietary components of the platform beyond
@@ -177,7 +177,7 @@ export default function TermsPage() {
               When you connect your GitHub account, you authorize Botflow to act on your behalf using
               a GitHub OAuth token stored securely in our database. You remain responsible for all
               repository activity performed through Botflow. You can revoke this access at any time
-              from your GitHub account settings or from within Botflow's settings panel. Use of the
+              from your GitHub account settings or from within Botflow&apos;s settings panel. Use of the
               GitHub integration is also subject to{" "}
               <a
                 href="https://docs.github.com/en/site-policy/github-terms/github-terms-of-service"
@@ -185,7 +185,7 @@ export default function TermsPage() {
                 rel="noopener noreferrer"
                 className="text-[var(--sand-text)] hover:underline"
               >
-                GitHub's Terms of Service
+                GitHub&apos;s Terms of Service
               </a>
               .
             </p>
@@ -200,7 +200,7 @@ export default function TermsPage() {
               policy.
             </p>
             <p className="mt-3">
-              We reserve the right to change pricing with at least 30 days' notice. Continued use of
+              We reserve the right to change pricing with at least 30 days&apos; notice. Continued use of
               a paid plan after a price change takes effect constitutes acceptance of the new price.
               Failure to pay may result in suspension or downgrade of your account.
             </p>
@@ -218,7 +218,7 @@ export default function TermsPage() {
 
           <Section title="12. Disclaimers">
             <p>
-              THE SERVICE IS PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND,
+              THE SERVICE IS PROVIDED &quot;AS IS&quot; AND &quot;AS AVAILABLE&quot; WITHOUT WARRANTIES OF ANY KIND,
               EITHER EXPRESS OR IMPLIED. TO THE FULLEST EXTENT PERMITTED BY LAW, BOTFLOW DISCLAIMS
               ALL WARRANTIES, INCLUDING IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
               PARTICULAR PURPOSE, AND NON-INFRINGEMENT. WE DO NOT WARRANT THAT THE SERVICE WILL BE
@@ -271,7 +271,7 @@ export default function TermsPage() {
           <Section title="17. Changes to These Terms">
             <p>
               We may modify these Terms at any time. When we do, we will update the effective date at
-              the top of this page. If changes are material, we will provide at least 14 days' notice
+              the top of this page. If changes are material, we will provide at least 14 days&apos; notice
               via email or a notice within the platform. Continued use of the Service after changes
               take effect constitutes acceptance of the revised Terms.
             </p>

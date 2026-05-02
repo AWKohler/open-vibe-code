@@ -22,7 +22,7 @@ export default function PrivacyPage() {
 
           <Section title="1. Who We Are">
             <p>
-              Botflow LLC ("Botflow," "we," "us," or "our") is a limited liability company
+              Botflow LLC (&quot;Botflow,&quot; &quot;we,&quot; &quot;us,&quot; or &quot;our&quot;) is a limited liability company
               incorporated in North Carolina. We operate the Botflow platform, accessible at{" "}
               <a href="https://botflow.io" className="text-[var(--sand-text)] hover:underline">
                 botflow.io
@@ -68,7 +68,7 @@ export default function PrivacyPage() {
               <p>
                 If you upload assets to your projects, those files are processed and stored through{" "}
                 <strong className="text-[var(--sand-text)]">UploadThing</strong>, a third-party
-                file-handling service. Files you upload are stored on UploadThing's infrastructure.
+                file-handling service. Files you upload are stored on UploadThing&apos;s infrastructure.
               </p>
             </SubSection>
 
@@ -121,7 +121,7 @@ export default function PrivacyPage() {
             <SubSection title="2.6 Subscription & Billing">
               <p>
                 Subscription and billing are managed by Clerk. Payment card data is handled entirely by
-                Clerk's payment infrastructure and is never stored on Botflow's servers. We receive
+                Clerk&apos;s payment infrastructure and is never stored on Botflow&apos;s servers. We receive
                 information about your subscription plan (Free, Pro, or Max) and subscription status.
               </p>
             </SubSection>
@@ -184,7 +184,7 @@ export default function PrivacyPage() {
               We retain your account and project data for as long as your account remains active. If
               you delete your account, we will delete or anonymize your personal data within 90 days,
               except where we are required to retain it for legal or compliance purposes. Uploaded
-              files hosted by UploadThing are subject to UploadThing's own retention policies.
+              files hosted by UploadThing are subject to UploadThing&apos;s own retention policies.
             </p>
           </Section>
 

@@ -964,12 +964,12 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
     const slots = MAX_IMAGES - pendingImages.length;
     if (slots <= 0) {
-      toast({ title: `Maximum ${MAX_IMAGES} images per message`, variant: 'destructive' });
+      toast({ title: `Maximum ${MAX_IMAGES} images per message` });
       return;
     }
     const files = allFiles.slice(0, slots);
     if (files.length < allFiles.length) {
-      toast({ title: `Maximum ${MAX_IMAGES} images per message — ${allFiles.length - files.length} file(s) skipped`, variant: 'destructive' });
+      toast({ title: `Maximum ${MAX_IMAGES} images per message — ${allFiles.length - files.length} file(s) skipped` });
     }
 
     for (const file of files) {

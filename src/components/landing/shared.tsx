@@ -305,13 +305,13 @@ export function LandingFooter() {
             </span>
           </div>
           <div className="flex items-center gap-6 text-sm text-[var(--sand-text-muted)]">
-            <a href="#" className="hover:text-[var(--sand-text)] transition">
+            <a href="/privacy" className="hover:text-[var(--sand-text)] transition">
               Privacy
             </a>
-            <a href="#" className="hover:text-[var(--sand-text)] transition">
+            <a href="/terms" className="hover:text-[var(--sand-text)] transition">
               Terms
             </a>
-            <a href="#" className="hover:text-[var(--sand-text)] transition">
+            <a href="mailto:awkohler@botflow.io" className="hover:text-[var(--sand-text)] transition">
               Contact
             </a>
           </div>

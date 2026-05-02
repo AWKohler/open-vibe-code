@@ -128,7 +128,6 @@ function DetailView({
   onSelect: (i: number) => void;
 }) {
   const f = features[selected];
-  const Icon = f.icon;
 
   return (
     <>

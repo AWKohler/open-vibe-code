@@ -34,7 +34,6 @@ export function UsageBudgetBar({ model }: Props) {
 
   if (!status || status.pct < 80) return null;
 
-  const isNearLimit = status.pct >= 80 && status.pct < 100;
   const isAtLimit = status.pct >= 100;
 
   return (

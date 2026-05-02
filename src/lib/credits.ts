@@ -18,13 +18,6 @@ import type { Tier } from './tier';
 
 // ─── Env-var helpers ──────────────────────────────────────────────────────────
 
-function envFloat(key: string, fallback: number): number {
-  const v = process.env[key];
-  if (!v) return fallback;
-  const n = parseFloat(v);
-  return isNaN(n) ? fallback : n;
-}
-
 function envInt(key: string, fallback: number): number {
   const v = process.env[key];
   if (!v) return fallback;

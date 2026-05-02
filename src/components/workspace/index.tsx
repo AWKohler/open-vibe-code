@@ -481,7 +481,7 @@ export function Workspace({
         setIsInstalling(false);
       }
     },
-    [platform, toast],
+    [toast],
   );
 
   const startDevServer = useCallback(

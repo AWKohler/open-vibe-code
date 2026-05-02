@@ -747,9 +747,10 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           if (
             proj?.model === 'gpt-5.3-codex' ||
             proj?.model === 'gpt-5.4' ||
+            proj?.model === 'gpt-5.5' ||
             proj?.model === 'gpt-5.2' ||
             proj?.model === 'gpt-4.1' || // legacy migration
-            proj?.model === 'claude-sonnet-4-0' ||
+            proj?.model === 'claude-sonnet-4-6' ||
             proj?.model === 'claude-sonnet-4.5' ||
             proj?.model === 'claude-sonnet-4.6' ||
             proj?.model === 'claude-haiku-4.5' || // removed → sonnet
@@ -759,7 +760,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             proj?.model === 'claude-opus-4.5' ||
             proj?.model === 'kimi-k2.5' || // removed → minimax
             proj?.model === 'kimi-k2-thinking-turbo' || // removed → minimax
-            proj?.model === 'fireworks-minimax-m2p5' ||
+            proj?.model === 'fireworks-minimax-m2p7' ||
             proj?.model === 'fireworks-glm-5p1' ||
             proj?.model === 'fireworks-glm-5' || // legacy
             proj?.model === 'fireworks-kimi-k2p6' ||
@@ -767,14 +768,15 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           ) {
             const m = proj.model === 'gpt-4.1' ? 'gpt-5.3-codex'
               : proj.model === 'gpt-5.2' ? 'gpt-5.3-codex'
-              : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4-0'
-              : proj.model === 'claude-sonnet-4.6' ? 'claude-sonnet-4-0'
-              : proj.model === 'claude-haiku-4.5' ? 'claude-sonnet-4-0'
+              : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4-6'
+              : proj.model === 'claude-sonnet-4.6' ? 'claude-sonnet-4-6'
+              : proj.model === 'claude-haiku-4.5' ? 'claude-sonnet-4-6'
               : proj.model === 'claude-opus-4.5' ? 'claude-opus-4-7'
               : proj.model === 'claude-opus-4.6' ? 'claude-opus-4-7'
               : proj.model === 'claude-opus-4.7' ? 'claude-opus-4-7'
-              : proj.model === 'kimi-k2-thinking-turbo' ? 'fireworks-minimax-m2p5'
-              : proj.model === 'kimi-k2.5' ? 'fireworks-minimax-m2p5'
+              : proj.model === 'fireworks-minimax-m2p5' ? 'fireworks-minimax-m2p7'
+              : proj.model === 'kimi-k2-thinking-turbo' ? 'fireworks-minimax-m2p7'
+              : proj.model === 'kimi-k2.5' ? 'fireworks-minimax-m2p7'
               : proj.model;
             setModel(m as ModelId);
           }
@@ -875,7 +877,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     const hasImages = pendingImages.length > 0;
     if (!hasText && !hasImages) return;
 
-    const usingAnthropic = model === 'claude-sonnet-4-0' || model === 'claude-opus-4-7';
+    const usingAnthropic = model === 'claude-sonnet-4-6' || model === 'claude-opus-4-7';
     const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
     const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
     // Pro/Max users can use OpenAI and Anthropic models via platform server keys — only
@@ -953,11 +955,22 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   }, []);
 
   // --- Handle file selection for image attachments ---
+  const MAX_IMAGES = 10;
+
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    if (files.length === 0) return;
-    // Reset input so the same file can be selected again
+    const allFiles = Array.from(e.target.files ?? []);
+    if (allFiles.length === 0) return;
     e.target.value = '';
+
+    const slots = MAX_IMAGES - pendingImages.length;
+    if (slots <= 0) {
+      toast({ title: `Maximum ${MAX_IMAGES} images per message`, variant: 'destructive' });
+      return;
+    }
+    const files = allFiles.slice(0, slots);
+    if (files.length < allFiles.length) {
+      toast({ title: `Maximum ${MAX_IMAGES} images per message — ${allFiles.length - files.length} file(s) skipped`, variant: 'destructive' });
+    }
 
     for (const file of files) {
       const pendingId = crypto.randomUUID();
@@ -1004,7 +1017,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
       pendingUploadsRef.current.set(pendingId, uploadPromise);
     }
-  }, [projectId]);
+  }, [projectId, pendingImages, toast]);
 
   // --- Remove a pending image ---
   const handleRemoveImage = useCallback((pendingId: string) => {

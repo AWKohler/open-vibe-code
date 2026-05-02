@@ -28,12 +28,13 @@ const PROVIDER_LABELS: Record<string, string> = {
 
 /** Minimum tier required to use a model on server-side keys (must match backend MODEL_TIER_REQUIREMENT) */
 const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
-  'fireworks-minimax-m2p5': 'free',
+  'fireworks-minimax-m2p7': 'free',
   'fireworks-glm-5p1': 'free',
   'fireworks-kimi-k2p6': 'free',
   'gpt-5.3-codex': 'pro',       // Pro+ for server key; free requires BYOK/OAuth
   'gpt-5.4': 'pro',             // Pro+
-  'claude-sonnet-4-0': 'pro',   // Pro+
+  'gpt-5.5': 'pro',             // Pro+
+  'claude-sonnet-4-6': 'pro',   // Pro+
   'claude-opus-4-7': 'pro',     // Pro+
   'gemini-3.1-pro-preview': 'pro', // Pro+ for server key; free requires BYOK
 };
@@ -43,26 +44,28 @@ const MODEL_SERVER_TIER: Partial<Record<ModelId, 'free' | 'pro' | 'max'>> = {
  * Selecting these skips the "missing API key" BYOK check.
  */
 const SERVER_KEY_MODELS = new Set<ModelId>([
-  'fireworks-minimax-m2p5',
+  'fireworks-minimax-m2p7',
   'fireworks-glm-5p1',
   'fireworks-kimi-k2p6',
   'gpt-5.3-codex',
   'gpt-5.4',
-  'claude-sonnet-4-0',
+  'gpt-5.5',
+  'claude-sonnet-4-6',
   'claude-opus-4-7',
   'gemini-3.1-pro-preview',
 ]);
 
 /** Rounded per-model cost multiplier for user display */
 const MODEL_COST_LABEL: Record<ModelId, string> = {
-  'fireworks-minimax-m2p5': 'x1',
+  'fireworks-minimax-m2p7': 'x1',
   'fireworks-glm-5p1': 'x3',
   'fireworks-kimi-k2p6': 'x3',
   'gpt-5.3-codex': 'x4',
   'gemini-3.1-pro-preview': 'x5',
-  'claude-sonnet-4-0': 'x5',
+  'claude-sonnet-4-6': 'x5',
   'gpt-5.4': 'x6',
   'claude-opus-4-7': 'x10',
+  'gpt-5.5': 'x12',
 };
 
 const TIER_RANK: Record<string, number> = { free: 0, pro: 1, max: 2 };
@@ -76,14 +79,15 @@ function formatContextSize(tokens: number): string {
 
 // Order: cheapest → most expensive (by credit multiplier)
 const MODEL_ORDER: ModelId[] = [
-  'fireworks-minimax-m2p5',  // x1
+  'fireworks-minimax-m2p7',  // x1
   'fireworks-glm-5p1',         // x3
   'fireworks-kimi-k2p6',     // x3
   'gpt-5.3-codex',           // x4
   'gemini-3.1-pro-preview',  // x5
-  'claude-sonnet-4-0',       // x5
+  'claude-sonnet-4-6',       // x5
   'gpt-5.4',                 // x6
   'claude-opus-4-7',         // x10
+  'gpt-5.5',                 // x12
 ];
 
 export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className }: ModelSelectorProps) {

@@ -43,7 +43,7 @@ export default function Home() {
   const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState("");
   const [platform, setPlatform] = useState<ProjectPlatform>("web");
-  const [model, setModel] = useState<ModelId>("fireworks-minimax-m2p5");
+  const [model, setModel] = useState<ModelId>("fireworks-minimax-m2p7");
   const { toast } = useToast();
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
   const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);
@@ -79,12 +79,12 @@ export default function Home() {
     "gpt-5.3-codex",
     "gpt-5.4",
     "gpt-5.2", // legacy compat
-    "claude-sonnet-4-0",
+    "claude-sonnet-4-6",
     "claude-opus-4-7",
     "claude-sonnet-4.6", // legacy compat
     "claude-opus-4.7", // legacy compat
     "claude-opus-4.6", // legacy compat
-    "fireworks-minimax-m2p5",
+    "fireworks-minimax-m2p7",
     "fireworks-glm-5p1",
     "fireworks-glm-5", // legacy compat
     "fireworks-kimi-k2p6",
@@ -93,12 +93,12 @@ export default function Home() {
 
   // Models served via platform keys — don't require BYOK at project start
   const serverKeyModels = new Set([
-    "fireworks-minimax-m2p5",
+    "fireworks-minimax-m2p7",
     "fireworks-glm-5p1",
     "fireworks-kimi-k2p6",
     "gpt-5.3-codex",
     "gpt-5.4",
-    "claude-sonnet-4-0",
+    "claude-sonnet-4-6",
     "claude-opus-4-7",
     "gemini-3.1-pro-preview",
   ]);

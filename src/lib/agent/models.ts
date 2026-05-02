@@ -5,10 +5,11 @@
 export type ModelId =
   | "gpt-5.3-codex"
   | "gpt-5.4"
-  | "claude-sonnet-4-0"
+  | "gpt-5.5"
+  | "claude-sonnet-4-6"
   | "claude-opus-4-7"
   | "gemini-3.1-pro-preview"
-  | "fireworks-minimax-m2p5"
+  | "fireworks-minimax-m2p7"
   | "fireworks-glm-5p1"
   | "fireworks-kimi-k2p6";
 
@@ -47,15 +48,25 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     provider: "openai",
     apiModelId: "gpt-5.4",
     displayName: "GPT-5.4",
-    maxContextTokens: 400_000,
+    maxContextTokens: 1_000_000,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
     supportsImages: true,
   },
-  "claude-sonnet-4-0": {
-    id: "claude-sonnet-4-0",
+  "gpt-5.5": {
+    id: "gpt-5.5",
+    provider: "openai",
+    apiModelId: "gpt-5.5",
+    displayName: "GPT-5.5",
+    maxContextTokens: 1_000_000,
+    warnThreshold: 0.7,
+    criticalThreshold: 0.9,
+    supportsImages: true,
+  },
+  "claude-sonnet-4-6": {
+    id: "claude-sonnet-4-6",
     provider: "anthropic",
-    apiModelId: "claude-sonnet-4-0",
+    apiModelId: "claude-sonnet-4-6",
     displayName: "Claude Sonnet 4",
     maxContextTokens: 200_000,
     warnThreshold: 0.7,
@@ -82,12 +93,12 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     criticalThreshold: 0.9,
     supportsImages: true,
   },
-  "fireworks-minimax-m2p5": {
-    id: "fireworks-minimax-m2p5",
+  "fireworks-minimax-m2p7": {
+    id: "fireworks-minimax-m2p7",
     provider: "fireworks",
-    apiModelId: "accounts/fireworks/models/minimax-m2p5",
-    displayName: "MiniMax-M2.5",
-    maxContextTokens: 32_000,
+    apiModelId: "accounts/fireworks/models/minimax-m2p7",
+    displayName: "MiniMax-M2.7",
+    maxContextTokens: 196_600,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
     supportsImages: false,
@@ -117,26 +128,27 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     provider: "fireworks",
     apiModelId: "accounts/fireworks/models/kimi-k2p6",
     displayName: "Kimi K2.6",
-    maxContextTokens: 131_072,
+    maxContextTokens: 262_100,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,
-    supportsImages: false,
+    supportsImages: true,
   },
 };
 
 /** Resolve stored model value (handles legacy migrations) */
 export function resolveModelId(stored: string | null | undefined): ModelId {
-  if (stored === "claude-sonnet-4.5") return "claude-sonnet-4-0";
-  if (stored === "claude-sonnet-4.6") return "claude-sonnet-4-0";
+  if (stored === "claude-sonnet-4.5") return "claude-sonnet-4-6";
+  if (stored === "claude-sonnet-4.6") return "claude-sonnet-4-6";
   if (stored === "claude-opus-4.5") return "claude-opus-4-7";
   if (stored === "claude-opus-4.6") return "claude-opus-4-7";
   if (stored === "claude-opus-4.7") return "claude-opus-4-7";
   if (stored === "claude-opus-4-1") return "claude-opus-4-7"; // legacy rename
   if (stored === "gpt-4.1") return "gpt-5.3-codex"; // migrate legacy
   if (stored === "gpt-5.2") return "gpt-5.3-codex"; // migrate legacy
-  if (stored === "claude-haiku-4.5") return "claude-sonnet-4-0"; // removed model
-  if (stored === "kimi-k2.5") return "fireworks-minimax-m2p5"; // removed model
-  if (stored === "kimi-k2-thinking-turbo") return "fireworks-minimax-m2p5"; // removed model
+  if (stored === "claude-haiku-4.5") return "claude-sonnet-4-6"; // removed model
+  if (stored === "fireworks-minimax-m2p5") return "fireworks-minimax-m2p7"; // updated model
+  if (stored === "kimi-k2.5") return "fireworks-minimax-m2p7"; // removed model
+  if (stored === "kimi-k2-thinking-turbo") return "fireworks-minimax-m2p7"; // removed model
   if (stored === "fireworks-glm-5") return "fireworks-glm-5p1"; // updated model
   if (stored && stored in MODEL_CONFIGS) return stored as ModelId;
   return "gpt-5.3-codex";

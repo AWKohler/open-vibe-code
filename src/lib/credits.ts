@@ -46,9 +46,9 @@ interface ModelPricing {
 const BASE_PRICE = 0.30; // MiniMax input $/MTok — our credit base unit
 
 export const MODEL_PRICING: Record<string, ModelPricing> = {
-  'fireworks-minimax-m2p5': {
+  'fireworks-minimax-m2p7': {
     input:       0.30 / BASE_PRICE,   // 1.0
-    cachedInput: 0.03 / BASE_PRICE,   // 0.1
+    cachedInput: 0.06 / BASE_PRICE,   // 0.2
     output:      1.20 / BASE_PRICE,   // 4.0
   },
   // 'fireworks-glm-5': {
@@ -71,13 +71,18 @@ export const MODEL_PRICING: Record<string, ModelPricing> = {
     cachedInput: 0.175 / BASE_PRICE,  // 0.58
     output:      14.00 / BASE_PRICE,  // 46.67
   },
+  'gpt-5.5': {
+    input:       5.00 / BASE_PRICE,   // 16.67
+    cachedInput: 0.50 / BASE_PRICE,   // 1.67
+    output:      30.00 / BASE_PRICE,  // 100.0
+  },
   // GPT-5.4 ≤272K context — the >272K tier is handled in calculateCredits()
   'gpt-5.4': {
     input:       2.50 / BASE_PRICE,   // 8.33
     cachedInput: 0.25 / BASE_PRICE,   // 0.83
     output:      15.00 / BASE_PRICE,  // 50.0
   },
-  'claude-sonnet-4-0': {
+  'claude-sonnet-4-6': {
     input:       3.00 / BASE_PRICE,   // 10.0
     cachedInput: 0.30 / BASE_PRICE,   // 1.0  (cache hit/refresh)
     output:      15.00 / BASE_PRICE,  // 50.0
@@ -122,14 +127,15 @@ const GPT54_LONG_CONTEXT_THRESHOLD = 272_000;
  * Shown in model selector dropdown to give users a sense of relative cost.
  */
 export const MODEL_COST_MULTIPLIER: Record<ModelId, number> = {
-  'fireworks-minimax-m2p5': 1,
+  'fireworks-minimax-m2p7': 1,
   'fireworks-glm-5p1': 3,
   'fireworks-kimi-k2p6': 3,
   'gpt-5.3-codex': 4,
   'gemini-3.1-pro-preview': 5,
-  'claude-sonnet-4-0': 5,
+  'claude-sonnet-4-6': 5,
   'gpt-5.4': 6,
   'claude-opus-4-7': 10,
+  'gpt-5.5': 12,
 };
 
 export interface CreditCalculationInput {
@@ -150,7 +156,7 @@ export function calculateCredits(params: CreditCalculationInput): number {
   let pricing = MODEL_PRICING[model];
   if (!pricing) {
     // Fallback: treat as MiniMax pricing
-    pricing = MODEL_PRICING['fireworks-minimax-m2p5'];
+    pricing = MODEL_PRICING['fireworks-minimax-m2p7'];
   }
 
   // GPT-5.4: use higher pricing tier if total input context exceeds 272K
@@ -175,7 +181,7 @@ export function calculateCredits(params: CreditCalculationInput): number {
 
 /** @deprecated Use calculateCredits() instead */
 export function rawToCredits(tokens: number, model: ModelId): number {
-  const pricing = MODEL_PRICING[model] ?? MODEL_PRICING['fireworks-minimax-m2p5'];
+  const pricing = MODEL_PRICING[model] ?? MODEL_PRICING['fireworks-minimax-m2p7'];
   // Approximate: treat all tokens as uncached input (overestimates — prefer calculateCredits)
   return Math.ceil(tokens * pricing.input);
 }

@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/toast';
 import { X, ExternalLink, AlertTriangle, CheckCircle2, Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UsageTab } from './UsageTab';
+import { ANTHROPIC_OAUTH_ENABLED } from '@/lib/feature-flags';
 
 interface SettingsModalProps {
   open: boolean;
@@ -622,7 +623,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                     </div>
 
                     {/* ── Claude Code OAuth section ── */}
-                    <div>
+                    {ANTHROPIC_OAUTH_ENABLED && <div>
                       <div className="flex items-center justify-between mb-3">
                         <div>
                           <h3 className="text-sm font-semibold text-fg">Claude Code OAuth</h3>
@@ -773,7 +774,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                           </div>
                         </div>
                       )}
-                    </div>
+                    </div>}
 
                     {/* ── BYOK API Keys ── */}
                     <div>
@@ -785,7 +786,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                             Codex OAuth is active — OpenAI API key is used as fallback only.
                           </span>
                         )}
-                        {hasClaudeOAuth && (
+                        {ANTHROPIC_OAUTH_ENABLED && hasClaudeOAuth && (
                           <span className="ml-1 text-green-700 font-medium">
                             Claude Code OAuth is active — Anthropic API key is used as fallback only.
                           </span>
@@ -806,7 +807,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                                   fallback
                                 </span>
                               )}
-                              {provider === 'anthropic' && hasClaudeOAuth && (
+                              {ANTHROPIC_OAUTH_ENABLED && provider === 'anthropic' && hasClaudeOAuth && (
                                 <span className="inline-flex items-center rounded-full bg-elevated px-2 py-0.5 text-xs text-muted">
                                   fallback
                                 </span>

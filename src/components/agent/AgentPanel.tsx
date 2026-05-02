@@ -22,6 +22,7 @@ import type { AgentErrorType } from '@/lib/agent/errors';
 import { processImageForUpload } from '@/lib/image-processing';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import type { ProjectPlatform } from '@/lib/project-platform';
+import { ANTHROPIC_OAUTH_ENABLED } from '@/lib/feature-flags';
 
 type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: ProjectPlatform };
 
@@ -170,7 +171,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   // --- Provider access for ModelSelector ---
   const providerAccess = useMemo(() => ({
     openai: hasCodexOAuth || hasOpenAIKey || null,
-    anthropic: hasClaudeOAuth || hasAnthropicKey || null,
+    anthropic: (ANTHROPIC_OAUTH_ENABLED && hasClaudeOAuth) || hasAnthropicKey || null,
     fireworks: hasFireworksKey === true ? true : null,
     google: hasGoogleKey === true ? true : null,
   }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey, hasGoogleKey]);
@@ -878,7 +879,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     if (!hasText && !hasImages) return;
 
     const usingAnthropic = model === 'claude-sonnet-4-6' || model === 'claude-opus-4-7';
-    const hasAnthropicCreds = hasAnthropicKey || hasClaudeOAuth;
+    const hasAnthropicCreds = hasAnthropicKey || (ANTHROPIC_OAUTH_ENABLED && hasClaudeOAuth);
     const hasOpenAICreds = hasCodexOAuth || hasOpenAIKey;
     // Pro/Max users can use OpenAI and Anthropic models via platform server keys — only
     // block free-tier users who have no personal credentials for these providers.

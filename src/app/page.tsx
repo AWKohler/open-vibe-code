@@ -1985,13 +1985,15 @@ export default function LandingV2() {
               <div className="mt-4 flex flex-col items-center gap-3">
                 <div className="flex flex-col min-[390px]:flex-row items-center justify-center gap-2">
                   <SignedOut>
-                    <Link
-                      href="/sign-up"
-                      className="inline-flex items-center gap-1.5 sm:gap-2 whitespace-nowrap rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3 sm:px-3.5 py-1.5 text-[13px] sm:text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
-                    >
-                      <Anthropic className="h-4 w-4 shrink-0" />
-                      Sign in with Claude
-                    </Link>
+                    {process.env.NEXT_PUBLIC_ANTHROPIC_OAUTH_ENABLED === 'true' && (
+                      <Link
+                        href="/sign-up"
+                        className="inline-flex items-center gap-1.5 sm:gap-2 whitespace-nowrap rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3 sm:px-3.5 py-1.5 text-[13px] sm:text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"
+                      >
+                        <Anthropic className="h-4 w-4 shrink-0" />
+                        Sign in with Claude
+                      </Link>
+                    )}
                     <Link
                       href="/sign-up"
                       className="inline-flex items-center gap-1.5 sm:gap-2 whitespace-nowrap rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-3 sm:px-3.5 py-1.5 text-[13px] sm:text-sm font-medium shadow-sm hover:bg-[var(--sand-surface)] transition"

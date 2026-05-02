@@ -569,8 +569,11 @@ export async function POST(req: Request) {
       if (selectedModel === 'gemini-3.1-pro-preview') {
         return Boolean(creds.googleApiKey) && !process.env.GOOGLE_GENERATIVE_AI_API_KEY;
       }
-      // Anthropic models
-      return Boolean(creds.claudeOAuthAccessToken || creds.anthropicApiKey);
+      // Anthropic models — OAuth token only counts when the feature flag is on
+      return Boolean(
+        (process.env.NEXT_PUBLIC_ANTHROPIC_OAUTH_ENABLED === 'true' && creds.claudeOAuthAccessToken)
+        || creds.anthropicApiKey
+      );
     })();
 
     if (isServerKeyModel(selectedModel) && !isUsingPersonalCredentials) {

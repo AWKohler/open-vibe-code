@@ -779,13 +779,15 @@ export default function Home() {
                 </p> */}
                 <div className="flex items-center justify-center gap-1.5 sm:gap-2 mt-2">
                   <SignedOut>
-                    <Link
-                      href="/sign-up"
-                      className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
-                    >
-                      <Anthropic className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
-                      Sign in with Claude
-                    </Link>
+                    {process.env.NEXT_PUBLIC_ANTHROPIC_OAUTH_ENABLED === 'true' && (
+                      <Link
+                        href="/sign-up"
+                        className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
+                      >
+                        <Anthropic className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                        Sign in with Claude
+                      </Link>
+                    )}
                     <Link
                       href="/sign-up"
                       className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
@@ -795,14 +797,16 @@ export default function Home() {
                     </Link>
                   </SignedOut>
                   <SignedIn>
-                    <button
-                      type="button"
-                      onClick={() => { setSettingsDefaultTab('connections'); setShowSettings(true); }}
-                      className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
-                    >
-                      <Anthropic className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
-                      Sign in with Claude
-                    </button>
+                    {process.env.NEXT_PUBLIC_ANTHROPIC_OAUTH_ENABLED === 'true' && (
+                      <button
+                        type="button"
+                        onClick={() => { setSettingsDefaultTab('connections'); setShowSettings(true); }}
+                        className="whitespace-nowrap inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-border bg-elevated px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-[var(--sand-surface)] transition"
+                      >
+                        <Anthropic className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
+                        Sign in with Claude
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => { setSettingsDefaultTab('connections'); setShowSettings(true); }}

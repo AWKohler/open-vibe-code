@@ -20,7 +20,7 @@ The slim bar running across the top of the screen is your command center.
 | **Gear icon** | Opens [Settings](/features/settings) — API keys, usage, subscription |
 | **Credit gauge** | Shows your platform credit usage for the current period (Pro/Max only) |
 | **Model selector** | Picks the AI model for the agent |
-| **Reset** | Clears the current agent conversation (does not touch your files) |
+| **Reset** | Clears the current agent conversation. Your files are **not** affected — only the chat history is cleared. |
 | **Preview / Code / Database** | Switches the right panel between the live preview, code editor, and Convex dashboard |
 | **Start / Stop** | Manually starts or stops the dev server |
 | **Sidebar toggle** | Hides or shows the file-tree sidebar in Code view |
@@ -85,7 +85,7 @@ See [Convex Backend](/features/convex) for details.
 The [My Projects](https://botflow.io/projects) page lists all your projects as cards showing:
 
 - **Thumbnail** — an auto-generated snapshot of the last preview render
-- **Platform badge** — Web, Universal, etc.
+- **Platform badge** — Web or Universal
 - **Public badge** — shown when the project is publicly visible, with its star count
 - **Last opened date** and the model used to build it
 
@@ -97,3 +97,79 @@ Click any card to open the project's workspace. Click the **⋯** menu on a card
 - **Copy share link** (public projects only)
 - **View public page**
 - **Delete** the project
+
+## Project persistence & backup
+
+Your work is automatically saved as you go, but it's important to understand how Botflow handles persistence:
+
+### Auto-save
+
+- **File edits** — Files are saved to the WebContainer filesystem immediately when you press `Cmd+S` / `Ctrl+S`
+- **Cloud backup** — Changes are synced to cloud storage periodically (every few minutes) and when you close the workspace
+- **Environment variables** — Saved immediately when added or updated
+
+### What happens if I close the tab?
+
+If you close the browser tab without saving:
+- **Unsaved files** — Any changes since your last `Cmd+S` / `Ctrl+S` will be lost
+- **Saved files** — Already-saved files are preserved and will be there when you return
+- **Terminal state** — Running processes stop, but command history is not preserved
+
+### How long are projects stored?
+
+- **Active projects** — Projects you've opened recently are always available
+- **Inactive projects** — Projects you haven't opened in 30+ days may be archived (you'll be notified before deletion)
+- **Deleted projects** — Once deleted, projects cannot be recovered
+
+### Best practices for backup
+
+1. **Save frequently** — Get in the habit of pressing `Cmd+S` / `Ctrl+S` after every meaningful change
+2. **Use GitHub sync** — Connect your project to GitHub for version control and off-site backup. See [GitHub Sync](/features/github)
+3. **Download important projects** — Use the Download button to export a `.zip` backup of critical projects
+4. **Don't rely solely on auto-save** — Treat Botflow like any development environment: save early, save often
+
+<Warning>
+Botflow is designed for active development, not long-term storage. For important projects, always use GitHub sync or maintain local backups.
+</Warning>
+
+## Limits & quotas
+
+Understanding Botflow's limits helps you plan your projects effectively.
+
+### Project limits
+
+| Plan | Active projects | Max files per project | Max project size |
+|------|-----------------|----------------------|------------------|
+| **Free** | 3 | 500 | 50 MB |
+| **Pro** | 20 | 1,000 | 100 MB |
+| **Max** | Unlimited | 2,000 | 200 MB |
+
+**Active projects** count toward your limit when you've opened them in the last 30 days. Older projects move to archived status and don't count toward your limit (you can reactivate them anytime).
+
+### File limits
+
+- **Max file size** — 10 MB per individual file
+- **Large file warning** — Files over 1 MB may be slow to load and edit
+- **Binary files** — Images, fonts, and WASM files count toward your project size but can't be edited in the editor
+
+### Session limits
+
+- **Idle timeout** — Workspaces automatically hibernate after 30 minutes of inactivity to save resources. Your files are saved before hibernation.
+- **Session duration** — Maximum continuous session is 8 hours. After that, refresh the page to continue.
+- **Concurrent workspaces** — You can only have one workspace open per browser tab, but you can open multiple tabs with different projects.
+
+### AI agent limits
+
+- **Context window** — Varies by model (see [AI Agent → Models](/features/ai#models))
+- **Rate limits** — To prevent abuse, there's a limit of 60 AI requests per minute. This is rarely hit during normal use.
+- **File reads per request** — The agent can read up to 50 files per request to understand your codebase
+
+### Deployment limits
+
+- **Build timeout** — 10 minutes max for Cloudflare Pages builds
+- **Deployments per day** — Unlimited, but frequent deploys (more than 100/day) may be rate-limited
+- **Bandwidth** — Cloudflare Pages includes generous bandwidth; contact support if you expect >100GB/month
+
+<Note>
+Need higher limits? Max plan users can request limit increases for specific use cases. Contact support from the Settings modal.
+</Note>

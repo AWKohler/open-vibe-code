@@ -1,0 +1,202 @@
+---
+title: Troubleshooting
+description: Common issues and how to resolve them.
+---
+
+Running into problems? This guide covers the most common issues and how to fix them.
+
+## WebContainer won't start
+
+### "SharedArrayBuffer is not available"
+
+WebContainers require cross-origin isolation headers to access `SharedArrayBuffer`, which is essential for running Node.js in the browser.
+
+**Symptoms:**
+- Black screen when opening a workspace
+- Console error: `SharedArrayBuffer is not defined`
+- Preview shows an error about cross-origin isolation
+
+**Solutions:**
+1. **Try a different browser** — Chrome, Edge, and Brave have the best support. Firefox and Safari have limited or no support.
+2. **Disable browser extensions** — Some extensions (especially privacy or security tools) can interfere with the required headers.
+3. **Check your network** — If you're behind a corporate proxy or firewall, it may be stripping headers. Try a different network.
+4. **Clear site data** — In Chrome: Settings → Privacy → Clear browsing data → select "Cached images and files" → Clear data.
+
+<Note>
+WebContainers require a secure context (HTTPS). The production app at botflow.io always uses HTTPS. Local development requires additional configuration.
+</Note>
+
+### Dev server fails to start
+
+**Symptoms:**
+- Preview shows "Failed to start dev server"
+- Terminal shows an error like `Port 5173 is already in use` or `Missing required environment variable`
+
+**Solutions:**
+1. **Check the terminal** — Click the Terminal tab at the bottom of Code view to see the full error output.
+2. **Restart the dev server** — Click the Stop button, wait a few seconds, then click Start again.
+3. **Check environment variables** — Open the ENV tab and verify all required variables are set (e.g., `VITE_CONVEX_URL`, API keys).
+4. **Reinstall dependencies** — In the terminal, run:
+   ```bash
+   rm -rf node_modules
+   pnpm install
+   pnpm dev
+   ```
+5. **Reset the workspace** — If the filesystem is corrupted, download your files (Download button), delete the project, and create a new one.
+
+---
+
+## AI agent issues
+
+### Agent gets stuck in a loop
+
+**Symptoms:**
+- The agent keeps making the same change repeatedly
+- It fails to complete a task after multiple attempts
+- Tool calls repeat with the same parameters
+
+**Solutions:**
+1. **Be more specific** — Vague prompts like "fix it" can lead to loops. Try: "Fix the TypeError on line 23 by adding a null check before accessing user.name"
+2. **Break the task down** — Instead of "refactor the entire auth system", try "Extract the login form into a separate component"
+3. **Reset the conversation** — Click **Reset** in the toolbar to clear the chat history. Your files are not affected.
+4. **Switch models** — Some models handle certain tasks better. Try switching from the default to Claude or vice versa.
+
+### Agent makes incorrect changes
+
+**Solutions:**
+1. **Undo immediately** — Press `Cmd+Z` / `Ctrl+Z` in the editor to revert the last edit.
+2. **Tell the agent what went wrong** — Example: "You deleted the useEffect hook, but it's needed for the subscription. Add it back."
+3. **Use version control** — If you have GitHub connected, you can revert to a previous commit. See [GitHub Sync](/features/github).
+
+---
+
+## Preview issues
+
+### Preview shows a blank screen
+
+**Possible causes:**
+- JavaScript error in your app
+- Missing environment variables
+- Dev server not running
+
+**Solutions:**
+1. **Open browser dev tools** — Right-click the preview → Inspect → Check the Console tab for errors.
+2. **Check the terminal** — Look for build errors or runtime crashes.
+3. **Verify the route** — The path input at the top of the preview might be set to a route that doesn't exist. Change it to `/`.
+4. **Hard reload** — Click the reload icon in the preview navigation bar.
+
+### Preview doesn't update on save
+
+**Solutions:**
+1. **Check HMR** — Not all changes trigger hot module replacement. Config files and some CSS changes require a full reload.
+2. **Manually reload** — Click the reload icon in the preview navigation bar.
+3. **Restart the dev server** — Stop and restart to pick up all changes.
+
+---
+
+## GitHub sync issues
+
+### Push fails
+
+**Symptoms:**
+- Error: "Failed to push to GitHub"
+- "Conflict detected" message
+
+**Solutions:**
+1. **Check your connection** — Verify you're online and GitHub is accessible.
+2. **Pull first** — If the remote has new commits, pull them before pushing. Click **Pull** in the GitHub panel.
+3. **Resolve conflicts** — If there are merge conflicts, use the Conflict Resolution dialog to choose which version to keep.
+4. **Re-authenticate** — Disconnect and reconnect GitHub in the GitHub panel.
+
+### Pull shows conflicts
+
+When your local files and the remote repository both have changes to the same file, you'll need to resolve conflicts.
+
+**Solutions:**
+1. **Review each conflicted file** — The conflict modal lists all files with conflicts.
+2. **Choose a resolution:**
+   - **Keep mine** — Use your local version, discard the remote change
+   - **Use theirs** — Use the remote version, discard your local change
+   - **Manual** — Apply both and edit the result in the editor
+3. **Complete the pull** — After resolving all conflicts, the pull finishes automatically.
+
+---
+
+## Deployment issues
+
+### Build fails during deploy
+
+**Symptoms:**
+- Publish panel shows "Build failed"
+- Error message about missing files or failed commands
+
+**Solutions:**
+1. **Check the build locally first** — Run `pnpm build` in the terminal. If it fails locally, it will fail on deploy.
+2. **Verify environment variables** — Open the ENV tab and ensure all required variables are set.
+3. **Check the build output directory** — Botflow auto-detects `dist/`, `out/`, or `.next/`. If your build outputs elsewhere, adjust your config.
+4. **Review the error log** — The Publish panel shows the full build output. Look for the specific error.
+
+### Deploy succeeds but app is broken
+
+**Symptoms:**
+- Deploy completes successfully
+- Live URL shows errors or blank screen
+
+**Solutions:**
+1. **Check environment variables** — Production builds may require different variables than dev. Verify all required vars are set in the ENV tab.
+2. **Test the build output** — After running `pnpm build`, run `pnpm preview` (if available) to test the production build locally.
+3. **Check browser console** — Open dev tools on the live URL to see runtime errors.
+
+---
+
+## Account & billing issues
+
+### Can't create new projects
+
+**Possible causes:**
+- You've hit the active project limit for your plan
+- Temporary service issue
+
+**Solutions:**
+1. **Check your project count** — Go to [My Projects](https://botflow.io/projects) and count your active projects.
+2. **Archive or delete old projects** — Free plan is limited to 3 active projects. Archive or delete projects you're not using.
+3. **Upgrade your plan** — If you need more active projects, consider upgrading to Pro or Max. See [Pricing](/pricing).
+
+### Credits ran out
+
+**Solutions:**
+1. **Use your own API key** — Requests with your own API key or OAuth don't use platform credits. See [Settings → Connections](/features/settings#connections).
+2. **Wait for reset** — Credits reset on the 1st of each month.
+3. **Upgrade your plan** — Higher plans include more monthly credits. See [Pricing](/pricing).
+
+---
+
+## Browser compatibility
+
+Botflow requires a modern browser with WebContainer support.
+
+**Supported browsers:**
+- ✅ Chrome 119+ (recommended)
+- ✅ Edge 119+
+- ✅ Brave 1.60+
+- ⚠️ Firefox (limited support, some features may not work)
+- ❌ Safari (not supported)
+
+**Required features:**
+- `SharedArrayBuffer` with cross-origin isolation
+- WebAssembly (WASM)
+- Service Workers
+
+<Note>
+For the best experience, use the latest version of Chrome or Edge on desktop. Mobile browsers are not supported for running workspaces, but you can view deployed apps on any device.
+</Note>
+
+---
+
+## Still having issues?
+
+If you can't find a solution here, try these resources:
+
+- **[Explore](/explore)** — Browse public projects to see working examples
+- **[Dashboard](https://botflow.io/projects)** — Check your project status
+- **Contact support** — Max plan users get priority support

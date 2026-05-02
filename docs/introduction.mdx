@@ -13,7 +13,11 @@ description: Botflow is a browser-based IDE for building and deploying full-stac
 
 Botflow is a browser-based IDE that lets you build, run, and deploy full-stack web applications without installing anything locally. Describe what you want to build in plain English, and the AI agent writes the code, installs packages, and shows you a live preview — all inside a single browser tab.
 
-Under the hood, every project runs in a real Node.js environment powered by [WebContainers](https://webcontainers.io/). There is no virtual machine, no remote server spinning up for you — your code executes directly in your browser with full file system access, `pnpm`, and a proper terminal.
+Under the hood, every project runs in a real Node.js environment powered by [WebContainers](https://webcontainers.io/) — a technology that runs Node.js directly in your browser using WebAssembly. There is no virtual machine, no remote server spinning up for you — your code executes directly in your browser with full file system access, `pnpm`, and a proper terminal.
+
+<Note>
+**What are WebContainers?** WebContainers are a breakthrough technology that lets Node.js run entirely in your browser. They provide a full filesystem, terminal, and dev server without sending your code to a remote server. Everything stays in your browser tab. Learn more at [webcontainers.io](https://webcontainers.io).
+</Note>
 
 ## Key features
 
@@ -50,8 +54,27 @@ Botflow supports multiple project types, each with a tailored template:
 
 | Type | Stack | Use when |
 |------|-------|----------|
-| **Web** | Vite + React + Convex | Building web apps, dashboards, tools |
-| **Universal** | Expo + NativeWind + Convex | Targeting iOS, Android, and web from one codebase |
+| **Web** | Vite + React + Convex | Building web apps, dashboards, SaaS products, internal tools |
+| **Universal** | Expo + NativeWind + Convex | Targeting iOS, Android, and web from a single TypeScript codebase |
+
+**Web projects** include:
+- Vite for fast dev server and optimized builds
+- React with TypeScript
+- Tailwind CSS for styling
+- Convex for real-time backend (Pro/Max plans include managed Convex; Free plan users connect their own)
+- Pre-configured for deployment to Cloudflare Pages
+
+**Universal projects** include:
+- Expo for cross-platform development
+- NativeWind for Tailwind-style styling on native
+- React Native for iOS and Android
+- React Native Web for browser support
+- Convex for real-time backend
+- One codebase that compiles to iOS, Android, and web
+
+<Note>
+Universal projects show a web preview in the workspace. To build native iOS and Android apps, use the Publish panel to trigger Expo EAS Build. See [Deploy](/features/deploy).
+</Note>
 
 ## Bring your own model
 

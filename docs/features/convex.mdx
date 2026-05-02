@@ -44,7 +44,11 @@ The Database tab shows the real Convex dashboard embedded in an iframe. Any chan
 3. In Botflow, go to **Settings → Connections** and click **Connect Convex**.
 4. Paste your Convex deployment URL.
 
-Botflow will inject the URL as an environment variable. The AI agent knows to use `VITE_CONVEX_URL` (or `EXPO_PUBLIC_CONVEX_URL` for mobile) when generating Convex client code.
+Botflow will inject the URL as an environment variable (`VITE_CONVEX_URL` or `EXPO_PUBLIC_CONVEX_URL`). The AI agent automatically uses this variable when generating Convex client code.
+
+<Note>
+After connecting Convex, the **Database** tab becomes available in your workspace. See [Workspace → Database](/features/workspace#right-panel--database) for details on using the Convex dashboard.
+</Note>
 
 ## Writing Convex code
 

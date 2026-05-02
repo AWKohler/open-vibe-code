@@ -32,7 +32,8 @@
               "features/env-vars",
               "features/github",
               "features/deploy",
-              "features/settings"
+              "features/settings",
+              "features/troubleshooting"
             ]
           },
           {

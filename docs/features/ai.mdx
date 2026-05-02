@@ -86,6 +86,110 @@ The agent will walk through the code in plain English — useful when you inheri
 
 The agent works best when asked to do one thing at a time. Instead of "refactor the entire app", try "refactor the card component to use a compound-component pattern".
 
+## Example prompts by task
+
+### Adding new features
+
+```
+Add a new page at /pricing with three pricing tiers: Free, Pro, and Max. Use a card layout with feature comparison checkboxes.
+```
+
+```
+Create a contact form that sends submissions to a Convex HTTP endpoint. Include validation for email format and required fields.
+```
+
+```
+Add dark mode support using Tailwind's dark variant. Add a toggle in the navbar that persists the preference in localStorage.
+```
+
+### Fixing bugs
+
+```
+The app crashes with "Cannot read properties of undefined" when loading the dashboard. Find the issue and fix it.
+```
+
+```
+The submit button stays disabled even when all fields are filled. Check the form validation logic and fix it.
+```
+
+```
+Memory leak warning in the console when navigating away from the chart page. Find and clean up the subscription.
+```
+
+### Refactoring code
+
+```
+Extract the user card into a separate component at components/UserCard.tsx. Keep the same props interface.
+```
+
+```
+Convert this class component to a functional component with hooks. Preserve all existing behavior.
+```
+
+```
+Split the large utils.ts file into smaller modules: date.ts, string.ts, and validation.ts. Update all imports.
+```
+
+### Integrating APIs
+
+```
+Add Stripe checkout for the Pro plan. Create a Convex action that creates a checkout session and returns the URL.
+```
+
+```
+Integrate the GitHub API to fetch the user's repositories. Display them in a grid with star count and description.
+```
+
+```
+Add Resend email integration. Create a Convex function that sends a welcome email when a new user signs up.
+```
+
+### Working with Convex
+
+```
+Add a Convex schema for a blog with posts and comments. Each post has a title, content, authorId, and publishedAt.
+```
+
+```
+Create a real-time query that shows online users. Update the presence every 30 seconds.
+```
+
+```
+Add a scheduled job that runs every hour and sends a digest email with new posts.
+```
+
+### Debugging assistance
+
+```
+I'm getting a CORS error when calling the API from the frontend. What's causing this and how do I fix it?
+```
+
+```
+The build is failing with a TypeScript error in the auth module. Here's the error: [paste error]. Fix it.
+```
+
+```
+Why is this useEffect running twice on mount? Is this normal in React 18?
+```
+
+### Undoing changes
+
+```
+Undo that last change — it broke the layout. Revert to the previous version.
+```
+
+```
+You deleted the wrong file. Restore the components/Button.tsx file from before your last edit.
+```
+
+```
+Stop what you're doing and go back to the version before you started refactoring.
+```
+
+<Note>
+The agent can only work with files in your current project. If you reference external code or documentation, paste the relevant snippets into the chat or attach a screenshot.
+</Note>
+
 ## Attaching images
 
 Models that support vision (GPT-5.3, GPT-5.4, Claude, Gemini) can accept images alongside your message. Click the **paperclip icon** in the input bar to attach a screenshot, mockup, or design file.

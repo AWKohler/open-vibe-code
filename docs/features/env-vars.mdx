@@ -54,8 +54,70 @@ Click the **download icon** to export all user variables as a `.env` file. Secre
 - **Deploy** — when you publish to Cloudflare Pages, user variables are bundled into the build environment. Secrets are passed as encrypted Cloudflare environment variables.
 - **AI agent** — the agent does not read variable values, only their keys. This means the agent can reference `VITE_CONVEX_URL` in generated code without ever seeing the actual URL.
 
+## Environment variables reference
+
+### System-injected variables
+
+These variables are set automatically by the platform based on your project configuration:
+
+| Variable | Description | Injected when |
+|----------|-------------|---------------|
+| `VITE_CONVEX_URL` | Convex backend URL for web projects | Project has Convex configured |
+| `EXPO_PUBLIC_CONVEX_URL` | Convex backend URL for Expo/mobile projects | Universal project with Convex |
+| `VITE_UPLOADTHING_TOKEN` | UploadThing file upload token | Project uses UploadThing |
+
+### Framework-specific prefixes
+
+Different frameworks expose environment variables to client-side code differently:
+
+**Vite projects:**
+- Prefix with `VITE_` to expose to browser code
+- Example: `VITE_API_URL` → accessible via `import.meta.env.VITE_API_URL`
+- Without prefix: only available in Node.js/server code via `process.env`
+
+**Next.js projects:**
+- Prefix with `NEXT_PUBLIC_` to expose to browser code
+- Example: `NEXT_PUBLIC_API_URL` → accessible via `process.env.NEXT_PUBLIC_API_URL`
+- Without prefix: only available on the server via `process.env`
+
+**Expo/React Native projects:**
+- Prefix with `EXPO_PUBLIC_` to expose to app code
+- Example: `EXPO_PUBLIC_API_URL` → accessible via `process.env.EXPO_PUBLIC_API_URL`
+
+### Usage examples
+
+**Vite + React:**
+```tsx
+// Access in component
+const apiUrl = import.meta.env.VITE_API_URL;
+
+// Conditional rendering based on env
+const isDevelopment = import.meta.env.DEV;
+```
+
+**Next.js:**
+```tsx
+// Server-side (getServerSideProps, API routes)
+export async function getServerSideProps() {
+  const apiKey = process.env.STRIPE_SECRET_KEY;
+  return { props: {} };
+}
+
+// Client-side
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+```
+
+**Expo:**
+```tsx
+import Constants from 'expo-constants';
+
+const apiUrl = Constants.expoConfig?.extra?.apiUrl 
+  ?? process.env.EXPO_PUBLIC_API_URL;
+```
+
 ## Security
 
 - **Secrets** are stored encrypted in Botflow's database and are never included in exports or logs.
 - **Non-secret variables** are stored in plaintext and visible to anyone with access to the project.
 - Never put production secrets (payment keys, database passwords) in non-secret variables.
+- **Best practice:** Use different keys for development and production. Rotate keys if you suspect exposure.

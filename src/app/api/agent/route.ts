@@ -560,7 +560,7 @@ export async function POST(req: Request) {
     // ── Tier enforcement for server-key models ──────────────────────────────
     // Detect if this request uses personal BYOK/OAuth credentials (skip credit checks)
     const isUsingPersonalCredentials = ((): boolean => {
-      if (selectedModel === 'gpt-5.3-codex' || selectedModel === 'gpt-5.4') {
+      if (selectedModel === 'gpt-5.3-codex' || selectedModel === 'gpt-5.4' || selectedModel === 'gpt-5.5') {
         return Boolean(creds.codexOAuthAccessToken || creds.openaiApiKey);
       }
       if (selectedModel === 'fireworks-minimax-m2p7' || selectedModel === 'fireworks-glm-5p1' || selectedModel === 'fireworks-kimi-k2p6') {

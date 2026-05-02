@@ -309,6 +309,7 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
 
             <div className="flex items-center gap-3 min-w-0 flex-1">
               {project.author.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
                 <img src={project.author.imageUrl} alt="" className="h-8 w-8 rounded-full border border-border shrink-0" />
               ) : (
                 <div className="h-8 w-8 rounded-full bg-elevated border border-border shrink-0" />
@@ -548,6 +549,7 @@ function PreviewPane({
                 title="Preview snapshot"
               />
             ) : thumbnailUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={thumbnailUrl}
                 alt=""

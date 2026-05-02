@@ -42,7 +42,7 @@ export function FileTree({ files, selectedFile, onFileSelect, onFileDrop }: File
     if (dragCounter.current === 1) setIsDraggingOver(true);
   };
 
-  const onContainerDragLeave = (e: React.DragEvent) => {
+  const onContainerDragLeave = (_e: React.DragEvent) => {
     dragCounter.current--;
     if (dragCounter.current === 0) {
       setIsDraggingOver(false);

@@ -1009,6 +1009,7 @@ import {
   KeyRound,
   ChevronDown,
   Check,
+  Slash,
 } from 'lucide-react';
 import { SettingsModal } from '@/components/settings/SettingsModal';
 import { useToast } from '@/components/ui/toast';
@@ -1350,7 +1351,7 @@ export default function LandingV2() {
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
   const [userTier, setUserTier] = useState<'free' | 'pro' | 'max'>('free');
   const [hasConvexOAuth, setHasConvexOAuth] = useState<boolean | null>(null);
-  const [convexBackendType, setConvexBackendType] = useState<'platform' | 'user'>('platform');
+  const [convexBackendType, setConvexBackendType] = useState<'platform' | 'user' | 'none'>('platform');
   const [showConvexSelector, setShowConvexSelector] = useState(false);
   const [convexConnecting, setConvexConnecting] = useState(false);
   const convexSelectorRef = useRef<HTMLDivElement>(null);
@@ -1478,7 +1479,10 @@ export default function LandingV2() {
       return;
     }
     const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
-    const needsConvexStep = ((!cloudForAll && userTier === 'free') || convexBackendType === 'user') && !hasConvexOAuth;
+    // No-backend projects don't need Convex at all — skip the OAuth gate entirely.
+    const needsConvexStep = convexBackendType !== 'none'
+      && ((!cloudForAll && userTier === 'free') || convexBackendType === 'user')
+      && !hasConvexOAuth;
     setProjectStep(needsConvexStep ? 'convex' : 'name');
   };
 
@@ -1499,7 +1503,11 @@ export default function LandingV2() {
       localStorage.removeItem(PENDING_PARAMS_KEY);
       localStorage.removeItem(PENDING_NAME_KEY);
     }
-    if (convexBackendType === 'user' || params.get('backendType') === 'user') params.set('backendType', 'user');
+    if (convexBackendType === 'none' || params.get('backendType') === 'none') {
+      params.set('backendType', 'none');
+    } else if (convexBackendType === 'user' || params.get('backendType') === 'user') {
+      params.set('backendType', 'user');
+    }
     if (pendingImages.length > 0) {
       try {
         const imageParts = await Promise.all(
@@ -1545,7 +1553,7 @@ export default function LandingV2() {
     }
   };
 
-  const saveBackendPreference = useCallback(async (pref: 'platform' | 'user') => {
+  const saveBackendPreference = useCallback(async (pref: 'platform' | 'user' | 'none') => {
     setConvexBackendType(pref);
     try {
       await fetch('/api/user-settings', {
@@ -1571,7 +1579,9 @@ export default function LandingV2() {
         setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
         setHasFireworksKey(Boolean(data?.hasFireworksKey));
         setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
-        if (data?.convexBackendPreference === 'user' && data?.hasConvexOAuth) {
+        if (data?.convexBackendPreference === 'none') {
+          setConvexBackendType('none');
+        } else if (data?.convexBackendPreference === 'user' && data?.hasConvexOAuth) {
           setConvexBackendType('user');
         } else if (data?.convexBackendPreference === 'platform') {
           setConvexBackendType('platform');
@@ -1645,6 +1655,16 @@ export default function LandingV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 'No Backend' is web-only — there are no convex-less variants of the mobile or
+  // multiplatform templates yet. If the user picked 'none' on web and then switched
+  // platforms, fall back to 'platform' to avoid creating a project with a Convex
+  // template but `backendType: 'none'` (which would leave the row inconsistent).
+  useEffect(() => {
+    if (platform !== 'web' && convexBackendType === 'none') {
+      setConvexBackendType('platform');
+    }
+  }, [platform, convexBackendType]);
+
   useEffect(() => {
     if (!showConvexSelector) return;
     const handler = (e: MouseEvent) => {
@@ -1698,7 +1718,9 @@ export default function LandingV2() {
     if (isSignedIn && pendingParams) {
       setShowAuthDialog(false);
       const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
-      const needsConvex = ((!cloudForAll && userTier === 'free') || convexBackendType === 'user') && !hasConvexOAuth;
+      const needsConvex = convexBackendType !== 'none'
+        && ((!cloudForAll && userTier === 'free') || convexBackendType === 'user')
+        && !hasConvexOAuth;
       setProjectStep(needsConvex ? 'convex' : 'name');
     }
   }, [isSignedIn, pendingParams, userTier, convexBackendType, hasConvexOAuth, allowedModels]);
@@ -1900,6 +1922,10 @@ export default function LandingV2() {
                           }}
                         />
                         {isSignedIn && (userTier === 'pro' || userTier === 'max' || process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true') && (
+                          // The backend selector is only meaningful for the `web` platform.
+                          // Mobile/multiplatform templates always include Convex — there are
+                          // no no-backend variants of those templates today.
+                          platform === 'web' && (
                           <div ref={convexSelectorRef} className="relative shrink-0">
                             <button
                               type="button"
@@ -1910,10 +1936,18 @@ export default function LandingV2() {
                               {convexBackendType === 'platform' ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img src="/convex-color.svg" className="h-3.5 w-3.5" alt="" />
-                              ) : (
+                              ) : convexBackendType === 'user' ? (
                                 <KeyRound className="h-3.5 w-3.5" />
+                              ) : (
+                                <Slash className="h-3.5 w-3.5" />
                               )}
-                              <span className="hidden sm:inline">{convexBackendType === 'platform' ? 'Managed' : 'Your Convex'}</span>
+                              <span className="hidden sm:inline">
+                                {convexBackendType === 'platform'
+                                  ? 'Managed'
+                                  : convexBackendType === 'user'
+                                  ? 'Your Convex'
+                                  : 'No Backend'}
+                              </span>
                               <ChevronDown className="h-3 w-3 opacity-60" />
                             </button>
                             {showConvexSelector && (
@@ -1949,9 +1983,25 @@ export default function LandingV2() {
                                   </div>
                                   {convexBackendType === 'user' && <Check className="h-4 w-4 text-[var(--sand-text)] ml-auto mt-0.5 shrink-0" />}
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { void saveBackendPreference('none'); setShowConvexSelector(false); }}
+                                  className={cn(
+                                    'flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left border-t border-[var(--sand-border)]',
+                                    convexBackendType === 'none' ? 'bg-[var(--sand-elevated)]' : 'hover:bg-[var(--sand-elevated)]',
+                                  )}
+                                >
+                                  <Slash className="h-4 w-4 mt-0.5 shrink-0 text-[var(--sand-text)]" />
+                                  <div>
+                                    <div className="font-medium text-[var(--sand-text)]">No Backend</div>
+                                    <div className="text-xs text-[var(--sand-text-muted)] mt-0.5">Frontend only — no database, no functions</div>
+                                  </div>
+                                  {convexBackendType === 'none' && <Check className="h-4 w-4 text-[var(--sand-text)] ml-auto mt-0.5 shrink-0" />}
+                                </button>
                               </div>
                             )}
                           </div>
+                          )
                         )}
                       </div>
                       <SignedIn>

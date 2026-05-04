@@ -36,6 +36,15 @@ export async function POST(
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
+    // No-backend projects intentionally have no Convex deployment. Reject the
+    // call so we don't silently provision one behind the user's back.
+    if (project.backendType === 'none') {
+      return NextResponse.json({
+        error: 'no_backend',
+        message: 'This project was created without a backend — Convex deploy is not available.',
+      }, { status: 400 });
+    }
+
     // If using user-managed Convex backend, check for user deploy key
     if (project.backendType === 'user') {
       if (!project.userConvexDeployKey) {

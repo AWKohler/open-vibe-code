@@ -4,7 +4,7 @@ import { projects } from '@/db/schema';
 import { and, eq } from 'drizzle-orm';
 import Link from 'next/link';
 import { IsolationGuard } from './isolation-guard';
-import { normalizeProjectPlatform } from '@/lib/project-platform';
+import { normalizeProjectPlatform, normalizeBackendType } from '@/lib/project-platform';
 
 export default async function WorkspacePage({
   params,
@@ -32,6 +32,10 @@ export default async function WorkspacePage({
   const platform = typeof searchParamsResolved.platform === 'string'
     ? normalizeProjectPlatform(searchParamsResolved.platform)
     : (proj ? normalizeProjectPlatform(proj.platform) : undefined);
+
+  // Backend type controls template selection and which UI affordances are shown
+  // (Database tab, convexDeploy tool, .env injection of VITE_CONVEX_URL).
+  const backendType = proj ? normalizeBackendType(proj.backendType) : undefined;
 
   if (!proj) {
     return (
@@ -66,5 +70,5 @@ export default async function WorkspacePage({
     .set({ lastOpened: new Date() })
     .where(eq(projects.id, projectId));
 
-  return <IsolationGuard projectId={projectId} initialPrompt={initialPrompt} platform={platform} />;
+  return <IsolationGuard projectId={projectId} initialPrompt={initialPrompt} platform={platform} backendType={backendType} />;
 }

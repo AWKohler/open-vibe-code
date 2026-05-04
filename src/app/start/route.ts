@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { provisionConvexBackend } from '@/lib/convex-platform';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { getUserCredentials, setUserCredentials, type UserCredentials } from '@/lib/user-credentials';
-import { normalizeProjectPlatform, type ProjectPlatform } from '@/lib/project-platform';
+import { normalizeProjectPlatform, type ProjectPlatform, type BackendType } from '@/lib/project-platform';
 
 const CONVEX_CLI_API = 'https://api.convex.dev/api';
 
@@ -116,11 +116,21 @@ export async function GET(request: Request) {
         ? prompt.slice(0, 48)
         : 'New Project';
 
-    // Resolve backend type from server-side credential store (authoritative)
+    // Resolve backend type from server-side credential store (authoritative).
+    //   'none'     -> frontend-only project, no Convex provisioning
+    //   'user'     -> user-owned (BYOC), provisioned via their OAuth token
+    //   'platform' -> Botflow-managed (default)
     const creds = await getUserCredentials(userId);
-    const userWantsBYOC =
-      creds.convexBackendPreference === 'user' || backendTypeParam === 'user';
-    const backendType: 'platform' | 'user' = userWantsBYOC ? 'user' : 'platform';
+    let backendType: BackendType;
+    // 'No Backend' is currently a web-only option. Mobile/multiplatform templates
+    // ship with Convex baked in, so silently coerce `none` -> `platform` for those.
+    if (backendTypeParam === 'none' && platform === 'web') {
+      backendType = 'none';
+    } else {
+      const userWantsBYOC =
+        creds.convexBackendPreference === 'user' || backendTypeParam === 'user';
+      backendType = userWantsBYOC ? 'user' : 'platform';
+    }
 
     // BYOC hard gate: if user selected BYOC, they MUST have a valid OAuth token.
     // Never fall through to platform provisioning — that would consume platform resources.
@@ -135,7 +145,10 @@ export async function GET(request: Request) {
       .values({ name, userId, platform, model, backendType })
       .returning();
 
-    if (backendType === 'user') {
+    if (backendType === 'none') {
+      // No backend selected — skip provisioning entirely. The project will use
+      // the no-backend template (vite_template) and never have a /convex folder.
+    } else if (backendType === 'user') {
       // BYOC: provision in the user's own Convex account via their OAuth token.
       // If this fails, delete the project and redirect with an error — never fall through.
       try {
@@ -203,6 +216,7 @@ export async function GET(request: Request) {
     if (prompt) workspaceUrl.searchParams.set('prompt', prompt);
     workspaceUrl.searchParams.set('platform', platform);
     workspaceUrl.searchParams.set('model', model);
+    workspaceUrl.searchParams.set('backendType', backendType);
     if (visibility) workspaceUrl.searchParams.set('visibility', visibility);
     return NextResponse.redirect(workspaceUrl);
   } catch (err) {

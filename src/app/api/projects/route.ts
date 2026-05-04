@@ -6,7 +6,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { countUserProjects } from '@/lib/usage';
 import { limitReachedResponse } from '@/lib/plan-response';
-import { normalizeProjectPlatform, type ProjectPlatform } from '@/lib/project-platform';
+import { normalizeProjectPlatform, normalizeBackendType, type ProjectPlatform, type BackendType } from '@/lib/project-platform';
 
 export async function GET() {
   try {
@@ -30,9 +30,10 @@ export async function POST(request: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const body = await request.json();
-    const { name, platform, model } = body as {
+    const { name, platform, model, backendType } = body as {
       name?: string;
       platform?: ProjectPlatform;
+      backendType?: BackendType;
       model?:
         | 'gpt-5.3-codex'
         | 'gpt-5.4'
@@ -66,12 +67,14 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const resolvedPlatform = normalizeProjectPlatform(platform);
+    const resolvedBackendType = normalizeBackendType(backendType);
     const [newProject] = await db
       .insert(projects)
       .values({
         name,
         userId,
         platform: resolvedPlatform,
+        backendType: resolvedBackendType,
         model:
           model === 'gpt-5.4'
             ? 'gpt-5.4'

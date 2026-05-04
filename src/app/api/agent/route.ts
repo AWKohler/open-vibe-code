@@ -9,7 +9,7 @@ import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 
-import { SYSTEM_PROMPT_WEB, SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM, SYSTEM_PROMPT_PERSISTENT } from "@/lib/agent/prompts";
+import { SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM, SYSTEM_PROMPT_PERSISTENT, buildWebSystemPrompt } from "@/lib/agent/prompts";
 import { getPersistentTools } from "@/lib/agent/persistent-tools";
 import { MODEL_CONFIGS, resolveModelId, type ModelId } from "@/lib/agent/models";
 import { agentLog, generateRequestId, setRequestId } from "@/lib/agent/logger";
@@ -68,8 +68,8 @@ export const runtime = "nodejs";
 // Tool definitions (shared across all providers)
 // ============================================================================
 
-function getTools() {
-  return {
+function getTools({ hasBackend }: { hasBackend: boolean } = { hasBackend: true }) {
+  const baseTools = {
     listFiles: tool({
       description:
         "List files and folders. Set recursive=true to walk subdirectories. " +
@@ -189,6 +189,15 @@ function getTools() {
       }),
     }),
   } as const;
+  // Only expose `convexDeploy` for projects that actually have a Convex backend.
+  // No-backend projects have no /convex folder; advertising the tool would invite
+  // the model to call it and confuse error messages.
+  if (hasBackend) {
+    return baseTools;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { convexDeploy: _omit, ...rest } = baseTools;
+  return rest;
 }
 
 // Rough estimate of tools token overhead (computed once)
@@ -523,6 +532,8 @@ export async function POST(req: Request) {
 
     // Determine selected model for project and ensure ownership
     let selectedModel: ModelId = "gpt-5.3-codex";
+    // Default to true so non-project agent requests still get the full toolset.
+    let hasBackend = true;
     if (projectId) {
       const [proj] = await db
         .select()
@@ -535,6 +546,7 @@ export async function POST(req: Request) {
         });
       }
       selectedModel = resolveModelId(proj.model);
+      hasBackend = proj.backendType !== "none";
     }
 
     // Load credentials from Clerk (Redis-cached)
@@ -548,14 +560,14 @@ export async function POST(req: Request) {
           ? SYSTEM_PROMPT_MOBILE
           : platform === "multiplatform"
             ? SYSTEM_PROMPT_MULTIPLATFORM
-            : SYSTEM_PROMPT_WEB;
+            : buildWebSystemPrompt({ hasBackend });
 
     // Persistent platform: tools execute server-side against the user's Vercel
     // sandbox. Client never sees onToolCall — keeps platform creds off-browser.
     const tools =
       platform === "persistent" && projectId
         ? getPersistentTools(projectId)
-        : getTools();
+        : getTools({ hasBackend });
 
     // ── Tier enforcement for server-key models ──────────────────────────────
     // Detect if this request uses personal BYOK/OAuth credentials (skip credit checks)

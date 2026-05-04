@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       moonshotApiKey?: string | null;
       fireworksApiKey?: string | null;
       googleApiKey?: string | null;
-      convexBackendPreference?: 'platform' | 'user';
+      convexBackendPreference?: 'platform' | 'user' | 'none';
     };
 
     // Read existing credentials to preserve fields not being updated
@@ -53,7 +53,11 @@ export async function POST(req: NextRequest) {
     if (moonshotApiKey !== undefined) updates.moonshotApiKey = moonshotApiKey || null;
     if (fireworksApiKey !== undefined) updates.fireworksApiKey = fireworksApiKey || null;
     if (googleApiKey !== undefined) updates.googleApiKey = googleApiKey || null;
-    if (convexBackendPreference === 'platform' || convexBackendPreference === 'user') {
+    if (
+      convexBackendPreference === 'platform' ||
+      convexBackendPreference === 'user' ||
+      convexBackendPreference === 'none'
+    ) {
       updates.convexBackendPreference = convexBackendPreference;
     }
 

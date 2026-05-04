@@ -6,12 +6,13 @@ import { Monitor } from 'lucide-react';
 import { Workspace } from '@/components/workspace';
 import { PersistentWorkspace } from '@/components/persistent-workspace';
 import { checkDeviceSupport } from '@/lib/device';
-import type { ProjectPlatform } from '@/lib/project-platform';
+import type { ProjectPlatform, BackendType } from '@/lib/project-platform';
 
 interface Props {
   projectId: string;
   initialPrompt?: string;
   platform?: ProjectPlatform;
+  backendType?: BackendType;
 }
 
 /**
@@ -19,7 +20,7 @@ interface Props {
  * 1. A device support check — blocks unsupported mobile devices
  * 2. A cross-origin isolation check — WebContainer requires SharedArrayBuffer
  */
-export function IsolationGuard({ projectId, initialPrompt, platform }: Props) {
+export function IsolationGuard({ projectId, initialPrompt, platform, backendType }: Props) {
   const [deviceBlocked, setDeviceBlocked] = useState<string | null>(null);
   const [ready] = useState<boolean>(() => {
     if (typeof window === 'undefined') return true;
@@ -84,5 +85,5 @@ export function IsolationGuard({ projectId, initialPrompt, platform }: Props) {
 
   if (!ready) return null;
 
-  return <Workspace projectId={projectId} initialPrompt={initialPrompt} platform={platform} />;
+  return <Workspace projectId={projectId} initialPrompt={initialPrompt} platform={platform} backendType={backendType} />;
 }

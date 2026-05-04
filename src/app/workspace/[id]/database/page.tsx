@@ -19,7 +19,7 @@ export default async function DatabasePage({
 
   const db = getDb();
   const [project] = await db
-    .select({ id: projects.id })
+    .select({ id: projects.id, backendType: projects.backendType })
     .from(projects)
     .where(and(eq(projects.id, id), eq(projects.userId, userId)));
 
@@ -37,6 +37,30 @@ export default async function DatabasePage({
               className="inline-flex items-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90 transition"
             >
               Go to my projects
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // No-backend projects don't have a Convex deployment to inspect. Show a
+  // friendly explanation rather than letting the dashboard hit a 404 on the
+  // database-session endpoint.
+  if (project.backendType === 'none') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-elevated text-[var(--sand-text)]">
+        <div className="max-w-md text-center space-y-4 p-8 rounded-2xl border border-border bg-white shadow-sm">
+          <h1 className="text-2xl font-semibold">No backend connected</h1>
+          <p className="text-sm text-neutral-600">
+            This project was created without a backend, so there is no database to manage.
+          </p>
+          <div className="flex items-center justify-center gap-2">
+            <Link
+              href={`/workspace/${id}`}
+              className="inline-flex items-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90 transition"
+            >
+              Back to workspace
             </Link>
           </div>
         </div>

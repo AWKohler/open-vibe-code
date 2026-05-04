@@ -41,7 +41,7 @@ import { UserButton } from "@clerk/nextjs";
 import { useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { detectResourceError, RESOURCE_ERROR_MESSAGES, type ResourceErrorType } from "@/lib/resource-errors";
-import { normalizeProjectPlatform, type ProjectPlatform } from "@/lib/project-platform";
+import { normalizeProjectPlatform, normalizeBackendType, projectUsesConvex, type ProjectPlatform, type BackendType } from "@/lib/project-platform";
 import "@/lib/debug-storage"; // Make debug utilities available in console
 
 type WorkspaceView = "code" | "preview" | "database";
@@ -50,12 +50,14 @@ interface WorkspaceProps {
   projectId: string;
   initialPrompt?: string;
   platform?: ProjectPlatform;
+  backendType?: BackendType;
 }
 
 export function Workspace({
   projectId,
   initialPrompt,
   platform: initialPlatform,
+  backendType: initialBackendType,
 }: WorkspaceProps) {
   const [webcontainer, setWebcontainer] = useState<WebContainer | null>(null);
   const [files, setFiles] = useState<
@@ -90,6 +92,22 @@ export function Workspace({
   const [platform, setPlatform] = useState<ProjectPlatform>(
     initialPlatform ?? "web",
   );
+  // Backend type is fixed for the lifetime of the workspace — projects cannot
+  // (currently) be migrated between backend types. The Database tab and the
+  // convexDeploy agent tool are gated on `hasBackend`.
+  const [backendType, setBackendType] = useState<BackendType>(
+    initialBackendType ?? "platform",
+  );
+  const hasBackend = projectUsesConvex(backendType);
+
+  // If the user lands on this workspace with the Database tab selected
+  // (e.g. via persisted state) but the project has no backend, fall back to
+  // the Preview tab. The tab is hidden in the header for `!hasBackend`.
+  useEffect(() => {
+    if (!hasBackend && currentView === "database") {
+      setCurrentView("preview");
+    }
+  }, [hasBackend, currentView]);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<{
     syncing: boolean;
     lastSyncAt: Date | null;
@@ -153,6 +171,9 @@ export function Workspace({
           if (!initialPlatform && typeof proj?.platform === "string") {
             setPlatform(normalizeProjectPlatform(proj.platform));
           }
+          if (!initialBackendType && typeof proj?.backendType === "string") {
+            setBackendType(normalizeBackendType(proj.backendType));
+          }
           if (proj?.htmlSnapshotUrl) {
             setHtmlSnapshotUrl(proj.htmlSnapshotUrl);
           }
@@ -172,7 +193,7 @@ export function Workspace({
         console.warn("Failed to load project data", e);
       }
     })();
-  }, [initialPlatform, projectId]);
+  }, [initialPlatform, initialBackendType, projectId]);
 
   // Helper function definitions - moved to top
   const getFileStructure = useCallback(
@@ -868,7 +889,9 @@ export function Workspace({
           console.log(`📦 No backup found, mounting template...`);
 
           if (platform === "multiplatform") {
-            // Download Universal (Expo + NativeWind + Convex) template from GitHub
+            // Download Universal (Expo + NativeWind + Convex) template from GitHub.
+            // Note: mobile/multiplatform always include Convex — no-backend variant
+            // is a web-only option for now.
             console.log("📥 Downloading Universal multiplatform template from GitHub...");
             await downloadRepoToWebContainer(container, {
               owner: "AWKohler",
@@ -885,6 +908,15 @@ export function Workspace({
               ref: "main",
             });
             console.log("✅ Mobile template downloaded successfully");
+          } else if (backendType === "none") {
+            // No-backend web project: pure Vite + React, no /convex folder.
+            console.log("📥 Downloading Vite (no-backend) template from GitHub...");
+            await downloadRepoToWebContainer(container, {
+              owner: "AWKohler",
+              repo: "vite_template",
+              ref: "main",
+            });
+            console.log("✅ No-backend template downloaded successfully");
           } else {
             // Download Vite + Convex template from GitHub
             console.log("📥 Downloading Vite+Convex template from GitHub...");
@@ -961,6 +993,7 @@ export function Workspace({
   }, [
     projectId,
     platform,
+    backendType,
     refreshFileTree,
     handleFileSystemChange,
     runInstall,
@@ -1338,7 +1371,11 @@ export function Workspace({
                   // }`,
                 },
                 { value: "code", text: "Code" },
-                { value: "database", text: "Database" },
+                // The Database tab is only shown for projects with a Convex backend.
+                // No-backend projects have no /convex folder and no admin key.
+                ...(hasBackend
+                  ? [{ value: "database" as const, text: "Database" }]
+                  : []),
               ] as TabOption<WorkspaceView>[]
             }
             selected={currentView}
@@ -1415,7 +1452,7 @@ export function Workspace({
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            {currentView === "database" && (
+            {currentView === "database" && hasBackend && (
               <button
                 onClick={() => window.open(`/workspace/${projectId}/database`, "_blank")}
                 className="flex items-center gap-1.5 text-sm text-muted hover:text-fg border border-border rounded-md px-3 py-1 bolt-hover"
@@ -1692,8 +1729,8 @@ export function Workspace({
               <TerminalTabs webcontainer={webcontainer} />
             </div>
           </div>
-          {/* Database View */}
-          {currentView === "database" && (
+          {/* Database View — only rendered for projects with a Convex backend */}
+          {currentView === "database" && hasBackend && (
             <div className="absolute inset-0 pb-2.5 pr-2.5">
               <div className="w-full h-full rounded-xl border border-border overflow-hidden">
                 <ConvexDashboard projectId={projectId} />

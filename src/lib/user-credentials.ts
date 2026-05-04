@@ -42,8 +42,11 @@ export interface UserCredentials {
   convexOAuthRefreshToken: string | null;
   convexOAuthExpiresAt: number | null;
   convexTeamId: string | null;
-  // User preference: 'platform' (managed by us) or 'user' (BYOC)
-  convexBackendPreference: 'platform' | 'user' | null;
+  // User preference for new project creation:
+  //   'platform' — Botflow-managed Convex (default)
+  //   'user'     — Bring Your Own Convex (BYOC)
+  //   'none'     — No backend (frontend-only project)
+  convexBackendPreference: 'platform' | 'user' | 'none' | null;
 }
 
 const CACHE_TTL = 300; // 5 minutes
@@ -127,7 +130,7 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
     convexOAuthRefreshToken: (meta.convexOAuthRefreshToken ?? neon.convexOAuthRefreshToken) ?? null,
     convexOAuthExpiresAt: (meta.convexOAuthExpiresAt ?? neon.convexOAuthExpiresAt) ?? null,
     convexTeamId: (meta.convexTeamId as string | null) ?? null,
-    convexBackendPreference: (meta.convexBackendPreference as 'platform' | 'user' | null) ?? null,
+    convexBackendPreference: (meta.convexBackendPreference as 'platform' | 'user' | 'none' | null) ?? null,
   };
 
   await redis.setex(cacheKey(userId), CACHE_TTL, creds);

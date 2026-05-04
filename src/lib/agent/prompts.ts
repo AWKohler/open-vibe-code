@@ -12,7 +12,13 @@ const END_TURN_INSTRUCTION = [
   "",
 ].join("\n");
 
-export const SYSTEM_PROMPT_WEB = [
+// Web prompt is split into 3 parts so we can omit the Convex section for
+// no-backend projects (`backendType === 'none'`). The result is composed by
+// `buildWebSystemPrompt({ hasBackend })`. `SYSTEM_PROMPT_WEB` is preserved as
+// the default (with backend) for code paths that haven't been threaded through
+// to pass `hasBackend`.
+
+const WEB_PROMPT_INTRO: string[] = [
   "You are **Botflow**, an expert in-browser coding agent operating inside a **StackBlitz WebContainer**.",
   "Your role is to assist users by chatting with them and making changes to their code in real time, while updating the live preview.",
   "",
@@ -111,6 +117,9 @@ export const SYSTEM_PROMPT_WEB = [
   "  - Always implement **SEO best practices** (titles, meta, canonical, structured data).",
   "  - Always optimize for **responsive + mobile first**.",
   "- When starting a brand-new project, lean toward **ambitious, beautiful initial scaffolding (wow factor)** to impress the user.",
+];
+
+const WEB_PROMPT_CONVEX: string[] = [
   "",
   "---",
   "",
@@ -273,6 +282,9 @@ export const SYSTEM_PROMPT_WEB = [
   "   - Type error → Fix TypeScript issue",
   "5. **Redeploy immediately** with `convexDeploy` to verify fix",
   "6. **Never leave in broken state** - keep iterating until deployment succeeds",
+];
+
+const WEB_PROMPT_OUTRO: string[] = [
   "",
   "---",
   "",
@@ -370,7 +382,36 @@ export const SYSTEM_PROMPT_WEB = [
   "",
   "## Notes",
   "- For multi-file actions, list+read in parallel, then write changes in parallel.",
-].join("\n") + END_TURN_INSTRUCTION;
+];
+
+// Counterpart to WEB_PROMPT_CONVEX for projects that have no backend at all.
+// Replaces the Convex section with a short note so the model doesn't try to
+// use `convexDeploy`, write to a `/convex` folder, or import from `convex/react`.
+const WEB_PROMPT_NO_BACKEND_NOTE: string[] = [
+  "",
+  "---",
+  "",
+  "## No Backend",
+  "",
+  "This project is a **frontend-only** Vite + React app — there is no `/convex` folder, no Convex client, and no `convexDeploy` tool available.",
+  "- Do **not** attempt to create a `/convex` directory, install `convex`/`@convex-dev/*` packages, or import from `convex/react`.",
+  "- If the user asks for backend behaviour (database, auth, server functions), politely explain that this project was created without a backend and suggest creating a new project with **Botflow Managed** or **Bring Your Own Convex** if persistence is required.",
+  "- For ephemeral state, use React state, `localStorage`, or `sessionStorage`.",
+];
+
+// Strip the Convex-specific guardrails from the outro for no-backend builds.
+const WEB_PROMPT_OUTRO_NO_BACKEND: string[] = WEB_PROMPT_OUTRO.filter((line) =>
+  !line.includes("For Convex projects:") && !line.includes("Convex code"),
+);
+
+export function buildWebSystemPrompt({ hasBackend }: { hasBackend: boolean }): string {
+  const parts = hasBackend
+    ? [...WEB_PROMPT_INTRO, ...WEB_PROMPT_CONVEX, ...WEB_PROMPT_OUTRO]
+    : [...WEB_PROMPT_INTRO, ...WEB_PROMPT_NO_BACKEND_NOTE, ...WEB_PROMPT_OUTRO_NO_BACKEND];
+  return parts.join("\n") + END_TURN_INSTRUCTION;
+}
+
+export const SYSTEM_PROMPT_WEB = buildWebSystemPrompt({ hasBackend: true });
 
 export const SYSTEM_PROMPT_MOBILE = [
   "You are **Botflow**, an expert React Native (Expo) coding agent operating inside a **StackBlitz WebContainer**.",

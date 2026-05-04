@@ -43,8 +43,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       ? overrideName.trim().slice(0, 100)
       : `${source.name} (copy)`;
 
-    // Create new project under current user — platform + model carried over,
-    // but all backend / deployment / github / public metadata reset.
+    // Create new project under current user — platform, model, and backend
+    // type carried over (a no-backend source forks to a no-backend project),
+    // but all deployment / github / public metadata reset.
+    // Forks of `'user'` (BYOC) projects fall back to `'platform'` because we
+    // don't have the forker's Convex OAuth token at fork time.
+    const forkedBackendType: 'platform' | 'none' =
+      source.backendType === 'none' ? 'none' : 'platform';
     const [newProject] = await db
       .insert(projects)
       .values({
@@ -55,7 +60,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
         thumbnailUrl: source.thumbnailUrl,
         htmlSnapshotUrl: source.htmlSnapshotUrl,
         forkedFromProjectId: source.id,
-        backendType: 'platform',
+        backendType: forkedBackendType,
       })
       .returning();
 

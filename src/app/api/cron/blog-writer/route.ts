@@ -15,6 +15,9 @@ import {
   buildWriterUserPrompt,
   IMAGE_PROMPT_SYSTEM,
   buildImagePromptUserText,
+  BRAND_SUBJECT_SYSTEM,
+  buildBrandSubjectUserText,
+  buildBrandMasterPrompt,
 } from '@/lib/blog-writer/prompts';
 import { blocksToPortableText, type AuthoredBlock } from '@/lib/blog-writer/portable-text';
 import { SANITY_TAG_POSTS } from '@/lib/sanity/fetch';
@@ -62,6 +65,12 @@ const writerSchema = z.object({
 const imageSchema = z.object({
   prompt: z.string().min(120).max(2400),
   altText: z.string().min(8).max(180),
+});
+
+const brandSubjectSchema = z.object({
+  subject: z.string().min(8).max(300).describe('What to render — a vivid, specific scene description using brand metaphors'),
+  accentColor: z.enum(['#1A65FF', '#FFCD2E', '#FE342C']).describe('The single accent color for this image'),
+  altText: z.string().min(8).max(180).describe('Accessible alt text for the generated image'),
 });
 
 interface RecentPost {
@@ -276,6 +285,50 @@ async function generateCoverImage(args: {
   return Buffer.from(imageBlock.result, 'base64');
 }
 
+// ---------------------------------------------------------------------------
+// Brand image path (BLOG_IMAGE_STYLE=brand)
+// ---------------------------------------------------------------------------
+
+async function runBrandSubjectWriter(args: {
+  title: string;
+  excerpt: string;
+}): Promise<{ subject: string; accentColor: '#1A65FF' | '#FFCD2E' | '#FE342C'; altText: string }> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
+  const openai = createOpenAI({ apiKey });
+  const { object } = await generateObject({
+    model: openai('gpt-5.4'),
+    system: BRAND_SUBJECT_SYSTEM,
+    prompt: buildBrandSubjectUserText({ title: args.title, excerpt: args.excerpt }),
+    schema: brandSubjectSchema,
+    maxRetries: 2,
+  });
+  return object;
+}
+
+async function generateBrandCoverImage(args: {
+  subject: string;
+  accentColor: '#1A65FF' | '#FFCD2E' | '#FE342C';
+  altText: string;
+}): Promise<Buffer> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error('OPENAI_API_KEY is not set');
+  const openai = new OpenAI({ apiKey });
+  const prompt = buildBrandMasterPrompt(args);
+  const result = await openai.images.generate({
+    model: 'gpt-image-2',
+    prompt,
+    size: '1536x1024',
+    quality: 'high',
+    n: 1,
+  });
+  const b64 = result.data?.[0]?.b64_json;
+  if (!b64) throw new Error('Brand image generation returned no b64_json data');
+  return Buffer.from(b64, 'base64');
+}
+
+// ---------------------------------------------------------------------------
+
 async function publishBlog(args: {
   writer: WriterResult;
   coverImage: Buffer;
@@ -356,14 +409,26 @@ async function handle(req: Request) {
       console.log(`[blog-writer] slug collision, using "${uniqueSlug}" instead of "${writer.slug}"`);
     }
 
-    const { prompt: imagePrompt, altText } = await runImagePromptWriter({
-      title: writer.title,
-      excerpt: writer.excerpt,
-      moodboard,
-    });
-    console.log(`[blog-writer] image prompt generated (${imagePrompt.length} chars)`);
+    const imageStyle = process.env.BLOG_IMAGE_STYLE ?? 'moodboard';
+    console.log(`[blog-writer] image style: ${imageStyle}`);
 
-    const coverImage = await generateCoverImage({ prompt: imagePrompt, moodboard });
+    let imagePrompt: string;
+    let altText: string;
+    let coverImage: Buffer;
+
+    if (imageStyle === 'brand') {
+      const brand = await runBrandSubjectWriter({ title: writer.title, excerpt: writer.excerpt });
+      imagePrompt = buildBrandMasterPrompt(brand);
+      altText = brand.altText;
+      console.log(`[blog-writer] brand subject: "${brand.subject}" accent: ${brand.accentColor}`);
+      coverImage = await generateBrandCoverImage(brand);
+    } else {
+      const imgResult = await runImagePromptWriter({ title: writer.title, excerpt: writer.excerpt, moodboard });
+      imagePrompt = imgResult.prompt;
+      altText = imgResult.altText;
+      console.log(`[blog-writer] image prompt generated (${imagePrompt.length} chars)`);
+      coverImage = await generateCoverImage({ prompt: imagePrompt, moodboard });
+    }
     console.log(`[blog-writer] cover image generated (${coverImage.length} bytes)`);
 
     const result = await publishBlog({

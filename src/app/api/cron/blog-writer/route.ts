@@ -190,15 +190,11 @@ async function runWriter(args: {
 async function runImagePromptWriter(args: {
   title: string;
   excerpt: string;
+  moodboard: { data: string; mediaType: string }[];
 }): Promise<{ prompt: string; altText: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not set — required for image prompt model');
-  }
-
-  const moodboard = await loadMoodboardImages();
-  if (moodboard.length === 0) {
-    console.warn('[blog-writer] no moodboard images found, proceeding without them');
   }
 
   const userText = buildImagePromptUserText({ title: args.title, excerpt: args.excerpt });
@@ -208,7 +204,7 @@ async function runImagePromptWriter(args: {
       role: 'user',
       content: [
         { type: 'text', text: userText },
-        ...moodboard.map((img) => ({
+        ...args.moodboard.map((img) => ({
           type: 'image' as const,
           image: `data:${img.mediaType};base64,${img.data}`,
         })),
@@ -227,24 +223,57 @@ async function runImagePromptWriter(args: {
   return object;
 }
 
-async function generateCoverImage(prompt: string): Promise<Buffer> {
+async function generateCoverImage(args: {
+  prompt: string;
+  moodboard: { data: string; mediaType: string }[];
+}): Promise<Buffer> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not set — required for image generation');
   }
   const openai = new OpenAI({ apiKey });
-  const result = await openai.images.generate({
-    model: 'gpt-image-2',
-    prompt,
-    size: '1536x1024',
-    quality: 'high',
-    n: 1,
-  });
-  const b64 = result.data?.[0]?.b64_json;
-  if (!b64) {
-    throw new Error('Image generation returned no b64_json data');
+
+  if (args.moodboard.length === 0) {
+    // Fallback: no reference images, use plain generation
+    const result = await openai.images.generate({
+      model: 'gpt-image-2',
+      prompt: args.prompt,
+      size: '1536x1024',
+      quality: 'high',
+      n: 1,
+    });
+    const b64 = result.data?.[0]?.b64_json;
+    if (!b64) throw new Error('Image generation returned no b64_json data');
+    return Buffer.from(b64, 'base64');
   }
-  return Buffer.from(b64, 'base64');
+
+  // Pass moodboard images as visual style references via the Responses API
+  const response = await openai.responses.create({
+    model: 'gpt-image-2',
+    input: [
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: args.prompt },
+          ...args.moodboard.map((img) => ({
+            type: 'input_image' as const,
+            detail: 'high' as const,
+            image_url: `data:${img.mediaType};base64,${img.data}`,
+          })),
+        ],
+      },
+    ],
+    tools: [{ type: 'image_generation', quality: 'high', size: '1536x1024' } as const],
+  });
+
+  const imageBlock = response.output.find((b) => b.type === 'image_generation_call');
+  if (!imageBlock || imageBlock.type !== 'image_generation_call') {
+    throw new Error('Responses API returned no image_generation_call block');
+  }
+  if (!imageBlock.result) {
+    throw new Error('image_generation_call block has no result data');
+  }
+  return Buffer.from(imageBlock.result, 'base64');
 }
 
 async function publishBlog(args: {
@@ -305,15 +334,19 @@ async function handle(req: Request) {
   try {
     console.log('[blog-writer] run started');
 
-    const [items, recentPosts] = await Promise.all([
+    const [items, recentPosts, moodboard] = await Promise.all([
       fetchNewsFeed({ perFeed: 12 }),
       fetchRecentPosts().catch((e) => {
         console.error('[blog-writer] failed to fetch recent posts:', e);
         return [] as RecentPost[];
       }),
+      loadMoodboardImages(),
     ]);
+    if (moodboard.length === 0) {
+      console.warn('[blog-writer] no moodboard images found, proceeding without them');
+    }
     const feedSummary = formatFeedForPrompt(items);
-    console.log(`[blog-writer] fetched ${items.length} feed items, ${recentPosts.length} recent posts`);
+    console.log(`[blog-writer] fetched ${items.length} feed items, ${recentPosts.length} recent posts, ${moodboard.length} moodboard images`);
 
     const writer = await runWriter({ feedSummary, recentPosts });
     console.log(`[blog-writer] picked story: "${writer.selectedHeadline}" → "${writer.title}"`);
@@ -326,10 +359,11 @@ async function handle(req: Request) {
     const { prompt: imagePrompt, altText } = await runImagePromptWriter({
       title: writer.title,
       excerpt: writer.excerpt,
+      moodboard,
     });
     console.log(`[blog-writer] image prompt generated (${imagePrompt.length} chars)`);
 
-    const coverImage = await generateCoverImage(imagePrompt);
+    const coverImage = await generateCoverImage({ prompt: imagePrompt, moodboard });
     console.log(`[blog-writer] cover image generated (${coverImage.length} bytes)`);
 
     const result = await publishBlog({

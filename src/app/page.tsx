@@ -1398,6 +1398,14 @@ export default function LandingV2() {
     fireworks: hasFireworksKey === true ? true : null,
   }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey]);
 
+  // Free users can't provision a Botflow-managed Convex backend unless the
+  // global override flag is set. The /start route enforces the same rule
+  // server-side; this flag is only used to gray out the option in the UI
+  // and route the user to the upgrade tab on click.
+  const managedBackendLocked =
+    userTier === 'free' &&
+    process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL !== 'true';
+
   const handlePromptChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setPrompt(e.target.value);
@@ -1554,6 +1562,15 @@ export default function LandingV2() {
   };
 
   const saveBackendPreference = useCallback(async (pref: 'platform' | 'user' | 'none') => {
+    // Defense in depth: ignore an attempt to pick the locked option.
+    // The selector UI also gates this, but a stale render could slip through.
+    if (
+      pref === 'platform' &&
+      userTier === 'free' &&
+      process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL !== 'true'
+    ) {
+      return;
+    }
     setConvexBackendType(pref);
     try {
       await fetch('/api/user-settings', {
@@ -1562,7 +1579,7 @@ export default function LandingV2() {
         body: JSON.stringify({ convexBackendPreference: pref }),
       });
     } catch {}
-  }, []);
+  }, [userTier]);
 
   const fetchUserSettings = useCallback(async () => {
     try {
@@ -1570,6 +1587,18 @@ export default function LandingV2() {
         fetch('/api/user-settings'),
         fetch('/api/usage/budget'),
       ]);
+      // Resolve tier first (it lives on the budget response) so the backend
+      // selector below can downgrade 'platform' → 'none' for locked free users.
+      let resolvedTier: 'free' | 'pro' | 'max' = 'free';
+      let budgetData: { tier?: string; convexProjectsLeft?: number } | null = null;
+      if (budgetRes.ok) {
+        budgetData = await budgetRes.json();
+        if (budgetData?.tier === 'pro' || budgetData?.tier === 'max') {
+          resolvedTier = budgetData.tier;
+        }
+      }
+      const cloudForAll = process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+      const platformLocked = resolvedTier === 'free' && !cloudForAll;
       if (settingsRes.ok) {
         const data = await settingsRes.json();
         setHasOpenAIKey(Boolean(data?.hasOpenAIKey));
@@ -1579,24 +1608,29 @@ export default function LandingV2() {
         setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
         setHasFireworksKey(Boolean(data?.hasFireworksKey));
         setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
-        if (data?.convexBackendPreference === 'none') {
+        const pref = data?.convexBackendPreference as 'platform' | 'user' | 'none' | undefined;
+        if (pref === 'none') {
           setConvexBackendType('none');
-        } else if (data?.convexBackendPreference === 'user' && data?.hasConvexOAuth) {
+        } else if (pref === 'user' && data?.hasConvexOAuth) {
           setConvexBackendType('user');
-        } else if (data?.convexBackendPreference === 'platform') {
+        } else if (pref === 'platform' && !platformLocked) {
           setConvexBackendType('platform');
+        } else if (platformLocked) {
+          // Free user without flag: 'platform' is unavailable. Default to
+          // 'none' (the path that always works). They can opt into BYOC by
+          // connecting Convex from the selector.
+          setConvexBackendType('none');
         } else if (!data?.hasConvexOAuth) {
           setConvexBackendType('platform');
         }
       }
-      if (budgetRes.ok) {
-        const data = await budgetRes.json();
-        if (data?.tier === 'pro' || data?.tier === 'max') {
-          setUserTier(data.tier as 'pro' | 'max');
-        }
-        if (typeof data?.convexProjectsLeft === 'number') {
-          setProjectQuotaLeft(data.convexProjectsLeft);
-        }
+      // Apply the tier we resolved up-front (we already consumed budgetRes
+      // above to gate the backend-selector default).
+      if (resolvedTier === 'pro' || resolvedTier === 'max') {
+        setUserTier(resolvedTier);
+      }
+      if (budgetData && typeof budgetData.convexProjectsLeft === 'number') {
+        setProjectQuotaLeft(budgetData.convexProjectsLeft);
       }
     } catch {}
   }, []);
@@ -1921,11 +1955,10 @@ export default function LandingV2() {
                             });
                           }}
                         />
-                        {isSignedIn && (userTier === 'pro' || userTier === 'max' || process.env.NEXT_PUBLIC_ALLOW_CLOUD_CONVEX_FOR_ALL === 'true') && (
-                          // The backend selector is only meaningful for the `web` platform.
-                          // Mobile/multiplatform templates always include Convex — there are
-                          // no no-backend variants of those templates today.
-                          platform === 'web' && (
+                        {/* The backend selector is only meaningful for the `web` platform.
+                            Mobile/multiplatform templates always include Convex — there are
+                            no no-backend variants of those templates today. */}
+                        {isSignedIn && platform === 'web' && (
                           <div ref={convexSelectorRef} className="relative shrink-0">
                             <button
                               type="button"
@@ -1954,19 +1987,46 @@ export default function LandingV2() {
                               <div className="absolute bottom-full mb-2 left-0 w-60 rounded-xl border border-[var(--sand-border)] bg-[var(--sand-surface)] shadow-lg overflow-hidden z-20">
                                 <button
                                   type="button"
-                                  onClick={() => { void saveBackendPreference('platform'); setShowConvexSelector(false); }}
+                                  onClick={() => {
+                                    if (managedBackendLocked) {
+                                      toast({
+                                        title: 'Pro plan required',
+                                        description: 'Botflow-managed Convex is included on Pro and Max. Free projects can use Bring Your Own Convex or No Backend.',
+                                      });
+                                      setSettingsDefaultTab('subscription');
+                                      setShowSettings(true);
+                                      setShowConvexSelector(false);
+                                      return;
+                                    }
+                                    void saveBackendPreference('platform');
+                                    setShowConvexSelector(false);
+                                  }}
                                   className={cn(
                                     'flex w-full items-start gap-2.5 px-3 py-2.5 text-sm transition text-left',
                                     convexBackendType === 'platform' ? 'bg-[var(--sand-elevated)]' : 'hover:bg-[var(--sand-elevated)]',
+                                    managedBackendLocked && 'opacity-60',
                                   )}
                                 >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src="/convex-color.svg" className="h-4 w-4 mt-0.5 shrink-0" alt="" />
-                                  <div>
-                                    <div className="font-medium text-[var(--sand-text)]">Botflow Managed</div>
-                                    <div className="text-xs text-[var(--sand-text-muted)] mt-0.5">We handle infrastructure &amp; scaling</div>
+                                  <img src="/convex-color.svg" className={cn('h-4 w-4 mt-0.5 shrink-0', managedBackendLocked && 'grayscale')} alt="" />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-1.5 font-medium text-[var(--sand-text)]">
+                                      <span>Botflow Managed</span>
+                                      {managedBackendLocked && (
+                                        <span className="inline-flex items-center rounded-full bg-[var(--sand-accent)]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sand-text)]">
+                                          Pro
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-[var(--sand-text-muted)] mt-0.5">
+                                      {managedBackendLocked
+                                        ? 'Upgrade to Pro for managed Convex'
+                                        : 'We handle infrastructure & scaling'}
+                                    </div>
                                   </div>
-                                  {convexBackendType === 'platform' && <Check className="h-4 w-4 text-[var(--sand-text)] ml-auto mt-0.5 shrink-0" />}
+                                  {convexBackendType === 'platform' && !managedBackendLocked && (
+                                    <Check className="h-4 w-4 text-[var(--sand-text)] ml-auto mt-0.5 shrink-0" />
+                                  )}
                                 </button>
                                 <button
                                   type="button"
@@ -2001,7 +2061,6 @@ export default function LandingV2() {
                               </div>
                             )}
                           </div>
-                          )
                         )}
                       </div>
                       <SignedIn>

@@ -249,7 +249,7 @@ async function generateCoverImage(args: {
 
   // Pass moodboard images as visual style references via the Responses API
   const response = await openai.responses.create({
-    model: 'gpt-image-2',
+    model: 'gpt-4o',
     input: [
       {
         role: 'user',

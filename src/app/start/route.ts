@@ -140,6 +140,20 @@ export async function GET(request: Request) {
       return NextResponse.redirect(errUrl);
     }
 
+    // Free users can't get a Botflow-managed Convex backend (unless the global
+    // override flag is set). Previously we'd silently insert a project with
+    // `backendType='platform'` and no Convex URL — broken state.
+    // Now we downgrade to 'none' so the workspace mounts the no-backend
+    // template and everything works end-to-end. The UI also gates this, but
+    // we re-check on the server in case the client lied.
+    if (backendType === 'platform' && platform === 'web') {
+      const cloudConvexForAll = process.env.ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
+      const limits = await getUserTierAndLimits(userId);
+      if (!cloudConvexForAll && limits.tier === 'free') {
+        backendType = 'none';
+      }
+    }
+
     const [project] = await db
       .insert(projects)
       .values({ name, userId, platform, model, backendType })

@@ -51,3 +51,6 @@ next-env.d.ts
 /.agents/
 /skills/
 /.windsurf/
+
+# Claude Code local worktrees (per-agent scratch copies of the repo)
+.claude/worktrees/

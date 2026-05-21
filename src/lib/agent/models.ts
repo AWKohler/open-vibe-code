@@ -135,28 +135,22 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
   },
 };
 
-/** Resolve stored model value (handles legacy migrations) */
+/** Resolve stored model value — maps renames; unknown/removed models fall back to default */
 export function resolveModelId(stored: string | null | undefined): ModelId {
-  if (stored === "claude-sonnet-4.5") return "claude-sonnet-4-6";
-  if (stored === "claude-sonnet-4.6") return "claude-sonnet-4-6";
-  if (stored === "claude-opus-4.5") return "claude-opus-4-7";
-  if (stored === "claude-opus-4.6") return "claude-opus-4-7";
-  if (stored === "claude-opus-4.7") return "claude-opus-4-7";
-  if (stored === "claude-opus-4-1") return "claude-opus-4-7"; // legacy rename
-  if (stored === "gpt-4.1") return "gpt-5.3-codex"; // migrate legacy
-  if (stored === "gpt-5.2") return "gpt-5.3-codex"; // migrate legacy
-  if (stored === "claude-haiku-4.5") return "claude-sonnet-4-6"; // removed model
-  if (stored === "fireworks-minimax-m2p5") return "fireworks-minimax-m2p7"; // updated model
-  if (stored === "kimi-k2.5") return "fireworks-minimax-m2p7"; // removed model
-  if (stored === "kimi-k2-thinking-turbo") return "fireworks-minimax-m2p7"; // removed model
-  if (stored === "fireworks-glm-5") return "fireworks-glm-5p1"; // updated model
+  // Dot-notation renames (same model, new ID format)
+  if (stored === "claude-sonnet-4.5" || stored === "claude-sonnet-4.6") return "claude-sonnet-4-6";
+  if (stored === "claude-opus-4.5" || stored === "claude-opus-4.6" || stored === "claude-opus-4.7" || stored === "claude-opus-4-1") return "claude-opus-4-7";
+  if (stored === "gpt-4.1" || stored === "gpt-5.2") return "gpt-5.3-codex";
+  if (stored === "fireworks-glm-5") return "fireworks-glm-5p1";
+  // Still-valid model: pass through
   if (stored && stored in MODEL_CONFIGS) return stored as ModelId;
+  // Unknown or removed model: silently use default
   return "gpt-5.3-codex";
 }
 
 /** Check if a model supports image/file inputs */
 export function modelSupportsImages(model: ModelId): boolean {
-  return MODEL_CONFIGS[model].supportsImages;
+  return MODEL_CONFIGS[model]?.supportsImages ?? false;
 }
 
 /** Check if a model uses the Anthropic provider */

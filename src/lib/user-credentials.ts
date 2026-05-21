@@ -47,6 +47,10 @@ export interface UserCredentials {
   //   'user'     — Bring Your Own Convex (BYOC)
   //   'none'     — No backend (frontend-only project)
   convexBackendPreference: 'platform' | 'user' | 'none' | null;
+  // User preference for the agent backend on Anthropic models when a choice
+  // exists (BYOK users). 'botflow' (default) or 'claude-code'. OAuth users
+  // are locked to 'claude-code' regardless of this value.
+  preferredAnthropicBackend: 'botflow' | 'claude-code' | null;
 }
 
 const CACHE_TTL = 300; // 5 minutes
@@ -131,6 +135,7 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
     convexOAuthExpiresAt: (meta.convexOAuthExpiresAt ?? neon.convexOAuthExpiresAt) ?? null,
     convexTeamId: (meta.convexTeamId as string | null) ?? null,
     convexBackendPreference: (meta.convexBackendPreference as 'platform' | 'user' | 'none' | null) ?? null,
+    preferredAnthropicBackend: (meta.preferredAnthropicBackend as 'botflow' | 'claude-code' | null) ?? null,
   };
 
   await redis.setex(cacheKey(userId), CACHE_TTL, creds);

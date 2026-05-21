@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { desc, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { getDb } from '@/db';
 import { chatMessages, chatSessions, projects } from '@/db/schema';
 import { auth } from '@clerk/nextjs/server';
@@ -17,6 +18,24 @@ async function getOrCreateSession(db: ReturnType<typeof getDb>, projectId: strin
   return created;
 }
 
+/**
+ * Returns the project's current_segment_id, lazy-minting one if missing.
+ * Pre-migration projects should already have a segment from the backfill, but
+ * defensive against any path that creates a project without one.
+ */
+async function ensureProjectSegment(
+  db: ReturnType<typeof getDb>,
+  project: typeof projects.$inferSelect,
+): Promise<string> {
+  if (project.currentSegmentId) return project.currentSegmentId;
+  const segmentId = randomUUID();
+  await db
+    .update(projects)
+    .set({ currentSegmentId: segmentId, updatedAt: new Date() })
+    .where(eq(projects.id, project.id));
+  return segmentId;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { userId } = await auth();
@@ -24,34 +43,47 @@ export async function GET(req: NextRequest) {
     const projectId = req.nextUrl.searchParams.get('projectId');
     if (!projectId) return NextResponse.json({ error: 'projectId is required' }, { status: 400 });
 
+    // When the client wants the older messages too (for the segment-divider
+    // view), it passes ?includeAllSegments=true. Otherwise we scope strictly
+    // to the current segment so the agent's history matches what it sees.
+    const includeAllSegments = req.nextUrl.searchParams.get('includeAllSegments') === 'true';
+
     const db = getDb();
-    // Ensure user owns the project
     const [proj] = await db.select().from(projects).where(eq(projects.id, projectId));
     if (!proj || proj.userId !== userId) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const session = await getOrCreateSession(db, projectId);
+    const currentSegmentId = await ensureProjectSegment(db, proj);
+
+    const whereClause = includeAllSegments
+      ? eq(chatMessages.sessionId, session.id)
+      : and(eq(chatMessages.sessionId, session.id), eq(chatMessages.segmentId, currentSegmentId));
 
     const rows = await db
       .select()
       .from(chatMessages)
-      .where(eq(chatMessages.sessionId, session.id))
+      .where(whereClause)
       .orderBy(desc(chatMessages.createdAt));
 
-    // Return in chronological order
-    // v6: messages use `parts` array instead of `content`
+    // Return in chronological order. v6: messages use `parts` array.
     const messages = [...rows].reverse().map((r) => {
       const stored = r.content as Record<string, unknown>;
-      // If stored data has `parts` (v6 format), return as-is
+      const base = {
+        id: r.messageId,
+        role: r.role,
+        // Include segmentId so the client can render segment dividers without
+        // a second fetch. The active segment matches `currentSegmentId`.
+        segmentId: r.segmentId,
+        createdAt: r.createdAt,
+      };
       if (stored && typeof stored === 'object' && 'parts' in stored) {
-        return { id: r.messageId, role: r.role, parts: stored.parts };
+        return { ...base, parts: stored.parts };
       }
-      // Legacy v4 format: convert content to parts
       if (stored && typeof stored === 'object') {
-        return { id: r.messageId, role: r.role, parts: stored };
+        return { ...base, parts: stored };
       }
-      // Fallback: wrap string content as text part
-      return { id: r.messageId, role: r.role, parts: [{ type: 'text', text: String(stored ?? '') }] };
+      return { ...base, parts: [{ type: 'text', text: String(stored ?? '') }] };
     });
-    return NextResponse.json({ sessionId: session.id, messages });
+    return NextResponse.json({ sessionId: session.id, messages, currentSegmentId });
   } catch (err) {
     console.error('GET /api/chat failed:', err);
     return NextResponse.json({ error: 'Failed to fetch chat' }, { status: 500 });
@@ -71,14 +103,15 @@ export async function POST(req: NextRequest) {
     const [proj] = await db.select().from(projects).where(eq(projects.id, projectId));
     if (!proj || proj.userId !== userId) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const session = await getOrCreateSession(db, projectId);
+    const currentSegmentId = await ensureProjectSegment(db, proj);
 
-    // v6: store parts in the content column (JSON), with a `parts` key for identification
     const storedContent = message.parts
       ? { parts: message.parts }
       : (message.content as object);
 
-    // Upsert by (sessionId, messageId) so we can update the assistant
-    // message multiple times during streaming without creating duplicates.
+    // Stamp every new message with the project's current segment id. Upsert
+    // by (sessionId, messageId) so streaming updates to the same assistant
+    // message don't create duplicates.
     await db
       .insert(chatMessages)
       .values({
@@ -86,12 +119,15 @@ export async function POST(req: NextRequest) {
         messageId: message.id,
         role: message.role,
         content: storedContent,
+        segmentId: currentSegmentId,
       })
       .onConflictDoUpdate({
         target: [chatMessages.sessionId, chatMessages.messageId],
         set: {
           role: message.role,
           content: storedContent,
+          // Don't touch segmentId on update — preserves the message's
+          // original segment even if the project later switches backends.
         },
       });
     return NextResponse.json({ ok: true });
@@ -111,8 +147,15 @@ export async function DELETE(req: NextRequest) {
     const [proj] = await db.select().from(projects).where(eq(projects.id, projectId));
     if (!proj || proj.userId !== userId) return NextResponse.json({ error: 'Not found' }, { status: 404 });
     const session = await getOrCreateSession(db, projectId);
+    // Reset deletes EVERY segment's messages and mints a fresh segment id
+    // so the next message starts a clean slate.
     await db.delete(chatMessages).where(eq(chatMessages.sessionId, session.id));
-    return NextResponse.json({ ok: true });
+    const newSegmentId = randomUUID();
+    await db
+      .update(projects)
+      .set({ currentSegmentId: newSegmentId, updatedAt: new Date() })
+      .where(eq(projects.id, projectId));
+    return NextResponse.json({ ok: true, currentSegmentId: newSegmentId });
   } catch (err) {
     console.error('DELETE /api/chat failed:', err);
     return NextResponse.json({ error: 'Failed to reset chat' }, { status: 500 });

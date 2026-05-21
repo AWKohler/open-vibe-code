@@ -12,7 +12,10 @@ import { Tabs, TabOption } from "@/components/ui/tabs";
 import { UserButton } from "@clerk/nextjs";
 import { cn } from "@/lib/utils";
 import { FileSearch } from "./file-search";
-import { PanelLeft, Save, Loader2 } from "lucide-react";
+import { SwiftSimulatorPreview } from "./swift-simulator-preview";
+import { SwiftPipWindow } from "./swift-pip-window";
+import { PanelLeft, Play, Save, Loader2 } from "lucide-react";
+import type { ProjectPlatform } from "@/lib/project-platform";
 
 const PersistentTerminal = dynamic(
   () => import("./terminal").then((m) => m.PersistentTerminal),
@@ -26,11 +29,13 @@ type FileEntry = { type: "file" | "folder" };
 interface PersistentWorkspaceProps {
   projectId: string;
   initialPrompt?: string;
+  platform?: ProjectPlatform;
 }
 
 export function PersistentWorkspace({
   projectId,
   initialPrompt,
+  platform,
 }: PersistentWorkspaceProps) {
   const { toast } = useToast();
 
@@ -44,6 +49,43 @@ export function PersistentWorkspace({
   const [showSidebar, setShowSidebar] = useState(true);
   const [sidebarTab, setSidebarTab] = useState<"files" | "search" | "env">("files");
   const [currentView, setCurrentView] = useState<WorkspaceView>("code");
+  // When a build-error row is clicked, we open the file and ask the editor to
+  // reveal a specific line. The counter is bumped on every click so that
+  // re-clicking the SAME row still triggers a reveal (Monaco won't otherwise
+  // re-run a reveal if the line number didn't change).
+  const [revealLine, setRevealLine] = useState<number | null>(null);
+  const [revealNonce, setRevealNonce] = useState(0);
+
+  // ── Preview Stop/Play persistence ──────────────────────────────────────────
+  // When the user explicitly clicks Stop, we DELETE the session AND remember
+  // they did, so reloading the page (or just re-mounting the workspace)
+  // doesn't silently spin a new simulator. Cleared when they click Play.
+  // Per-project key so different projects' choices don't interfere.
+  const stoppedKey = `swift-preview:stopped:${projectId}`;
+  const [previewStopped, setPreviewStoppedState] = useState(false);
+  // Read the persisted flag exactly once on mount (SSR-safe).
+  useEffect(() => {
+    try {
+      setPreviewStoppedState(
+        window.localStorage.getItem(stoppedKey) === "true",
+      );
+    } catch {
+      /* localStorage blocked — fine */
+    }
+  }, [stoppedKey]);
+  const setPreviewStopped = useCallback(
+    (next: boolean): void => {
+      setPreviewStoppedState(next);
+      try {
+        if (next) window.localStorage.setItem(stoppedKey, "true");
+        else window.localStorage.removeItem(stoppedKey);
+      } catch {
+        /* localStorage blocked — state still applies for this tab */
+      }
+    },
+    [stoppedKey],
+  );
+
   const initializedRef = useRef(false);
 
   const refreshFiles = useCallback(async () => {
@@ -114,6 +156,24 @@ export function PersistentWorkspace({
     }
   }, [projectId, files, toast]);
 
+  /** Click-to-jump from the build Issues panel. Open the file in the editor
+   * and ask Monaco to reveal `line`. Includes a path normalization step so
+   * diagnostics emitted as `Sources/Foo.swift` match our file map's keys
+   * (which start with `/`). */
+  const handleOpenFromIssues = useCallback(
+    async (path: string, line: number): Promise<void> => {
+      // Diagnostic paths are project-relative without a leading slash; the
+      // file map keys are absolute-style. Try both.
+      const candidates = [path.startsWith("/") ? path : `/${path}`, path];
+      const target = candidates.find((p) => files[p]?.type === "file") ?? candidates[0];
+      setCurrentView("code");
+      await handleFileSelect(target);
+      setRevealLine(line);
+      setRevealNonce((n) => n + 1);
+    },
+    [files, handleFileSelect],
+  );
+
   const handleContentChange = useCallback((next: string) => {
     setFileContent(next);
     setHasUnsavedChanges(true);
@@ -154,7 +214,7 @@ export function PersistentWorkspace({
           className="h-full"
           projectId={projectId}
           initialPrompt={initialPrompt}
-          platform="persistent"
+          platform={platform ?? "swift"}
         />
       </div>
 
@@ -314,6 +374,8 @@ export function PersistentWorkspace({
                       onChange={handleContentChange}
                       language={getLanguageFromFilename(selectedFile)}
                       filename={selectedFile}
+                      revealLine={revealLine ?? undefined}
+                      revealNonce={revealNonce}
                     />
                   ) : (
                     <div className="flex items-center justify-center h-full text-muted text-sm">
@@ -334,19 +396,97 @@ export function PersistentWorkspace({
             </div>
           </div>
 
-          {/* Preview view — intentionally blank for persistent projects */}
+          {/* Preview view — empty container.  The actual <SwiftSimulatorPreview/>
+              is rendered ONCE below in a stable React-tree position so it stays
+              mounted across tab switches (and survives drag in/out of PIP). */}
           <div
             className={cn(
-              "absolute inset-0 pb-2.5 pr-2.5",
+              "absolute inset-0",
               currentView === "preview" ? "block" : "hidden",
             )}
           >
-            <div className="w-full h-full rounded-xl border border-border overflow-hidden bg-elevated/60 flex items-center justify-center">
-              <div className="text-center text-muted text-sm max-w-sm px-6">
-                <p className="text-fg font-semibold mb-2">No preview</p>
-                <p>Persistent projects build remotely. Use the agent and terminal to develop, then publish to your build target.</p>
+            {platform === "swift" ? (
+              previewStopped ? (
+                <StoppedPreviewPlaceholder onPlay={() => setPreviewStopped(false)} />
+              ) : (
+                // Empty slot — preview is in the persistent mount below.
+                <div className="absolute inset-0 pb-2.5 pr-2.5" />
+              )
+            ) : (
+              <div className="absolute inset-0 pb-2.5 pr-2.5">
+                <div className="w-full h-full rounded-xl border border-border overflow-hidden bg-elevated/60 flex items-center justify-center">
+                  <div className="text-center text-muted text-sm max-w-sm px-6">
+                    <p className="text-fg font-semibold mb-2">No preview</p>
+                    <p>
+                      Persistent projects build remotely. Use the agent and terminal to
+                      develop, then publish to your build target.
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+          </div>
+
+          {/*
+            Persistent simulator preview mount. The React tree position of this
+            element NEVER changes — that's what keeps the WS session alive when
+            the user toggles Preview ↔ Code. Visual placement is CSS-driven:
+
+              • currentView === "preview" : the wrapper fills the Preview slot
+                (matching the empty-container layout above).
+              • currentView === "code"    : the simulator renders inside a
+                fixed-position SwiftPipWindow at the user's saved rect.
+
+            Unmounting only happens when previewStopped flips true, at which
+            point the existing cleanup effect DELETEs the session.
+          */}
+          {platform === "swift" && !previewStopped && (
+            // Single render path. SwiftPipWindow stays at the same React tree
+            // position; only its internal layout changes when `mode` flips
+            // between "full" and "pip". That's what keeps the inner
+            // <SwiftSimulatorPreview/> instance — and its WS session — alive
+            // across tab switches.
+            <SwiftPipWindow
+              projectId={projectId}
+              mode={currentView === "preview" ? "full" : "pip"}
+            >
+              <SwiftSimulatorPreview
+                projectId={projectId}
+                mode={currentView === "preview" ? "full" : "pip"}
+                onOpenFile={handleOpenFromIssues}
+                onStop={() => setPreviewStopped(true)}
+                onExpand={() => setCurrentView("preview")}
+              />
+            </SwiftPipWindow>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Placeholder shown in the Preview tab when the user has explicitly stopped
+ * the simulator. Click Play to re-provision a new session.
+ */
+function StoppedPreviewPlaceholder({ onPlay }: { onPlay: () => void }) {
+  return (
+    <div className="absolute inset-0 pb-2.5 pr-2.5">
+      <div className="flex h-full w-full items-center justify-center rounded-xl border border-border bg-elevated/60">
+        <div className="flex flex-col items-center gap-3 text-center text-muted">
+          <button
+            type="button"
+            onClick={onPlay}
+            className="flex h-14 w-14 items-center justify-center rounded-full bg-accent text-bg shadow-lg transition hover:scale-105"
+            title="Start the simulator"
+          >
+            <Play size={26} className="ml-1 fill-current" />
+          </button>
+          <div>
+            <p className="font-semibold text-fg">Preview stopped</p>
+            <p className="mt-1 max-w-xs px-6 text-xs">
+              Click play to start a new simulator session.
+            </p>
           </div>
         </div>
       </div>

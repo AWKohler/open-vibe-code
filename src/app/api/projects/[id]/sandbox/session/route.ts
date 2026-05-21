@@ -7,13 +7,15 @@ import { getOrCreatePersistentSandbox } from "@/lib/vercel-sandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Cold-start sandbox creation (with ports declared) can take ~30-90s; the
+// previous 60s cap occasionally tripped right at the finish line.
+export const maxDuration = 180;
 
 async function getAuthorizedProject(projectId: string, userId: string) {
   const db = getDb();
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project || project.userId !== userId) return null;
-  if (project.platform !== "persistent") return null;
+  if (project.platform !== "swift" && project.platform !== "sandboxed-web") return null;
   return project;
 }
 

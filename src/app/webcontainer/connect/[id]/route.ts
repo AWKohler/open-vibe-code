@@ -6,7 +6,7 @@ export async function GET(
 ) {
   const { id } = await params;
   const { searchParams } = new URL(request.url);
-  const editorOrigin = searchParams.get('editorOrigin') || request.headers.get('origin') || 'https://web-ide-six.vercel.app';
+  const editorOrigin = searchParams.get('editorOrigin') || request.headers.get('origin') || 'https://botflow.io';
   
   console.log('WebContainer connect request:', {
     id,

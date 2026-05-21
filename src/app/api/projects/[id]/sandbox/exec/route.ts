@@ -23,7 +23,7 @@ export async function POST(
   const db = getDb();
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
 
-  if (!project || project.userId !== userId || project.platform !== "persistent") {
+  if (!project || project.userId !== userId || (project.platform !== "swift" && project.platform !== "sandboxed-web")) {
     return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
   }
 

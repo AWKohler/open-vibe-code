@@ -27,7 +27,8 @@ import {
   getProjectPlatformLabel,
   getProjectPlatformShortLabel,
   isMobilePlatformsEnabled,
-  isPersistentPlatformEnabled,
+  isSwiftPlatformEnabled,
+  isSandboxedWebPlatformEnabled,
   normalizeProjectPlatform,
   type ProjectPlatform,
 } from "@/lib/project-platform";
@@ -436,7 +437,8 @@ export default function Home() {
         }
         if (
           storedPlatform === "web" ||
-          (storedPlatform === "persistent" && isPersistentPlatformEnabled()) ||
+          (storedPlatform === "swift" && isSwiftPlatformEnabled()) ||
+          (storedPlatform === "sandboxed-web" && isSandboxedWebPlatformEnabled()) ||
           ((storedPlatform === "mobile" || storedPlatform === "multiplatform") &&
             isMobilePlatformsEnabled())
         ) {
@@ -636,7 +638,7 @@ export default function Home() {
                             </div>
                           )}
                         </div>
-                        {(isPersistentPlatformEnabled() || isMobilePlatformsEnabled()) && (
+                        {(isSwiftPlatformEnabled() || isSandboxedWebPlatformEnabled() || isMobilePlatformsEnabled()) && (
                           <button
                             type="button"
                             onClick={() => setPlatform(getNextProjectPlatform(platform))}

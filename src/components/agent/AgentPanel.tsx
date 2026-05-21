@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, isToolUIPart, getToolName, type UIMessage } from 'ai';
@@ -14,15 +14,21 @@ import { LiveActions } from '@/components/agent/LiveActions';
 import { useToast } from '@/components/ui/toast';
 import type { ToolCallData } from '@/lib/agent/ui-types';
 import { diffLineStats } from '@/lib/agent/diff-stats';
-import { MODEL_CONFIGS, modelSupportsImages, type ModelId } from '@/lib/agent/models';
+import { MODEL_CONFIGS, modelSupportsImages, resolveModelId, type ModelId } from '@/lib/agent/models';
 import { ModelSelector } from '@/components/ui/ModelSelector';
 import { LimitModal, parseLimitPayload, type LimitReachedPayload } from '@/components/ui/LimitModal';
 import { CreditGauge } from '@/components/ui/CreditGauge';
 import type { AgentErrorType } from '@/lib/agent/errors';
 import { processImageForUpload } from '@/lib/image-processing';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import { isSandboxPlatform } from '@/lib/project-platform';
 import type { ProjectPlatform } from '@/lib/project-platform';
 import { ANTHROPIC_OAUTH_ENABLED } from '@/lib/feature-flags';
+import {
+  resolveBackends,
+  type AgentBackend,
+} from '@/lib/agent/backend-resolution';
+import { BackendBadge, BackendChip } from './BackendBadge';
 
 type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: ProjectPlatform };
 
@@ -111,6 +117,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [actions, setActions] = useState<ToolCallData[]>([]);
   const lastAssistantSavedRef = useRef<{ id: string; hash: string } | null>(null);
   const [model, setModel] = useState<ModelId>('gpt-5.3-codex');
+  const [agentBackend, setAgentBackend] = useState<AgentBackend>('botflow');
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
   const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState<boolean | null>(null);
@@ -176,6 +183,66 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     google: hasGoogleKey === true ? true : null,
   }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey, hasGoogleKey]);
 
+  // --- Agent backend resolution (for the badge / chip / popover) ---
+  const backendResolution = useMemo(() => resolveBackends({
+    model,
+    platform,
+    creds: {
+      hasClaudeOAuth: Boolean(hasClaudeOAuth),
+      hasAnthropicKey: Boolean(hasAnthropicKey),
+    },
+  }), [model, platform, hasClaudeOAuth, hasAnthropicKey]);
+
+  // --- Pending backend switch (confirmation modal) ---
+  const [pendingBackendSwitch, setPendingBackendSwitch] = useState<AgentBackend | null>(null);
+  const [switchingBackend, setSwitchingBackend] = useState(false);
+
+  // If the user's creds change such that the persisted backend isn't available
+  // anymore (e.g. they disconnected Claude OAuth, or switched to a non-Anthropic
+  // model), silently coerce to the resolution's defaultBackend. We hit the
+  // backend route directly (no segment break) — this is a recovery, not a
+  // deliberate switch, so we don't want to nuke conversation context.
+  //
+  // Guard against re-firing: track the last coerce signature so we never fire
+  // twice for the same (project, available-set, target). Without this guard,
+  // a flickering resolution during initial load (project fetch + user-settings
+  // racing) could trigger repeated coerce → render → coerce loops.
+  const lastCoercedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (hasClaudeOAuth === null || hasAnthropicKey === null) return;
+    if (backendResolution.available.includes(agentBackend)) {
+      // Backend is fine; clear the coerce marker so future drift triggers again.
+      lastCoercedRef.current = null;
+      return;
+    }
+    const target = backendResolution.defaultBackend;
+    if (target === agentBackend) return;
+    const sig = `${projectId}:${backendResolution.available.join(',')}:${target}`;
+    if (lastCoercedRef.current === sig) return;
+    lastCoercedRef.current = sig;
+    setAgentBackend(target);
+    fetch(`/api/projects/${encodeURIComponent(projectId)}/agent-backend`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ backend: target, mintNewSegment: false }),
+    }).catch(() => {});
+  }, [backendResolution, agentBackend, hasClaudeOAuth, hasAnthropicKey, projectId]);
+
+  // performBackendSwitch is defined below the useChat hook because it needs
+  // `setMessages` from useChat to clear the in-memory thread on switch. We
+  // forward-declare a ref so the JSX can call it via `performBackendSwitchRef.current(...)`.
+  const performBackendSwitchRef = useRef<(next: AgentBackend) => void>(() => {});
+
+  // --- Chat segment tracking ---
+  // Each message belongs to a segment_id; switching agents mints a new one.
+  // We load ALL segments so the user can scroll back through history, but
+  // we only SEND the current segment's messages to the agent so the new
+  // backend doesn't see foreign tool calls from the prior agent.
+  const [currentSegmentId, setCurrentSegmentId] = useState<string | null>(null);
+  const segmentByMessageIdRef = useRef<Map<string, string>>(new Map());
+  const currentSegmentIdRef = useRef<string | null>(null);
+  currentSegmentIdRef.current = currentSegmentId;
+
   // --- Token tracking ---
   const [tokenEstimate, setTokenEstimate] = useState(0);
   const maxTokens = MODEL_CONFIGS[model]?.maxContextTokens ?? 128_000;
@@ -190,10 +257,50 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   // --- AbortController for tool calls ---
   const toolAbortRef = useRef<AbortController | null>(null);
 
+  // --- Ref that the transport's prepare/fetch closures read at request time.
+  //     Holds the project's persisted agent_backend so we route every turn to
+  //     the right endpoint. Updates whenever the user (or load) changes the
+  //     backend; the transport (a useRef) sees fresh values without rebuild. ---
+  const agentBackendRef = useRef<AgentBackend>(agentBackend);
+  agentBackendRef.current = agentBackend;
+
   // --- Stable transport ref (v6) ---
+  // Endpoint is chosen per-request from the project's persisted agentBackend.
+  // The 412 fallback from /api/agent/claude-code is kept as a safety net: if
+  // creds went stale between turns, we transparently retry /api/agent.
   const transportRef = useRef(new DefaultChatTransport({
     api: '/api/agent',
     body: { projectId, platform },
+    prepareSendMessagesRequest: ({ body, messages, api }) => {
+      const useClaudeCode = agentBackendRef.current === 'claude-code';
+      // Scope the agent's history to the current segment. Older segments are
+      // visible to the user via segment dividers but the new agent should
+      // start with a clean slate.
+      const segment = currentSegmentIdRef.current;
+      const segmentMap = segmentByMessageIdRef.current;
+      const scoped = segment
+        ? messages.filter((m) => {
+            const owner = segmentMap.get(m.id);
+            // Messages without a known segment are assumed to be brand-new
+            // (the user just typed them this turn). Always include them.
+            return owner === undefined || owner === segment;
+          })
+        : messages;
+      return {
+        body: { ...(body ?? {}), messages: scoped },
+        ...(useClaudeCode ? { api: '/api/agent/claude-code' } : { api }),
+      };
+    },
+    fetch: async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const res = await fetch(input, init);
+      // 412 from /api/agent/claude-code = "creds went stale, fall back".
+      // Rare — the persisted agent_backend should match what's available.
+      if (res.status === 412 && url.includes('/api/agent/claude-code')) {
+        return fetch(url.replace('/api/agent/claude-code', '/api/agent'), init);
+      }
+      return res;
+    },
   }));
 
   const { messages, sendMessage, setMessages, addToolOutput, stop, status } = useChat({
@@ -213,6 +320,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             body: JSON.stringify({ projectId, message }),
           });
           savedIdsRef.current.add(message.id);
+          // Stamp the message with the current segment so subsequent
+          // `prepareSendMessagesRequest` calls keep including it in scope.
+          if (currentSegmentIdRef.current) {
+            segmentByMessageIdRef.current.set(message.id, currentSegmentIdRef.current);
+          }
         } catch (err) {
           console.error('Failed to persist assistant message:', err);
         }
@@ -270,17 +382,26 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           return;
         }
 
-        // Record tool invocation
-        setActions((prev) => [
-          ...prev,
-          {
+        // Record tool invocation. Replace any existing entry for the same
+        // toolCallId — for sandbox platforms the messages-derived effect may
+        // have already pushed one, and a second blind append would produce a
+        // duplicate React key until the next merge.
+        setActions((prev) => {
+          const idx = prev.findIndex((a) => a.toolCallId === toolCall.toolCallId);
+          const entry = {
             toolCallId: toolCall.toolCallId,
             toolName: toolCall.toolName,
             args,
-            status: 'invoked',
+            status: 'invoked' as const,
             startedAt: Date.now(),
-          },
-        ]);
+          };
+          if (idx >= 0) {
+            const next = prev.slice();
+            next[idx] = entry;
+            return next;
+          }
+          return [...prev, entry];
+        });
 
         switch (toolCall.toolName) {
           case 'listFiles': {
@@ -508,6 +629,90 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
 
+  // --- Backend switch: definition deferred until here so the closure can
+  //     access `setMessages` from useChat. The chip calls it via the
+  //     `performBackendSwitchRef` declared earlier in the component. ---
+  const performBackendSwitch = useCallback(async (next: AgentBackend) => {
+    if (next === agentBackend) {
+      setPendingBackendSwitch(null);
+      return;
+    }
+    setSwitchingBackend(true);
+    try {
+      // If switching to Claude Code while on a non-Anthropic model, change
+      // the model first — Claude Code only runs Anthropic models, and the
+      // backend route would otherwise reject the switch with non_anthropic_model.
+      if (next === 'claude-code' && !(model === 'claude-sonnet-4-6' || model === 'claude-opus-4-7')) {
+        const nextModel: ModelId = 'claude-sonnet-4-6';
+        try {
+          const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model: nextModel }),
+          });
+          if (res.ok) setModel(nextModel);
+        } catch {
+          // Non-fatal — the backend route below will surface the mismatch.
+        }
+      }
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/agent-backend`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ backend: next }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Failed to switch backend (status ${res.status})`);
+      }
+      const swResp = await res.json().catch(() => ({} as { currentSegmentId?: string }));
+      setAgentBackend(next);
+      // Update the segment id so the transport scopes the next turn correctly.
+      if (typeof swResp.currentSegmentId === 'string') {
+        setCurrentSegmentId(swResp.currentSegmentId);
+      }
+      // Re-load the chat so older segments stay visible with dividers but the
+      // local message state matches the fresh empty segment.
+      try {
+        const r = await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}&includeAllSegments=true`);
+        if (r.ok) {
+          const data = await r.json();
+          if (Array.isArray(data?.messages)) {
+            const ids = new Set<string>();
+            const segMap = new Map<string, string>();
+            for (const m of data.messages) {
+              ids.add(m.id);
+              if (typeof m.segmentId === 'string') segMap.set(m.id, m.segmentId);
+            }
+            savedIdsRef.current = ids;
+            segmentByMessageIdRef.current = segMap;
+            setMessages(data.messages);
+          } else {
+            setMessages([]);
+          }
+        } else {
+          setMessages([]);
+        }
+      } catch {
+        setMessages([]);
+      }
+      lastAssistantSavedRef.current = null;
+      setActions([]);
+      setHasAgentResponded(false);
+      setTokenEstimate(0);
+      setPendingBackendSwitch(null);
+      toast({
+        title: `Switched to ${next === 'claude-code' ? 'Claude Code' : 'Botflow'}`,
+        description: 'New conversation started. Older messages are preserved.',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to switch backend';
+      toast({ title: 'Could not switch agent', description: message });
+    } finally {
+      setSwitchingBackend(false);
+    }
+  }, [agentBackend, model, projectId, setMessages, toast]);
+  performBackendSwitchRef.current = performBackendSwitch;
+
   // --- Refs for values needed in effects (avoid deps that change every render) ---
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
@@ -578,22 +783,34 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   }, [messages.length, hasAgentResponded]);
 
   // Reset endTurn tracking when a new user message is sent
+  // Refs shared between this turn-reset effect and the messages-derived effect
+  // below. Declared up-front so both effects can reference them safely.
+  const seenServerToolsRef = useRef<Set<string>>(new Set());
+  const endTurnSeenRef = useRef(false);
+
   const lastMsgIdRef = useRef<string | null>(null);
   useEffect(() => {
     const msgs = messagesRef.current;
     const lastMsg = msgs[msgs.length - 1];
     if (lastMsg?.role === 'user' && lastMsg.id !== lastMsgIdRef.current) {
       lastMsgIdRef.current = lastMsg.id;
+      // Reset the messages-derived effect's "have I already seen endTurn"
+      // flag so a fresh endTurn for the new turn is detected.
+      endTurnSeenRef.current = false;
       setEndTurnCalled(false);
       setShowCompletionWarning(false);
     }
   }, [messages.length]);
 
-  // For server-executed tools (e.g. persistent platform) onToolCall does not fire.
+  // For server-executed tools (sandbox platforms) onToolCall does not fire.
   // Derive endTurn detection and live action entries from the streamed message parts.
-  const seenServerToolsRef = useRef<Set<string>>(new Set());
+  //
+  // Performance note: this effect depends on `messages`, whose reference changes
+  // on every streaming chunk. We rely on `seenServerToolsRef` to skip already-
+  // processed (toolCallId, state) pairs, and we ONLY call setState when something
+  // actually changed — otherwise we'd burn a render per chunk for no work.
   useEffect(() => {
-    if (platform !== 'persistent') return;
+    if (!platform || !isSandboxPlatform(platform)) return;
     let endTurnFound = false;
     const newActions: ToolCallData[] = [];
     for (const m of messages) {
@@ -642,13 +859,18 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         }
       }
     }
-    if (endTurnFound) {
+    // Only call setEndTurnCalled when the value actually changes. React bails
+    // out on Object.is matches, but we shouldn't depend on that; calling
+    // setState every chunk during streaming is wasteful and a known source of
+    // "Maximum update depth exceeded" when other effects react to those calls.
+    if (endTurnFound && !endTurnSeenRef.current) {
+      endTurnSeenRef.current = true;
       setEndTurnCalled(true);
       setShowCompletionWarning(false);
     }
     if (newActions.length > 0) {
       setActions(prev => {
-        // Merge: replace existing entries with same toolCallId, append new
+        // Merge: replace existing entries with same toolCallId, append new.
         const map = new Map(prev.map(a => [a.toolCallId, a]));
         for (const na of newActions) map.set(na.toolCallId, na);
         return Array.from(map.values());
@@ -702,20 +924,29 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     } catch {}
   }, []);
 
-  // Load initial chat history
+  // Load initial chat history (all segments, for display). The transport's
+  // prepareSendMessagesRequest scopes outgoing messages to the current segment.
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
-        const res = await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}`);
+        const res = await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}&includeAllSegments=true`);
         if (!res.ok) throw new Error('Failed to load chat');
         const data = await res.json();
         if (cancelled) return;
+        if (typeof data?.currentSegmentId === 'string') {
+          setCurrentSegmentId(data.currentSegmentId);
+        }
         if (Array.isArray(data?.messages)) {
           setMessages(data.messages);
           const ids = new Set<string>();
-          for (const m of data.messages) ids.add(m.id);
+          const segMap = new Map<string, string>();
+          for (const m of data.messages) {
+            ids.add(m.id);
+            if (typeof m.segmentId === 'string') segMap.set(m.id, m.segmentId);
+          }
           savedIdsRef.current = ids;
+          segmentByMessageIdRef.current = segMap;
           const lastAssistant = [...data.messages].reverse().find((m: { role: string }) => m.role === 'assistant');
           if (lastAssistant) {
             try {
@@ -724,9 +955,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               lastAssistantSavedRef.current = { id: lastAssistant.id, hash: String(lastAssistant.parts ?? lastAssistant.content) };
             }
           }
-          if (data.messages.some((m: { role: string }) => m.role === 'assistant')) {
-            setHasAgentResponded(true);
-          }
+          // hasAgentResponded should reflect the current segment only.
+          const currentAssistant = data.messages.find((m: { role: string; segmentId?: string }) =>
+            m.role === 'assistant' && (!data.currentSegmentId || m.segmentId === data.currentSegmentId),
+          );
+          if (currentAssistant) setHasAgentResponded(true);
         }
       } catch (err) {
         console.warn('No existing chat or failed to load:', err);
@@ -745,41 +978,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`);
         if (res.ok) {
           const proj = await res.json();
-          if (
-            proj?.model === 'gpt-5.3-codex' ||
-            proj?.model === 'gpt-5.4' ||
-            proj?.model === 'gpt-5.5' ||
-            proj?.model === 'gpt-5.2' ||
-            proj?.model === 'gpt-4.1' || // legacy migration
-            proj?.model === 'claude-sonnet-4-6' ||
-            proj?.model === 'claude-sonnet-4.5' ||
-            proj?.model === 'claude-sonnet-4.6' ||
-            proj?.model === 'claude-haiku-4.5' || // removed → sonnet
-            proj?.model === 'claude-opus-4-7' ||
-            proj?.model === 'claude-opus-4.6' || // legacy
-            proj?.model === 'claude-opus-4.7' ||
-            proj?.model === 'claude-opus-4.5' ||
-            proj?.model === 'kimi-k2.5' || // removed → minimax
-            proj?.model === 'kimi-k2-thinking-turbo' || // removed → minimax
-            proj?.model === 'fireworks-minimax-m2p7' ||
-            proj?.model === 'fireworks-glm-5p1' ||
-            proj?.model === 'fireworks-glm-5' || // legacy
-            proj?.model === 'fireworks-kimi-k2p6' ||
-            proj?.model === 'gemini-3.1-pro-preview'
-          ) {
-            const m = proj.model === 'gpt-4.1' ? 'gpt-5.3-codex'
-              : proj.model === 'gpt-5.2' ? 'gpt-5.3-codex'
-              : proj.model === 'claude-sonnet-4.5' ? 'claude-sonnet-4-6'
-              : proj.model === 'claude-sonnet-4.6' ? 'claude-sonnet-4-6'
-              : proj.model === 'claude-haiku-4.5' ? 'claude-sonnet-4-6'
-              : proj.model === 'claude-opus-4.5' ? 'claude-opus-4-7'
-              : proj.model === 'claude-opus-4.6' ? 'claude-opus-4-7'
-              : proj.model === 'claude-opus-4.7' ? 'claude-opus-4-7'
-              : proj.model === 'fireworks-minimax-m2p5' ? 'fireworks-minimax-m2p7'
-              : proj.model === 'kimi-k2-thinking-turbo' ? 'fireworks-minimax-m2p7'
-              : proj.model === 'kimi-k2.5' ? 'fireworks-minimax-m2p7'
-              : proj.model;
-            setModel(m as ModelId);
+          setModel(resolveModelId(proj?.model));
+          if (proj?.agentBackend === 'claude-code' || proj?.agentBackend === 'botflow') {
+            setAgentBackend(proj.agentBackend);
           }
         }
       } catch {}
@@ -834,6 +1035,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               body: JSON.stringify({ projectId, message: m }),
             });
             savedIdsRef.current.add(m.id);
+            if (currentSegmentIdRef.current) {
+              segmentByMessageIdRef.current.set(m.id, currentSegmentIdRef.current);
+            }
           } catch (err) {
             console.error('Failed to persist message:', err);
           }
@@ -1071,8 +1275,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                 const confirmed = window.confirm('Reset chat to free up context? This will delete all messages.');
                 if (!confirmed) return;
                 try {
-                  await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+                  const r = await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+                  const data = await r.json().catch(() => ({} as { currentSegmentId?: string }));
+                  if (typeof data.currentSegmentId === 'string') setCurrentSegmentId(data.currentSegmentId);
                   savedIdsRef.current.clear();
+                  segmentByMessageIdRef.current.clear();
                   lastAssistantSavedRef.current = null;
                   setMessages([]);
                   setAgentError(null);
@@ -1142,6 +1349,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             <Cog size={16} />
           </button>
           <CreditGauge pct={creditPct} size="sm" />
+          {/* Always-visible identity badge — communicates the active agent. */}
+          <BackendBadge backend={agentBackend} />
         </div>
         <div className="flex items-center gap-2">
           <ModelSelector
@@ -1172,8 +1381,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               const confirmed = window.confirm('Reset chat? This will permanently delete all messages for this project.');
               if (!confirmed) return;
               try {
-                await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+                const r = await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}`, { method: 'DELETE' });
+                const data = await r.json().catch(() => ({} as { currentSegmentId?: string }));
+                if (typeof data.currentSegmentId === 'string') setCurrentSegmentId(data.currentSegmentId);
                 savedIdsRef.current.clear();
+                segmentByMessageIdRef.current.clear();
                 lastAssistantSavedRef.current = null;
                 setMessages([]);
                 setHasAgentResponded(false);
@@ -1193,9 +1405,35 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         </div>
       </div>
 
-      {/* Messages — v6 parts-based rendering */}
+      {/* Inline backend chip row — only renders when the chip has something
+          meaningful to surface (OAuth info popover or BYOK toggle). */}
+      <div className="px-3 pb-1">
+        <BackendChip
+          backend={agentBackend}
+          resolution={backendResolution}
+          switching={switchingBackend}
+          onRequestSwitch={(next) => setPendingBackendSwitch(next)}
+        />
+      </div>
+
+      {/* Messages — v6 parts-based rendering. Segments from prior agents
+          stay visible but visually de-emphasized; a divider marks the boundary. */}
       <div ref={scrollRef} className="flex-1 overflow-auto space-y-3 p-3 modern-scrollbar">
-        {messages.map((m) => {
+        {messages.map((m, idx) => {
+          const mySeg = segmentByMessageIdRef.current.get(m.id) ?? currentSegmentId ?? null;
+          const prevSeg = idx > 0
+            ? (segmentByMessageIdRef.current.get(messages[idx - 1].id) ?? currentSegmentId ?? null)
+            : null;
+          const showSegmentDivider = idx > 0 && mySeg && prevSeg && mySeg !== prevSeg;
+          const isOlderSegment = Boolean(currentSegmentId && mySeg && mySeg !== currentSegmentId);
+          const dividerEl = showSegmentDivider ? (
+            <div key={`seg-${idx}`} className="flex items-center gap-2 px-2 py-1 text-[10px] uppercase tracking-wider text-muted">
+              <div className="flex-1 h-px bg-border" />
+              <span>{mySeg === currentSegmentId ? 'New conversation' : 'Previous conversation'}</span>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+          ) : null;
+          const olderClass = isOlderSegment ? 'opacity-60' : '';
           const filteredParts = m.parts.filter(part => {
             if (isToolUIPart(part) && getToolName(part) === 'endTurn') return false;
             // Skip whitespace-only text parts — they would break up consecutive tool groups
@@ -1207,7 +1445,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           // User messages or assistant messages with no tools — no timeline
           if (m.role === 'user' || !hasTools) {
             return (
-              <div key={m.id} className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight', m.role === 'user' ? 'bg-elevated' : '')}>
+              <Fragment key={m.id}>
+                {dividerEl}
+                <div className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight', m.role === 'user' ? 'bg-elevated' : '', olderClass)}>
                 {filteredParts.map((part, i) => {
                   if (part.type === 'text') return <Markdown key={i} content={part.text} />;
                   if (part.type === 'reasoning') {
@@ -1232,7 +1472,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                   }
                   return null;
                 })}
-              </div>
+                </div>
+              </Fragment>
             );
           }
 
@@ -1272,7 +1513,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             });
 
           return (
-            <div key={m.id} className="rounded-xl px-2 py-3 text-[1.1rem] tracking tight">
+            <Fragment key={m.id}>
+              {dividerEl}
+              <div className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight', olderClass)}>
               {/* Content before the first tool call */}
               {preTimeline.map((group, gi) => (
                 <div key={`pre-${gi}`}>{renderContentGroup(group, `pre-${gi}`)}</div>
@@ -1319,7 +1562,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               {postTimeline.map((group, gi) => (
                 <div key={`post-${gi}`}>{renderContentGroup(group, `post-${gi}`)}</div>
               ))}
-            </div>
+              </div>
+            </Fragment>
           );
         })}
 
@@ -1540,19 +1784,63 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         )}
       </form>
 
-      {createPortal(
+      {/* Portals render to document.body — skip during SSR. */}
+      {typeof document !== 'undefined' && createPortal(
         <SettingsModal open={showSettings} onClose={() => setShowSettings(false)} workspaceContext />,
         document.body
       )}
 
-      {lightboxSrc && createPortal(
+      {typeof document !== 'undefined' && lightboxSrc && createPortal(
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />,
         document.body
       )}
 
-      {limitPayload && createPortal(
+      {typeof document !== 'undefined' && limitPayload && createPortal(
         <LimitModal payload={limitPayload} onClose={() => setLimitPayload(null)} />,
         document.body
+      )}
+
+      {/* Backend switch confirmation — the new agent starts a fresh conversation
+          segment. Older messages stay in the DB for reference but the new
+          agent won't see them, so we ask first. */}
+      {typeof document !== 'undefined' && pendingBackendSwitch && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-surface border border-border shadow-xl p-5 text-fg">
+            <div className="text-base font-semibold mb-2">
+              Switch to {pendingBackendSwitch === 'claude-code' ? 'Claude Code' : 'Botflow'}?
+            </div>
+            <p className="text-sm text-muted leading-snug">
+              Switching agents starts a new conversation. Your previous messages
+              will stay visible above but the new agent won&apos;t see them as
+              context.
+            </p>
+            {pendingBackendSwitch === 'claude-code' && !(model === 'claude-sonnet-4-6' || model === 'claude-opus-4-7') && (
+              <p className="mt-2 text-xs text-muted">
+                Your model will also change to <span className="font-mono">claude-sonnet-4-6</span> — Claude Code only runs Anthropic models.
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                disabled={switchingBackend}
+                onClick={() => setPendingBackendSwitch(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                disabled={switchingBackend}
+                onClick={() => performBackendSwitchRef.current?.(pendingBackendSwitch)}
+              >
+                {switchingBackend ? 'Switching…' : 'Switch agent'}
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

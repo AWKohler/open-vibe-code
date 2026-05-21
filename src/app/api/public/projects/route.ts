@@ -21,7 +21,8 @@ export async function GET(req: NextRequest) {
     const whereClauses = [eq(projects.isPublic, true), isNotNull(projects.publicSlug)];
     if (
       platformFilter === 'web' ||
-      platformFilter === 'persistent' ||
+      platformFilter === 'swift' ||
+      platformFilter === 'sandboxed-web' ||
       platformFilter === 'mobile' ||
       platformFilter === 'multiplatform'
     ) {

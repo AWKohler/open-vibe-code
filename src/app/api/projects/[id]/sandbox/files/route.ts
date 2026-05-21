@@ -18,7 +18,7 @@ async function getAuthorizedProject(projectId: string, userId: string) {
   const db = getDb();
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project || project.userId !== userId) return null;
-  if (project.platform !== "persistent") return null;
+  if (project.platform !== "swift" && project.platform !== "sandboxed-web") return null;
   return project;
 }
 

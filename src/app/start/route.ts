@@ -7,6 +7,9 @@ import { provisionConvexBackend } from '@/lib/convex-platform';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { getUserCredentials, setUserCredentials, type UserCredentials } from '@/lib/user-credentials';
 import { normalizeProjectPlatform, type ProjectPlatform, type BackendType } from '@/lib/project-platform';
+import { resolveModelId } from '@/lib/agent/models';
+import { resolveBackends, type AgentBackend } from '@/lib/agent/backend-resolution';
+import { randomUUID } from 'node:crypto';
 
 const CONVEX_CLI_API = 'https://api.convex.dev/api';
 
@@ -122,15 +125,28 @@ export async function GET(request: Request) {
     //   'platform' -> Botflow-managed (default)
     const creds = await getUserCredentials(userId);
     let backendType: BackendType;
-    // 'No Backend' is currently a web-only option. Mobile/multiplatform templates
-    // ship with Convex baked in, so silently coerce `none` -> `platform` for those.
-    if (backendTypeParam === 'none' && platform === 'web') {
+    // 'No Backend' is supported on the web platforms (web + sandboxed-web) —
+    // both have a no-backend Vite template variant. Mobile/multiplatform/swift
+    // templates ship with Convex baked in (or don't apply), so silently coerce
+    // `none` -> `platform` for those.
+    const supportsNoBackend = platform === 'web' || platform === 'sandboxed-web';
+    // Honor either the URL param OR the saved user preference for `none`. The
+    // page client puts backendType=none in the URL when the user selects it,
+    // but if anything strips/loses that param in transit, the saved preference
+    // is still our source of truth.
+    const userWantsNone =
+      backendTypeParam === 'none' || creds.convexBackendPreference === 'none';
+    if (userWantsNone && supportsNoBackend) {
       backendType = 'none';
     } else {
       const userWantsBYOC =
         creds.convexBackendPreference === 'user' || backendTypeParam === 'user';
       backendType = userWantsBYOC ? 'user' : 'platform';
     }
+    console.log(
+      `[start] project creation: platform=${platform} backendTypeParam=${backendTypeParam} ` +
+      `pref=${creds.convexBackendPreference ?? 'null'} → backendType=${backendType}`,
+    );
 
     // BYOC hard gate: if user selected BYOC, they MUST have a valid OAuth token.
     // Never fall through to platform provisioning — that would consume platform resources.
@@ -146,7 +162,7 @@ export async function GET(request: Request) {
     // Now we downgrade to 'none' so the workspace mounts the no-backend
     // template and everything works end-to-end. The UI also gates this, but
     // we re-check on the server in case the client lied.
-    if (backendType === 'platform' && platform === 'web') {
+    if (backendType === 'platform' && supportsNoBackend) {
       const cloudConvexForAll = process.env.ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
       const limits = await getUserTierAndLimits(userId);
       if (!cloudConvexForAll && limits.tier === 'free') {
@@ -154,9 +170,39 @@ export async function GET(request: Request) {
       }
     }
 
+    // Resolve the initial agent backend for this project. The user's BYOK
+    // preference applies only when both backends are available; OAuth users
+    // are locked to claude-code automatically.
+    const resolvedModel = resolveModelId(model);
+    const backendResolution = resolveBackends({
+      model: resolvedModel,
+      platform,
+      creds: {
+        hasClaudeOAuth: Boolean(creds.claudeOAuthAccessToken),
+        hasAnthropicKey: Boolean(creds.anthropicApiKey),
+      },
+    });
+    let initialAgentBackend: AgentBackend = backendResolution.defaultBackend;
+    if (
+      backendResolution.locked === null &&
+      backendResolution.available.length >= 2 &&
+      creds.preferredAnthropicBackend &&
+      backendResolution.available.includes(creds.preferredAnthropicBackend)
+    ) {
+      initialAgentBackend = creds.preferredAnthropicBackend;
+    }
+
     const [project] = await db
       .insert(projects)
-      .values({ name, userId, platform, model, backendType })
+      .values({
+        name,
+        userId,
+        platform,
+        model,
+        backendType,
+        agentBackend: initialAgentBackend,
+        currentSegmentId: randomUUID(),
+      })
       .returning();
 
     if (backendType === 'none') {

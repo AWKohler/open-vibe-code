@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
 import {
-  getPersistentSandboxName,
+  getSandboxName,
   runPersistentSandboxSmokeTest,
 } from "@/lib/vercel-sandbox";
 
@@ -30,7 +30,7 @@ export async function POST(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    if (project.platform !== "persistent") {
+    if (project.platform !== "swift" && project.platform !== "sandboxed-web") {
       return NextResponse.json(
         { error: "Project is not using the persistent runtime" },
         { status: 400 },
@@ -43,7 +43,7 @@ export async function POST(
       ok: result.exitCode === 0,
       projectId: project.id,
       sandboxName: result.sandboxName,
-      expectedSandboxName: getPersistentSandboxName(project.id),
+      expectedSandboxName: getSandboxName(project.id),
       runtime: result.runtime,
       stdout: result.stdout.trim(),
       stderr: result.stderr.trim(),

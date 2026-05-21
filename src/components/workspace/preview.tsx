@@ -1525,6 +1525,13 @@ export function Preview({
               title="Preview"
               sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals allow-storage-access-by-user-activation"
               allow="cross-origin-isolated"
+              // The workspace page sets COEP: credentialless. Cross-origin
+              // iframes under that policy need either CORP headers on the
+              // response (Vercel's *.vercel.run proxy doesn't send them) OR
+              // the `credentialless` HTML attribute on the iframe element.
+              // We only apply it for the sandbox preview — WebContainer URLs
+              // already include "credentialless" in their hostname.
+              {...(platform === "sandboxed-web" ? { credentialless: "" } : {})}
               onLoad={() => {
                 if (iframeUrl) {
                   setIsRealPreviewLoaded(true);

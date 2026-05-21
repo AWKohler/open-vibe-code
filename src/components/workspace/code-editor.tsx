@@ -1,7 +1,8 @@
 'use client';
 
 import { Editor, BeforeMount, OnMount } from '@monaco-editor/react';
-import { useEffect, useState } from 'react';
+import type { editor as MonacoEditor } from 'monaco-editor';
+import { useEffect, useRef, useState } from 'react';
 
 interface CodeEditorProps {
   value: string;
@@ -9,6 +10,11 @@ interface CodeEditorProps {
   language: string;
   filename: string | null;
   disabled?: boolean;
+  /** 1-based line to scroll to + center. Used by the build-error
+   * "click-to-jump" affordance. Updates to `revealNonce` re-trigger the
+   * reveal even if `revealLine` stays the same. */
+  revealLine?: number;
+  revealNonce?: number;
 }
 
 // Sand design token values (mirrored from globals.css)
@@ -35,8 +41,28 @@ const LIGHT = {
   accentDim:'#1740c8',
 };
 
-export function CodeEditor({ value, onChange, language, filename, disabled = false }: CodeEditorProps) {
+export function CodeEditor({
+  value,
+  onChange,
+  language,
+  filename,
+  disabled = false,
+  revealLine,
+  revealNonce,
+}: CodeEditorProps) {
   const [themeName, setThemeName] = useState<'sand-light' | 'sand-dark'>('sand-light');
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null);
+
+  // React to revealLine changes — center the requested line and place the
+  // cursor there. revealNonce makes repeat-clicks of the same line still
+  // trigger a reveal (otherwise the effect skips when revealLine is unchanged).
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (!ed || !revealLine || revealLine < 1) return;
+    ed.revealLineInCenter(revealLine);
+    ed.setPosition({ lineNumber: revealLine, column: 1 });
+    ed.focus();
+  }, [revealLine, revealNonce]);
 
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -198,7 +224,14 @@ export function CodeEditor({ value, onChange, language, filename, disabled = fal
     });
   };
 
-  const onMount: OnMount = (_editor, monaco) => {
+  const onMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    // If a reveal was requested before the editor mounted (e.g. clicking an
+    // issue while the file was loading), apply it now.
+    if (revealLine && revealLine >= 1) {
+      editor.revealLineInCenter(revealLine);
+      editor.setPosition({ lineNumber: revealLine, column: 1 });
+    }
     // ── Tailwind: suppress false-positive CSS diagnostics ──────────────────
     // @tailwind, @apply, @layer, @screen are all unknown to the CSS spec parser
     const tailwindLintOptions = {

@@ -1,18 +1,31 @@
-export type ProjectPlatform = "web" | "persistent" | "mobile" | "multiplatform";
+export type ProjectPlatform = "web" | "swift" | "sandboxed-web" | "mobile" | "multiplatform";
 
-export function isPersistentPlatformEnabled(): boolean {
+export function isSwiftPlatformEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ALLOW_PERSISTENT_EXP === "true";
+}
+
+export function isSandboxedWebPlatformEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_ALLOW_SANDBOXED_WEB_EXP === "true";
 }
 
 export function isMobilePlatformsEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ALLOW_MOBILE_EXP === "true";
 }
 
+/** Returns true for any platform that runs in a Vercel sandbox (not a WebContainer). */
+export function isSandboxPlatform(platform: string): boolean {
+  return platform === "swift" || platform === "sandboxed-web";
+}
+
 export function getEnabledProjectPlatforms(): ProjectPlatform[] {
   const platforms: ProjectPlatform[] = ["web"];
 
-  if (isPersistentPlatformEnabled()) {
-    platforms.push("persistent");
+  if (isSwiftPlatformEnabled()) {
+    platforms.push("swift");
+  }
+
+  if (isSandboxedWebPlatformEnabled()) {
+    platforms.push("sandboxed-web");
   }
 
   if (isMobilePlatformsEnabled()) {
@@ -25,7 +38,8 @@ export function getEnabledProjectPlatforms(): ProjectPlatform[] {
 export function isProjectPlatform(value: string): value is ProjectPlatform {
   return (
     value === "web" ||
-    value === "persistent" ||
+    value === "swift" ||
+    value === "sandboxed-web" ||
     value === "mobile" ||
     value === "multiplatform"
   );
@@ -34,8 +48,12 @@ export function isProjectPlatform(value: string): value is ProjectPlatform {
 export function normalizeProjectPlatform(
   platform: string | null | undefined,
 ): ProjectPlatform {
-  if (platform === "persistent" && isPersistentPlatformEnabled()) {
-    return "persistent";
+  if (platform === "swift" && isSwiftPlatformEnabled()) {
+    return "swift";
+  }
+
+  if (platform === "sandboxed-web" && isSandboxedWebPlatformEnabled()) {
+    return "sandboxed-web";
   }
 
   if ((platform === "mobile" || platform === "multiplatform") && isMobilePlatformsEnabled()) {
@@ -60,8 +78,10 @@ export function getNextProjectPlatform(
 
 export function getProjectPlatformLabel(platform: string): string {
   switch (platform) {
-    case "persistent":
-      return "Persistent";
+    case "swift":
+      return "Swift";
+    case "sandboxed-web":
+      return "Sandboxed Web";
     case "mobile":
       return "Mobile";
     case "multiplatform":
@@ -74,8 +94,10 @@ export function getProjectPlatformLabel(platform: string): string {
 
 export function getProjectPlatformShortLabel(platform: string): string {
   switch (platform) {
-    case "persistent":
-      return "Persist";
+    case "swift":
+      return "Swift";
+    case "sandboxed-web":
+      return "Sandbox";
     case "mobile":
       return "Mobile";
     case "multiplatform":
@@ -87,7 +109,7 @@ export function getProjectPlatformShortLabel(platform: string): string {
 }
 
 export function isWebLikePlatform(platform: string): boolean {
-  return platform === "web" || platform === "persistent";
+  return platform === "web" || platform === "sandboxed-web";
 }
 
 /**

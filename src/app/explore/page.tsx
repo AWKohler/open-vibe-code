@@ -6,10 +6,10 @@ import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
 import { Sparkles, Flame, Clock, Search as SearchIcon } from "lucide-react";
 import { ShowcaseCard, type ShowcaseProject } from "@/components/showcase/ShowcaseCard";
 import { cn } from "@/lib/utils";
-import { isPersistentPlatformEnabled } from "@/lib/project-platform";
+import { isSwiftPlatformEnabled, isSandboxedWebPlatformEnabled } from "@/lib/project-platform";
 
 type SortKey = "top" | "recent";
-type PlatformFilter = "all" | "web" | "persistent";
+type PlatformFilter = "all" | "web" | "swift" | "sandboxed-web";
 
 export default function ExplorePage() {
   const [projects, setProjects] = useState<ShowcaseProject[]>([]);
@@ -179,15 +179,26 @@ export default function ExplorePage() {
                   >
                     Web
                   </button>
-                  {isPersistentPlatformEnabled() && (
+                  {isSwiftPlatformEnabled() && (
                     <button
-                      onClick={() => setPlatform("persistent")}
+                      onClick={() => setPlatform("swift")}
                       className={cn(
                         "rounded-lg px-3 py-1.5 text-sm font-medium transition",
-                        platform === "persistent" ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
+                        platform === "swift" ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
                       )}
                     >
-                      Persistent
+                      Swift
+                    </button>
+                  )}
+                  {isSandboxedWebPlatformEnabled() && (
+                    <button
+                      onClick={() => setPlatform("sandboxed-web")}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                        platform === "sandboxed-web" ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
+                      )}
+                    >
+                      Sandboxed Web
                     </button>
                   )}
                 </div>

@@ -4,7 +4,14 @@ export const projects = pgTable('projects', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   userId: text('user_id').notNull(), // Clerk user id
-  platform: text('platform').notNull().default('web'), // 'web' | 'persistent' | 'mobile' | 'multiplatform'
+  platform: text('platform').notNull().default('web'), // 'web' | 'swift' | 'sandboxed-web' | 'mobile' | 'multiplatform'
+  // Which agent backend drives this project: 'botflow' (our agent) or
+  // 'claude-code' (Anthropic's Claude Code subprocess). Sticky per project.
+  agentBackend: text('agent_backend').notNull().default('botflow'),
+  // The active conversation segment. When a user switches agent backends we
+  // mint a new uuid here so the new agent reads a clean slate (older messages
+  // stay in the DB under their old segment_id for UI display).
+  currentSegmentId: uuid('current_segment_id'),
   // Preferred model for this project: 'gpt-5.3-codex' | 'gpt-5.4' | 'gpt-5.5' | 'claude-sonnet-4-6' | 'claude-opus-4-7' | 'fireworks-minimax-m2p7' | 'fireworks-glm-5p1' | 'fireworks-kimi-k2p6' | 'gemini-3.1-pro-preview'
   model: text('model').notNull().default('gpt-5.3-codex'),
   // Snapshot URLs for project thumbnails and HTML captures
@@ -83,10 +90,15 @@ export const chatMessages = pgTable(
     messageId: text('message_id').notNull(),
     role: text('role').notNull(),
     content: jsonb('content').notNull(),
+    // Conversation segment this message belongs to. Nullable for pre-migration
+    // rows but backfilled to projects.current_segment_id. New messages always
+    // get stamped with the project's current_segment_id at insert.
+    segmentId: uuid('segment_id'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (t) => ({
     sessionMessageUnique: uniqueIndex('chat_messages_session_message_unique').on(t.sessionId, t.messageId),
+    sessionSegmentIdx: index('chat_messages_session_segment_idx').on(t.sessionId, t.segmentId),
   })
 );
 

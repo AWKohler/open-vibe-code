@@ -1,0 +1,123 @@
+// Server-side HTTP client for the Mac simulator controller.
+// Used by the swift-preview API routes to provision sessions and ship build
+// tarballs across the Tailscale Funnel / Cloudflare Tunnel boundary.
+
+export interface CreateSessionInput {
+  deviceModel?: "iPhone-16-Pro";
+  awaitBuild?: boolean;
+}
+
+export interface CreateSessionResult {
+  sessionId: string;
+  state: string;
+  deviceModel: string;
+  queuePosition: number | null;
+  createdAt: number;
+  hostId: string | null;
+}
+
+export interface UploadBuildInput {
+  scheme?: string;
+  bundleId?: string;
+}
+
+function controllerBase(): { http: string; ws: string } {
+  const http = process.env.SIM_CONTROLLER_URL;
+  if (!http) {
+    throw new Error("SIM_CONTROLLER_URL is not set");
+  }
+  const trimmedHttp = http.replace(/\/$/, "");
+  // The browser-visible WS URL — same host, switched scheme. Configurable so a
+  // future split (proxy WS through different ingress) is one-env-change away.
+  const wsOverride = process.env.NEXT_PUBLIC_SIM_CONTROLLER_WS_URL;
+  const ws = (wsOverride ?? trimmedHttp).replace(/^http/, "ws").replace(/\/$/, "");
+  return { http: trimmedHttp, ws };
+}
+
+function platformToken(): string {
+  const t = process.env.SIM_PLATFORM_TOKEN;
+  if (!t) throw new Error("SIM_PLATFORM_TOKEN is not set");
+  return t;
+}
+
+async function jsonOrText(res: Response): Promise<string> {
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("application/json")) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    return body?.error ?? JSON.stringify(body);
+  }
+  return await res.text().catch(() => "");
+}
+
+export async function createSession(
+  input: CreateSessionInput = {},
+): Promise<CreateSessionResult> {
+  const { http } = controllerBase();
+  const res = await fetch(`${http}/api/sessions`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-platform-token": platformToken(),
+    },
+    body: JSON.stringify({
+      deviceModel: input.deviceModel ?? "iPhone-16-Pro",
+      awaitBuild: input.awaitBuild ?? true,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `createSession failed (${res.status}): ${await jsonOrText(res)}`,
+    );
+  }
+  return (await res.json()) as CreateSessionResult;
+}
+
+export async function uploadBuild(
+  sessionId: string,
+  tarball: Buffer,
+  input: UploadBuildInput = {},
+): Promise<void> {
+  const { http } = controllerBase();
+  const headers: Record<string, string> = {
+    "content-type": "application/octet-stream",
+    "content-length": String(tarball.length),
+    "x-platform-token": platformToken(),
+  };
+  if (input.scheme) headers["x-build-scheme"] = input.scheme;
+  if (input.bundleId) headers["x-build-bundle-id"] = input.bundleId;
+
+  // Buffer is a Uint8Array subclass; node:fetch accepts it but TS types are
+  // narrower than reality. Cast to BodyInit explicitly.
+  const res = await fetch(`${http}/api/sessions/${sessionId}/build`, {
+    method: "POST",
+    headers,
+    body: tarball as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    throw new Error(
+      `uploadBuild failed (${res.status}): ${await jsonOrText(res)}`,
+    );
+  }
+}
+
+export async function releaseSession(sessionId: string): Promise<void> {
+  const { http } = controllerBase();
+  const res = await fetch(`${http}/api/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: { "x-platform-token": platformToken() },
+  });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(
+      `releaseSession failed (${res.status}): ${await jsonOrText(res)}`,
+    );
+  }
+}
+
+/**
+ * Build the browser-facing WSS URL for a given session. Used by the
+ * swift-preview/start route to hand the client a URL it can hit directly.
+ */
+export function sessionWsUrl(sessionId: string): string {
+  const { ws } = controllerBase();
+  return `${ws}/ws/session/${sessionId}`;
+}

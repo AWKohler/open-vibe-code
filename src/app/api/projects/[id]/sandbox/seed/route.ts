@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { projects } from "@/db/schema";
-import { seedSandboxIfEmpty } from "@/lib/vercel-sandbox";
+import { projects, projectEnvVars } from "@/db/schema";
+import {
+  seedSandboxIfEmpty,
+  writeSandboxEnvFile,
+  type SandboxTemplate,
+} from "@/lib/vercel-sandbox";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,13 +24,44 @@ export async function POST(
   const db = getDb();
   const [project] = await db.select().from(projects).where(eq(projects.id, id));
 
-  if (!project || project.userId !== userId || project.platform !== "persistent") {
+  if (!project || project.userId !== userId || (project.platform !== "swift" && project.platform !== "sandboxed-web")) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Pick the template based on platform + backendType.
+  let template: SandboxTemplate;
+  if (project.platform === "swift") {
+    template = "swift";
+  } else if (project.backendType === "none") {
+    template = "vite";
+  } else {
+    template = "viteConvex";
+  }
+
   try {
-    const seeded = await seedSandboxIfEmpty(project.id);
-    return NextResponse.json({ seeded });
+    const seeded = await seedSandboxIfEmpty(project.id, template);
+
+    // Sandboxed-web projects: write .env so Vite picks up VITE_CONVEX_URL etc. on
+    // the first dev server start. We only do this on the first seed — re-running
+    // wouldn't hurt, but the user may have edited .env in the sandbox manually.
+    if (seeded && project.platform === "sandboxed-web") {
+      const env: Record<string, string> = {};
+      const effectiveConvexUrl = project.userConvexUrl || project.convexDeployUrl;
+      if (effectiveConvexUrl && project.backendType !== "none") {
+        env.VITE_CONVEX_URL = effectiveConvexUrl;
+      }
+      const userEnv = await db.select().from(projectEnvVars).where(eq(projectEnvVars.projectId, id));
+      for (const row of userEnv) {
+        if (row.key) env[row.key] = row.value ?? "";
+      }
+      try {
+        await writeSandboxEnvFile(project.id, env);
+      } catch (e) {
+        console.warn("Failed to write sandbox .env:", e);
+      }
+    }
+
+    return NextResponse.json({ seeded, template });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to seed sandbox" },

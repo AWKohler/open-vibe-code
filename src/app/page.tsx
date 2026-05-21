@@ -1014,8 +1014,7 @@ import {
 import { SettingsModal } from '@/components/settings/SettingsModal';
 import { useToast } from '@/components/ui/toast';
 import { ModelSelector } from '@/components/ui/ModelSelector';
-import type { ModelId } from '@/lib/agent/models';
-import { modelSupportsImages } from '@/lib/agent/models';
+import { modelSupportsImages, resolveModelId, type ModelId } from '@/lib/agent/models';
 import { processImageForUpload } from '@/lib/image-processing';
 import { checkDeviceSupport } from '@/lib/device';
 import { cn } from '@/lib/utils';
@@ -1034,7 +1033,8 @@ import {
   getProjectPlatformLabel,
   getProjectPlatformShortLabel,
   isMobilePlatformsEnabled,
-  isPersistentPlatformEnabled,
+  isSwiftPlatformEnabled,
+  isSandboxedWebPlatformEnabled,
   normalizeProjectPlatform,
   type ProjectPlatform,
 } from '@/lib/project-platform';
@@ -1369,11 +1369,6 @@ export default function LandingV2() {
   const [pendingParams, setPendingParams] = useState<URLSearchParams | null>(null);
   const PENDING_PARAMS_KEY = 'huggable_pending_start_params';
   const PENDING_NAME_KEY = 'huggable_pending_project_name';
-  const allowedModels = useMemo(() => new Set([
-    'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.5', 'gpt-5.2',
-    'claude-sonnet-4.6', 'claude-opus-4.7', 'claude-opus-4.6',
-    'fireworks-minimax-m2p7', 'fireworks-glm-5', 'fireworks-kimi-k2p6',
-  ]), []);
   const serverKeyModels = useMemo(() => new Set([
     'fireworks-minimax-m2p7', 'fireworks-glm-5', 'fireworks-kimi-k2p6',
     'gpt-5.3-codex', 'gpt-5.4', 'gpt-5.5', 'claude-sonnet-4.6', 'claude-opus-4.7',
@@ -1689,12 +1684,14 @@ export default function LandingV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 'No Backend' is web-only — there are no convex-less variants of the mobile or
-  // multiplatform templates yet. If the user picked 'none' on web and then switched
-  // platforms, fall back to 'platform' to avoid creating a project with a Convex
-  // template but `backendType: 'none'` (which would leave the row inconsistent).
+  // 'No Backend' is supported by web platforms only (web + sandboxed-web) —
+  // there are no convex-less variants of the mobile, multiplatform, or swift
+  // templates. If the user picked 'none' and then switched to one of those
+  // platforms, fall back to 'platform' to avoid creating a project with a
+  // Convex template but `backendType: 'none'` (inconsistent state).
   useEffect(() => {
-    if (platform !== 'web' && convexBackendType === 'none') {
+    const supportsNoBackend = platform === 'web' || platform === 'sandboxed-web';
+    if (!supportsNoBackend && convexBackendType === 'none') {
       setConvexBackendType('platform');
     }
   }, [platform, convexBackendType]);
@@ -1734,13 +1731,13 @@ export default function LandingV2() {
         const storedParamsObj = new URLSearchParams(storedParams);
         const storedModel = storedParamsObj.get('model');
         const storedPlatform = storedParamsObj.get('platform');
-        if (storedModel && allowedModels.has(storedModel)) {
-          const resolved = storedModel === 'gpt-5.2' ? 'gpt-5.3-codex' : storedModel;
-          setModel(resolved as ModelId);
+        if (storedModel) {
+          setModel(resolveModelId(storedModel));
         }
         if (
           storedPlatform === 'web' ||
-          (storedPlatform === 'persistent' && isPersistentPlatformEnabled()) ||
+          (storedPlatform === 'swift' && isSwiftPlatformEnabled()) ||
+          (storedPlatform === 'sandboxed-web' && isSandboxedWebPlatformEnabled()) ||
           ((storedPlatform === 'mobile' || storedPlatform === 'multiplatform') &&
             isMobilePlatformsEnabled())
         ) {
@@ -1757,7 +1754,7 @@ export default function LandingV2() {
         && !hasConvexOAuth;
       setProjectStep(needsConvex ? 'convex' : 'name');
     }
-  }, [isSignedIn, pendingParams, userTier, convexBackendType, hasConvexOAuth, allowedModels]);
+  }, [isSignedIn, pendingParams, userTier, convexBackendType, hasConvexOAuth]);
 
   const orgJsonLd = {
     '@context': 'https://schema.org',
@@ -1918,7 +1915,7 @@ export default function LandingV2() {
                             </div>
                           )}
                         </div>
-                        {(isPersistentPlatformEnabled() || isMobilePlatformsEnabled()) && (
+                        {(isSwiftPlatformEnabled() || isSandboxedWebPlatformEnabled() || isMobilePlatformsEnabled()) && (
                           <button
                             type="button"
                             onClick={() => setPlatform(getNextProjectPlatform(platform))}
@@ -1955,10 +1952,11 @@ export default function LandingV2() {
                             });
                           }}
                         />
-                        {/* The backend selector is only meaningful for the `web` platform.
-                            Mobile/multiplatform templates always include Convex — there are
-                            no no-backend variants of those templates today. */}
-                        {isSignedIn && platform === 'web' && (
+                        {/* The backend selector is meaningful for web platforms (web +
+                            sandboxed-web) — both have a no-backend Vite template variant.
+                            Mobile/multiplatform/swift templates always include Convex (or
+                            don't apply), so the selector stays hidden there. */}
+                        {isSignedIn && (platform === 'web' || platform === 'sandboxed-web') && (
                           <div ref={convexSelectorRef} className="relative shrink-0">
                             <button
                               type="button"

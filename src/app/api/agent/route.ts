@@ -9,8 +9,10 @@ import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { auth } from "@clerk/nextjs/server";
 
-import { SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM, SYSTEM_PROMPT_PERSISTENT, buildWebSystemPrompt } from "@/lib/agent/prompts";
+import { SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM, SYSTEM_PROMPT_SWIFT, buildSandboxedWebSystemPrompt, buildWebSystemPrompt } from "@/lib/agent/prompts";
+import { isSandboxPlatform } from "@/lib/project-platform";
 import { getPersistentTools } from "@/lib/agent/persistent-tools";
+import { getSandboxedWebTools } from "@/lib/agent/sandboxed-web-tools";
 import { MODEL_CONFIGS, resolveModelId, type ModelId } from "@/lib/agent/models";
 import { agentLog, generateRequestId, setRequestId } from "@/lib/agent/logger";
 import { classifyError, formatErrorResponse } from "@/lib/agent/errors";
@@ -554,20 +556,34 @@ export async function POST(req: Request) {
 
     const modelConfig = MODEL_CONFIGS[selectedModel];
     const systemPrompt =
-      platform === "persistent"
-        ? SYSTEM_PROMPT_PERSISTENT
-        : platform === "mobile"
-          ? SYSTEM_PROMPT_MOBILE
-          : platform === "multiplatform"
-            ? SYSTEM_PROMPT_MULTIPLATFORM
-            : buildWebSystemPrompt({ hasBackend });
+      platform === "swift"
+        ? SYSTEM_PROMPT_SWIFT
+        : platform === "sandboxed-web"
+          ? buildSandboxedWebSystemPrompt({ hasBackend })
+          : platform === "mobile"
+            ? SYSTEM_PROMPT_MOBILE
+            : platform === "multiplatform"
+              ? SYSTEM_PROMPT_MULTIPLATFORM
+              : buildWebSystemPrompt({ hasBackend });
 
-    // Persistent platform: tools execute server-side against the user's Vercel
+    // Sandbox platforms: tools execute server-side against the user's Vercel
     // sandbox. Client never sees onToolCall — keeps platform creds off-browser.
-    const tools =
-      platform === "persistent" && projectId
-        ? getPersistentTools(projectId)
-        : getTools({ hasBackend });
+    let tools: ReturnType<typeof getTools> | ReturnType<typeof getPersistentTools> | ReturnType<typeof getSandboxedWebTools>;
+    if (platform === "sandboxed-web" && projectId) {
+      // Forward Cookie so the internal /api/projects/:id/convex/deploy call
+      // sees the same Clerk session.
+      const cookie = req.headers.get("cookie") ?? "";
+      tools = getSandboxedWebTools({
+        projectId,
+        hasBackend,
+        appBaseUrl: new URL(req.url).origin,
+        ...(cookie ? { authHeaders: { cookie } } : {}),
+      });
+    } else if (isSandboxPlatform(platform ?? "") && projectId) {
+      tools = getPersistentTools(projectId);
+    } else {
+      tools = getTools({ hasBackend });
+    }
 
     // ── Tier enforcement for server-key models ──────────────────────────────
     // Detect if this request uses personal BYOK/OAuth credentials (skip credit checks)

@@ -22,6 +22,7 @@ export async function GET() {
       hasCodexOAuth: Boolean(creds.codexOAuthAccessToken),
       hasConvexOAuth: Boolean(creds.convexOAuthAccessToken),
       convexBackendPreference: creds.convexBackendPreference ?? 'platform',
+      preferredAnthropicBackend: creds.preferredAnthropicBackend ?? 'botflow',
     });
   } catch (e) {
     console.error('GET /api/user-settings failed:', e);
@@ -35,13 +36,22 @@ export async function POST(req: NextRequest) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { openaiApiKey, anthropicApiKey, moonshotApiKey, fireworksApiKey, googleApiKey, convexBackendPreference } = body as {
+    const {
+      openaiApiKey,
+      anthropicApiKey,
+      moonshotApiKey,
+      fireworksApiKey,
+      googleApiKey,
+      convexBackendPreference,
+      preferredAnthropicBackend,
+    } = body as {
       openaiApiKey?: string | null;
       anthropicApiKey?: string | null;
       moonshotApiKey?: string | null;
       fireworksApiKey?: string | null;
       googleApiKey?: string | null;
       convexBackendPreference?: 'platform' | 'user' | 'none';
+      preferredAnthropicBackend?: 'botflow' | 'claude-code';
     };
 
     // Read existing credentials to preserve fields not being updated
@@ -59,6 +69,9 @@ export async function POST(req: NextRequest) {
       convexBackendPreference === 'none'
     ) {
       updates.convexBackendPreference = convexBackendPreference;
+    }
+    if (preferredAnthropicBackend === 'botflow' || preferredAnthropicBackend === 'claude-code') {
+      updates.preferredAnthropicBackend = preferredAnthropicBackend;
     }
 
     await setUserCredentials(userId, updates);

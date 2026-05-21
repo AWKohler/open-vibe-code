@@ -3,7 +3,23 @@ import { APIError, Sandbox } from "@vercel/sandbox";
 const DEFAULT_RUNTIME = "node22";
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const SANDBOX_ROOT = "/vercel/sandbox";
-const TEMPLATE_REPO = "https://github.com/AWKohler/swift-template.git";
+
+// Common dev-server ports we want to expose. Vercel sandboxes can expose up to 4.
+// NOTE: port 8080 is reserved by the Vercel Sandbox system and will be
+// rejected with `reserved_port`. Don't add it back without testing.
+//  3000 — Next.js / CRA / generic Node
+//  5173 — Vite dev server
+//  4173 — Vite preview
+//  8000 — alternate (Django/Express/Python)
+const SANDBOX_PORTS: number[] = [3000, 5173, 4173, 8000];
+
+const TEMPLATE_REPOS = {
+  swift: "https://github.com/AWKohler/swift-template.git",
+  viteConvex: "https://github.com/AWKohler/vite_convex_template.git",
+  vite: "https://github.com/AWKohler/vite_template.git",
+} as const;
+
+export type SandboxTemplate = keyof typeof TEMPLATE_REPOS;
 
 function assertSandboxAuth(): void {
   const hasOidcToken = Boolean(process.env.VERCEL_OIDC_TOKEN);
@@ -19,14 +35,14 @@ function assertSandboxAuth(): void {
   }
 }
 
-export function getPersistentSandboxName(projectId: string): string {
+export function getSandboxName(projectId: string): string {
   return `botflow-project-${projectId}`;
 }
 
 export async function getOrCreatePersistentSandbox(projectId: string) {
   assertSandboxAuth();
 
-  const name = getPersistentSandboxName(projectId);
+  const name = getSandboxName(projectId);
 
   try {
     return await Sandbox.get({ name });
@@ -44,16 +60,54 @@ export async function getOrCreatePersistentSandbox(projectId: string) {
     }
   }
 
-  return await Sandbox.create({
-    name,
-    runtime: DEFAULT_RUNTIME,
-    timeout: DEFAULT_TIMEOUT_MS,
-  });
+  // First-time creation: declare the ports we'll forward so `sandbox.domain(port)`
+  // works for the live preview.
+  try {
+    return await Sandbox.create({
+      name,
+      runtime: DEFAULT_RUNTIME,
+      timeout: DEFAULT_TIMEOUT_MS,
+      ports: SANDBOX_PORTS,
+    });
+  } catch (error) {
+    // The SDK already consumed the response body and stored it on
+    // `error.text` / `error.json`. `error.response.text()` returns empty
+    // because the body is already read.
+    if (error instanceof APIError) {
+      const errAny = error as unknown as { text?: string; json?: unknown };
+      const bodyText =
+        errAny.text || (errAny.json ? JSON.stringify(errAny.json) : "");
+      console.error(
+        `Sandbox.create failed (${error.response.status}) for project ${projectId}:\n` +
+          `  body: ${bodyText || "<empty>"}\n` +
+          `  payload: ${JSON.stringify({
+            name,
+            runtime: DEFAULT_RUNTIME,
+            timeout: DEFAULT_TIMEOUT_MS,
+            ports: SANDBOX_PORTS,
+          })}`,
+      );
+      throw new Error(
+        `Failed to create sandbox (${error.response.status}): ${bodyText || error.message}`,
+      );
+    }
+    throw error;
+  }
 }
 
-// Seed a fresh sandbox with the swift-template if /vercel/sandbox is empty.
-// Returns true if seeded, false if files already existed.
-export async function seedSandboxIfEmpty(projectId: string): Promise<boolean> {
+/**
+ * Seed a fresh sandbox with the appropriate template if /vercel/sandbox is empty.
+ * Returns true if seeded, false if files already existed.
+ *
+ * Template selection:
+ *   - swift     → swift-template (Swift / iOS app scaffold)
+ *   - viteConvex → vite_convex_template (Vite + React + Convex web app)
+ *   - vite      → vite_template (Vite + React web app, no backend)
+ */
+export async function seedSandboxIfEmpty(
+  projectId: string,
+  template: SandboxTemplate = "swift",
+): Promise<boolean> {
   const sandbox = await getOrCreatePersistentSandbox(projectId);
 
   const check = await sandbox.runCommand("sh", [
@@ -63,24 +117,46 @@ export async function seedSandboxIfEmpty(projectId: string): Promise<boolean> {
   const out = (await check.stdout()).trim();
   if (out) return false;
 
+  const repoUrl = TEMPLATE_REPOS[template];
+  const tmpDir = `/tmp/${template}-template`;
+
   const seed = await sandbox.runCommand("sh", [
     "-c",
     [
       "set -e",
-      "rm -rf /tmp/swift-template",
-      `git clone --depth=1 ${TEMPLATE_REPO} /tmp/swift-template`,
-      `cp -a /tmp/swift-template/. ${SANDBOX_ROOT}/`,
+      `rm -rf ${tmpDir}`,
+      `git clone --depth=1 ${repoUrl} ${tmpDir}`,
+      `cp -a ${tmpDir}/. ${SANDBOX_ROOT}/`,
       `rm -rf ${SANDBOX_ROOT}/.git`,
-      "rm -rf /tmp/swift-template",
+      `rm -rf ${tmpDir}`,
     ].join(" && "),
   ]);
 
   if (seed.exitCode !== 0) {
     const stderr = await seed.stderr();
-    throw new Error(`Failed to seed swift-template: ${stderr || `exit ${seed.exitCode}`}`);
+    throw new Error(`Failed to seed ${template} template: ${stderr || `exit ${seed.exitCode}`}`);
   }
 
   return true;
+}
+
+/**
+ * Write a `.env` file at the sandbox root from a record of key/value pairs.
+ * Used at seed time so Vite picks up VITE_CONVEX_URL etc. on first dev server start.
+ * Overwrites any existing .env.
+ */
+export async function writeSandboxEnvFile(
+  projectId: string,
+  envVars: Record<string, string>,
+): Promise<void> {
+  const lines = Object.entries(envVars)
+    .filter(([k, v]) => k && typeof v === "string")
+    .map(([k, v]) => `${k}=${v}`);
+  const sandbox = await getOrCreatePersistentSandbox(projectId);
+  await sandbox.writeFiles([{
+    path: `${SANDBOX_ROOT}/.env`,
+    content: Buffer.from(lines.join("\n") + (lines.length ? "\n" : ""), "utf-8"),
+  }]);
 }
 
 export type PersistentSandboxSmokeTest = {
@@ -268,6 +344,50 @@ export async function sandboxGrep(
     if (results.length >= max) break;
   }
   return results;
+}
+
+/**
+ * Tar (gzipped) the project's source tree from the persistent sandbox and
+ * return it as a Buffer. Used by the Swift preview pipeline to ship the project
+ * to a Mac for xcodebuild.
+ *
+ * Excludes build artefacts, .git, user-specific Xcode metadata, and node_modules.
+ * The tar is written to a temp path inside the sandbox first, then read back.
+ */
+export async function tarSandboxProject(projectId: string): Promise<Buffer> {
+  // Pipe tar's gzipped output through base64 and read it on stdout. This
+  // bypasses readFileToBuffer entirely (which has been flaky for tarballs
+  // outside /vercel/sandbox and sometimes returns null even for valid paths).
+  // GNU tar exits 1 ("some files differ") when a file is touched mid-archive;
+  // base64 sees the bytes regardless, and `|| [ $? -eq 1 ]` after pipefail
+  // accepts that warning.
+  const excludes = [
+    "--exclude=.git",
+    "--exclude=node_modules",
+    "--exclude=.build",
+    "--exclude=build",
+    "--exclude=*.xcodeproj/xcuserdata",
+    "--exclude=*.xcodeproj/project.xcworkspace/xcuserdata",
+    "--exclude=DerivedData",
+    "--exclude=.DS_Store",
+  ];
+  // -w 0 disables base64 line wrapping so the entire payload is one chunk.
+  const cmd = [
+    "set -o pipefail",
+    `tar czf - ${excludes.join(" ")} -C ${SANDBOX_ROOT} . 2>/dev/null | base64 -w 0`,
+    'rc=$?',
+    // Accept tar's "file changed" warning (pipefail surfaces it as rc=1)
+    '[ $rc -eq 0 ] || [ $rc -eq 1 ]',
+  ].join(" ; ");
+  const res = await sandboxBash(projectId, cmd, { timeoutMs: 120_000 });
+  if (res.exitCode !== 0) {
+    throw new Error(`tar failed (${res.exitCode}): ${res.stderr || res.stdout || "(no output)"}`);
+  }
+  const b64 = res.stdout.trim();
+  if (!b64) {
+    throw new Error("tar produced empty output");
+  }
+  return Buffer.from(b64, "base64");
 }
 
 // Glob using `find` with -name patterns. For simple glob syntax: *.swift, **/*.ts

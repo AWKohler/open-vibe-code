@@ -25,9 +25,9 @@ import { isSandboxPlatform } from '@/lib/project-platform';
 import type { ProjectPlatform } from '@/lib/project-platform';
 import { ANTHROPIC_OAUTH_ENABLED } from '@/lib/feature-flags';
 import {
-  resolveBackends,
   type AgentBackend,
 } from '@/lib/agent/backend-resolution';
+import { deriveAgentBackend } from '@/lib/agent/derive-backend';
 import { BackendBadge, BackendChip } from './BackendBadge';
 import { ThinkingBlock } from './ThinkingBlock';
 import {
@@ -254,7 +254,6 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [actions, setActions] = useState<ToolCallData[]>([]);
   const lastAssistantSavedRef = useRef<{ id: string; hash: string } | null>(null);
   const [model, setModel] = useState<ModelId>('gpt-5.3-codex');
-  const [agentBackend, setAgentBackend] = useState<AgentBackend>('botflow');
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
   const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState<boolean | null>(null);
@@ -262,6 +261,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [hasMoonshotKey, setHasMoonshotKey] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
   const [hasGoogleKey, setHasGoogleKey] = useState<boolean | null>(null);
+  // BYOK user's per-account preference for which agent runs Claude models.
+  // Honored by the derivation only when the user has a genuine choice
+  // (BYOK with no OAuth). OAuth users are ToS-locked to Claude Code regardless.
+  const [preferredAnthropicBackend, setPreferredAnthropicBackend] =
+    useState<'botflow' | 'claude-code'>('botflow');
   const [showSettings, setShowSettings] = useState(false);
   const [agentError, setAgentError] = useState<StructuredError | null>(null);
   const [retryCountdown, setRetryCountdown] = useState<number | null>(null);
@@ -313,62 +317,55 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   }, [fetchCredits]);
 
   // --- Provider access for ModelSelector ---
-  const providerAccess = useMemo(() => ({
-    openai: hasCodexOAuth || hasOpenAIKey || null,
-    anthropic: (ANTHROPIC_OAUTH_ENABLED && hasClaudeOAuth) || hasAnthropicKey || null,
-    fireworks: hasFireworksKey === true ? true : null,
-    google: hasGoogleKey === true ? true : null,
-  }), [hasCodexOAuth, hasOpenAIKey, hasClaudeOAuth, hasAnthropicKey, hasFireworksKey, hasGoogleKey]);
-
-  // --- Agent backend resolution (for the badge / chip / popover) ---
-  const backendResolution = useMemo(() => resolveBackends({
-    model,
+  // Anthropic models need a path that actually runs them. OAuth-only is real
+  // access only when the project is a sandbox (Claude Code path); on a
+  // WebContainer project, OAuth-only can't run Anthropic models (the OAuth
+  // token can't be used as a bare API key, and Claude Code needs a sandbox).
+  const providerAccess = useMemo(() => {
+    const oauthRunnable =
+      ANTHROPIC_OAUTH_ENABLED &&
+      Boolean(hasClaudeOAuth) &&
+      Boolean(platform && isSandboxPlatform(platform));
+    const anthropic = oauthRunnable || hasAnthropicKey || null;
+    return {
+      openai: hasCodexOAuth || hasOpenAIKey || null,
+      anthropic,
+      fireworks: hasFireworksKey === true ? true : null,
+      google: hasGoogleKey === true ? true : null,
+    };
+  }, [
+    hasCodexOAuth,
+    hasOpenAIKey,
+    hasClaudeOAuth,
+    hasAnthropicKey,
+    hasFireworksKey,
+    hasGoogleKey,
     platform,
-    creds: {
-      hasClaudeOAuth: Boolean(hasClaudeOAuth),
-      hasAnthropicKey: Boolean(hasAnthropicKey),
-    },
-  }), [model, platform, hasClaudeOAuth, hasAnthropicKey]);
+  ]);
 
-  // --- Pending backend switch (confirmation modal) ---
-  const [pendingBackendSwitch, setPendingBackendSwitch] = useState<AgentBackend | null>(null);
-  const [switchingBackend, setSwitchingBackend] = useState(false);
-
-  // If the user's creds change such that the persisted backend isn't available
-  // anymore (e.g. they disconnected Claude OAuth, or switched to a non-Anthropic
-  // model), silently coerce to the resolution's defaultBackend. We hit the
-  // backend route directly (no segment break) — this is a recovery, not a
-  // deliberate switch, so we don't want to nuke conversation context.
+  // --- Agent backend is fully derived ---
+  // Single source of truth lives in deriveAgentBackend(). Both the chip badge
+  // and the transport's routing decision read from this memo. No more separate
+  // useState, no more auto-coerce effect, no more confirmation modal — when
+  // the user picks a different model, the agent flips silently.
   //
-  // Guard against re-firing: track the last coerce signature so we never fire
-  // twice for the same (project, available-set, target). Without this guard,
-  // a flickering resolution during initial load (project fetch + user-settings
-  // racing) could trigger repeated coerce → render → coerce loops.
-  const lastCoercedRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (hasClaudeOAuth === null || hasAnthropicKey === null) return;
-    if (backendResolution.available.includes(agentBackend)) {
-      // Backend is fine; clear the coerce marker so future drift triggers again.
-      lastCoercedRef.current = null;
-      return;
-    }
-    const target = backendResolution.defaultBackend;
-    if (target === agentBackend) return;
-    const sig = `${projectId}:${backendResolution.available.join(',')}:${target}`;
-    if (lastCoercedRef.current === sig) return;
-    lastCoercedRef.current = sig;
-    setAgentBackend(target);
-    fetch(`/api/projects/${encodeURIComponent(projectId)}/agent-backend`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ backend: target, mintNewSegment: false }),
-    }).catch(() => {});
-  }, [backendResolution, agentBackend, hasClaudeOAuth, hasAnthropicKey, projectId]);
-
-  // performBackendSwitch is defined below the useChat hook because it needs
-  // `setMessages` from useChat to clear the in-memory thread on switch. We
-  // forward-declare a ref so the JSX can call it via `performBackendSwitchRef.current(...)`.
-  const performBackendSwitchRef = useRef<(next: AgentBackend) => void>(() => {});
+  // BYOK users who want to override the default (Botflow) to Claude Code use
+  // the preference in Connections → preferredAnthropicBackend.
+  const derivedBackend = useMemo(
+    () =>
+      deriveAgentBackend({
+        model,
+        platform,
+        creds: {
+          hasClaudeOAuth: Boolean(hasClaudeOAuth),
+          hasAnthropicKey: Boolean(hasAnthropicKey),
+        },
+        preferredAnthropicBackend,
+        tier: userTier,
+      }),
+    [model, platform, hasClaudeOAuth, hasAnthropicKey, preferredAnthropicBackend, userTier],
+  );
+  const agentBackend = derivedBackend.backend;
 
   // --- Chat segment tracking ---
   // Each message belongs to a segment_id; switching agents mints a new one.
@@ -845,68 +842,11 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
 
-  // --- Backend switch: definition deferred until here so the closure can
-  //     access `setMessages` from useChat. The chip calls it via the
-  //     `performBackendSwitchRef` declared earlier in the component. ---
-  const performBackendSwitch = useCallback(async (next: AgentBackend) => {
-    if (next === agentBackend) {
-      setPendingBackendSwitch(null);
-      return;
-    }
-    setSwitchingBackend(true);
-    try {
-      // If switching to Claude Code while on a non-Anthropic model, change
-      // the model first — Claude Code only runs Anthropic models, and the
-      // backend route would otherwise reject the switch with non_anthropic_model.
-      if (next === 'claude-code' && !(model === 'claude-sonnet-4-6' || model === 'claude-opus-4-7')) {
-        const nextModel: ModelId = 'claude-sonnet-4-6';
-        try {
-          const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: nextModel }),
-          });
-          if (res.ok) setModel(nextModel);
-        } catch {
-          // Non-fatal — the backend route below will surface the mismatch.
-        }
-      }
-      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/agent-backend`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ backend: next }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Failed to switch backend (status ${res.status})`);
-      }
-      const swResp = await res.json().catch(() => ({} as { currentSegmentId?: string }));
-      setAgentBackend(next);
-      // Server may or may not have minted a new segment id — honor whatever
-      // it returns (with this change it stays the same on switch).
-      if (typeof swResp.currentSegmentId === 'string') {
-        setCurrentSegmentId(swResp.currentSegmentId);
-      }
-      // Reset Claude Code's view of context — it had its own bar based on
-      // its own session. The next CC turn will populate fresh numbers.
-      setClaudeCodeUsage(null);
-      setIsCompacting(false);
-      // Keep messages, actions, and browser-log in place. The conversation
-      // is continuous; the new agent picks up via the transport-side message
-      // transform (for Botflow) or the route-side preamble (for Claude Code).
-      setPendingBackendSwitch(null);
-      toast({
-        title: `Switched to ${next === 'claude-code' ? 'Claude Code' : 'Botflow'}`,
-        description: 'The new agent has the conversation history. Just send your next message.',
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to switch backend';
-      toast({ title: 'Could not switch agent', description: message });
-    } finally {
-      setSwitchingBackend(false);
-    }
-  }, [agentBackend, model, projectId, toast]);
-  performBackendSwitchRef.current = performBackendSwitch;
+  // Note: the previous explicit "switch backend" flow (modal + POST to
+  // /api/projects/:id/agent-backend) has been replaced by automatic derivation.
+  // The user picks a model; deriveAgentBackend decides which agent runs the
+  // turn; the chip badge reflects the result. No imperative switch needed.
+  // BYOK users who want to override the default go to Settings → Connections.
 
   // --- Refs for values needed in effects (avoid deps that change every render) ---
   const messagesRef = useRef(messages);
@@ -1189,9 +1129,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         if (res.ok) {
           const proj = await res.json();
           setModel(resolveModelId(proj?.model));
-          if (proj?.agentBackend === 'claude-code' || proj?.agentBackend === 'botflow') {
-            setAgentBackend(proj.agentBackend);
-          }
+          // Note: project.agentBackend is no longer read — the agent backend
+          // is derived per-render from (model, platform, creds, preference).
         }
       } catch {}
       try {
@@ -1205,6 +1144,10 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
           setHasGoogleKey(Boolean(data?.hasGoogleKey));
+          const pref = data?.preferredAnthropicBackend;
+          if (pref === 'botflow' || pref === 'claude-code') {
+            setPreferredAnthropicBackend(pref);
+          }
         }
       } catch {}
     })();
@@ -1224,6 +1167,10 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
           setHasGoogleKey(Boolean(data?.hasGoogleKey));
+          const pref = data?.preferredAnthropicBackend;
+          if (pref === 'botflow' || pref === 'claude-code') {
+            setPreferredAnthropicBackend(pref as 'botflow' | 'claude-code');
+          }
         })
         .catch(() => {});
     };
@@ -1627,14 +1574,13 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         </div>
       </div>
 
-      {/* Inline backend chip row — only renders when the chip has something
-          meaningful to surface (OAuth info popover or BYOK toggle). */}
+      {/* Inline backend chip — info-only. Hidden when there's nothing
+          meaningful to explain (e.g., non-Anthropic model on free tier). */}
       <div className="px-3 pb-1">
         <BackendChip
           backend={agentBackend}
-          resolution={backendResolution}
-          switching={switchingBackend}
-          onRequestSwitch={(next) => setPendingBackendSwitch(next)}
+          reason={derivedBackend.reason}
+          runnable={derivedBackend.runnable}
         />
       </div>
 
@@ -2023,47 +1969,6 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         document.body
       )}
 
-      {/* Backend switch confirmation — the new agent starts a fresh conversation
-          segment. Older messages stay in the DB for reference but the new
-          agent won't see them, so we ask first. */}
-      {typeof document !== 'undefined' && pendingBackendSwitch && createPortal(
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-surface border border-border shadow-xl p-5 text-fg">
-            <div className="text-base font-semibold mb-2">
-              Switch to {pendingBackendSwitch === 'claude-code' ? 'Claude Code' : 'Botflow'}?
-            </div>
-            <p className="text-sm text-muted leading-snug">
-              The new agent will see the conversation so far and pick up where
-              the previous one left off.
-            </p>
-            {pendingBackendSwitch === 'claude-code' && !(model === 'claude-sonnet-4-6' || model === 'claude-opus-4-7') && (
-              <p className="mt-2 text-xs text-muted">
-                Your model will also change to <span className="font-mono">claude-sonnet-4-6</span> — Claude Code only runs Anthropic models.
-              </p>
-            )}
-            <div className="mt-4 flex justify-end gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={switchingBackend}
-                onClick={() => setPendingBackendSwitch(null)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={switchingBackend}
-                onClick={() => performBackendSwitchRef.current?.(pendingBackendSwitch)}
-              >
-                {switchingBackend ? 'Switching…' : 'Switch agent'}
-              </Button>
-            </div>
-          </div>
-        </div>,
-        document.body,
-      )}
     </div>
   );
 }

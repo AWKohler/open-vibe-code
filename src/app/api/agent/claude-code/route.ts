@@ -30,7 +30,7 @@ import { resolveModelId, MODEL_CONFIGS, isAnthropicModel } from "@/lib/agent/mod
 import { isSandboxPlatform } from "@/lib/project-platform";
 
 import { isClaudeCodeFlagEnabled } from "@/lib/agent/claude-code/feature-flag";
-import { resolveBackends } from "@/lib/agent/backend-resolution";
+import { deriveAgentBackend } from "@/lib/agent/derive-backend";
 import {
   ensureClaudeInstalled,
   writeClaudeCredentials,
@@ -165,27 +165,27 @@ export async function POST(req: Request) {
   }
 
   const creds = await getUserCredentials(userId);
-  // Validate that Claude Code is actually allowed for this user + model +
-  // platform combination. We re-check at request time even though the project's
-  // persisted agent_backend should have been set to a valid value when the
-  // user picked it — creds can change between turns (e.g. user disconnects
-  // Claude OAuth from settings).
-  const resolution = resolveBackends({
+  // Single source of truth: re-derive the backend server-side from the current
+  // model + platform + creds. If the derivation doesn't pick Claude Code,
+  // fall back to /api/agent so the client retries against the correct route.
+  // This makes the routing decision tamper-proof: a client can't request
+  // Claude Code if their creds don't actually support it.
+  const derived = deriveAgentBackend({
     model: selectedModel,
     platform,
     creds: {
       hasClaudeOAuth: Boolean(creds.claudeOAuthAccessToken),
       hasAnthropicKey: Boolean(creds.anthropicApiKey),
     },
+    preferredAnthropicBackend: creds.preferredAnthropicBackend,
+    // Tier is fetched lazily — only matters for the platform-key fallback
+    // which never picks claude-code anyway.
   });
-  if (!resolution.available.includes("claude-code")) {
-    return fallback(resolution.reason);
+  if (derived.backend !== "claude-code") {
+    return fallback(derived.reason);
   }
-  // Also validate that the project's persisted backend is claude-code. If the
-  // user somehow hits this route while project.agent_backend === 'botflow',
-  // bounce them — the Botflow route should handle this turn.
-  if (project.agentBackend !== "claude-code") {
-    return fallback("project_backend_mismatch");
+  if (!derived.runnable) {
+    return fallback(derived.reason);
   }
 
   const userPrompt = extractUserPrompt(messages);

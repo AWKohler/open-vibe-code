@@ -6,19 +6,23 @@
  * Two pieces:
  *  - <BackendBadge> — small always-visible pill at the top of AgentPanel.
  *      Shows the active backend's glyph + name. Pure visual, no interaction.
- *  - <BackendChip> — chip rendered next to the model picker. Three modes:
- *      1. hidden     — no choice and the active backend is the default
- *                       (avoids visual noise for the typical free user)
- *      2. info-only  — locked to one backend; clicking opens a "what this means"
- *                       popover so users learn why
- *      3. toggle     — BYOK choice; two-segment switch
+ *  - <BackendChip> — inline info chip rendered below the header. Always
+ *      informational (no toggle). Clicking opens a popover explaining WHY
+ *      the user is on the current agent for the current model. Hidden when
+ *      there's nothing meaningful to surface (free user on a non-Anthropic
+ *      model — the top badge says it all).
  *
- * Both share the same brand glyphs (loaded from /brand/ + /model-icons/) so
- * the agent identity is consistent across the panel.
+ * The agent is fully derived from (model, platform, creds, preference); the
+ * user can't toggle backends here. BYOK users override their default via
+ * Settings → Connections.
+ *
+ * Both share brand glyphs from /brand/ + /model-icons/ so the agent identity
+ * stays consistent across the panel.
  */
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { AgentBackend, BackendResolution, ResolutionReason } from "@/lib/agent/backend-resolution";
+import type { AgentBackend } from "@/lib/agent/backend-resolution";
+import { describeDerivation, type DerivationReason } from "@/lib/agent/derive-backend";
 
 interface GlyphProps {
   size?: number;
@@ -78,39 +82,39 @@ export function BackendBadge({ backend }: { backend: AgentBackend }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
- * Inline chip (next to model picker)
+ * Inline info chip
  * ────────────────────────────────────────────────────────────────────── */
 
-const reasonCopy: Record<ResolutionReason, { title: string; body: string } | null> = {
-  flag_disabled: null,
-  non_anthropic_model: null,
-  non_sandbox_platform: null,
-  oauth_required: {
-    title: "Your Claude subscription is being used",
-    body:
-      "You're signed in with your Claude account. Anthropic requires that subscription tokens flow through their official Claude Code client — never a third party. So your Anthropic model requests run inside a real `claude` process in your project's sandbox, billed to your plan.\n\nNothing about this is custom — it's how Anthropic intends paid subscriptions to be used outside the Claude app.",
-  },
-  byok_choice: {
-    title: "Pick your agent",
-    body:
-      "You have an Anthropic API key, so you can run Claude either through Botflow's agent (our tools, our prompting) or through Anthropic's official Claude Code (their tools, their autonomy). Both bill your API key — pick whichever you prefer.",
-  },
-  platform_key_only: null,
-};
+/**
+ * Reasons that warrant the inline chip. Other reasons (non-Anthropic models,
+ * platform-key fallback for paid tier) are "boring" — the top badge already
+ * communicates "you're on Botflow" and the user doesn't need a popover for it.
+ *
+ * The chip surfaces specifically when:
+ *  - The user is on a path that's worth explaining (OAuth → Claude Code)
+ *  - The user has a choice they might want to learn about (BYOK)
+ *  - The model can't actually run on this project (an error state worth showing)
+ */
+const CHIP_VISIBLE_REASONS: ReadonlySet<DerivationReason> = new Set<DerivationReason>([
+  "oauth_claude_code",
+  "byok_botflow",
+  "byok_preference_claude_code",
+  "oauth_no_path",
+  "no_credentials",
+]);
 
 export interface BackendChipProps {
   backend: AgentBackend;
-  resolution: BackendResolution;
-  onRequestSwitch: (next: AgentBackend) => void;
-  /** Disable interaction while a switch is in-flight. */
-  switching?: boolean;
+  reason: DerivationReason;
+  /** When false, the chip shows an error-flavored style — the user picked a
+   *  model that can't actually run on this project. */
+  runnable: boolean;
 }
 
-export function BackendChip({ backend, resolution, onRequestSwitch, switching }: BackendChipProps) {
+export function BackendChip({ backend, reason, runnable }: BackendChipProps) {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
-  // Dismiss the popover when clicking elsewhere.
   useEffect(() => {
     if (!popoverOpen) return;
     function handleClickAway(e: MouseEvent) {
@@ -122,68 +126,34 @@ export function BackendChip({ backend, resolution, onRequestSwitch, switching }:
     return () => document.removeEventListener("mousedown", handleClickAway);
   }, [popoverOpen]);
 
-  // Hidden when the resolution forces Botflow for a non-meaningful reason
-  // (flag off, WebContainer, non-Anthropic model, or platform-key-only). The
-  // top BackendBadge still communicates "you're on Botflow" — the inline chip
-  // is only for surfacing a *meaningful* choice or explanation.
-  const copy = reasonCopy[resolution.reason];
-  if (!copy) return null;
+  if (!CHIP_VISIBLE_REASONS.has(reason)) return null;
 
-  // BYOK toggle
-  if (resolution.locked === null && resolution.available.length >= 2) {
-    return (
-      <div ref={wrapperRef} className="relative inline-flex items-center">
-        <div className="inline-flex items-center gap-0.5 rounded-full bg-elevated border border-border p-0.5">
-          {(["botflow", "claude-code"] as const).map((option) => {
-            const active = backend === option;
-            return (
-              <button
-                key={option}
-                type="button"
-                disabled={switching}
-                onClick={() => {
-                  if (option !== backend) onRequestSwitch(option);
-                }}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[11px] font-medium transition",
-                  active ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
-                  switching && "opacity-50 cursor-not-allowed",
-                )}
-                title={`Use ${backendLabel(option)}`}
-              >
-                <BackendGlyph backend={option} size={12} />
-                {backendLabel(option)}
-              </button>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          onClick={() => setPopoverOpen(true)}
-          className="ml-1 text-muted hover:text-fg text-[11px] underline-offset-2 hover:underline"
-          aria-label="What does this mean?"
-        >
-          What&apos;s this?
-        </button>
-        {popoverOpen && (
-          <Popover title={copy.title} body={copy.body} onClose={() => setPopoverOpen(false)} />
-        )}
-      </div>
-    );
-  }
+  const copy = describeDerivation(reason);
+  const errorStyle = !runnable;
 
-  // Locked / info-only — show the active backend as an info chip
   return (
     <div ref={wrapperRef} className="relative inline-flex items-center">
       <button
         type="button"
         onClick={() => setPopoverOpen((v) => !v)}
-        className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 border border-accent/30 px-2 py-1 text-[11px] font-medium text-fg hover:bg-accent/15"
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full border px-2 py-1 text-[11px] font-medium transition",
+          errorStyle
+            ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/15"
+            : "bg-accent/10 border-accent/30 text-fg hover:bg-accent/15",
+        )}
       >
-        <BackendGlyph backend={resolution.locked ?? backend} size={12} />
-        {copy.title}
-        <span className="text-muted">·</span>
-        <span className="text-accent underline-offset-2 hover:underline">What this means?</span>
+        <BackendGlyph backend={backend} size={12} />
+        <span className="leading-none">{copy.title}</span>
+        <span className={cn("text-[10px] leading-none", errorStyle ? "text-red-400/70" : "text-muted")}>·</span>
+        <span
+          className={cn(
+            "text-[11px] leading-none underline-offset-2 hover:underline",
+            errorStyle ? "text-red-400" : "text-accent",
+          )}
+        >
+          What this means?
+        </span>
       </button>
       {popoverOpen && (
         <Popover title={copy.title} body={copy.body} onClose={() => setPopoverOpen(false)} />

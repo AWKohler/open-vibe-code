@@ -60,30 +60,43 @@ function getWorkspaceControlTools(projectId: string) {
     startDevServer: tool({
       description:
         "Start the project's Vite dev server inside the sandbox. Idempotent — if already running, the previous instance is killed and a fresh one is started. " +
-        "Returns the public preview URL once the server is actually reachable. May take up to ~45s the first time (npm install).",
+        "The user's preview pane updates automatically once the server is reachable; you don't need to communicate any URL. " +
+        "May take up to ~45s the first time (npm install).",
       inputSchema: z.object({}),
       async execute() {
         const result = await startSandboxDevServer(projectId, {
           port: 5173,
           installFirst: true,
         });
+        if (result.ok) {
+          // Terse message — the URL is intentionally withheld. The user's
+          // workspace polls for state and shows the preview automatically;
+          // there's no reason for the model to mention or leak the URL.
+          return {
+            ok: true,
+            message: "Dev server started. The preview is now visible to the user.",
+          };
+        }
         return {
-          ok: result.ok,
+          ok: false,
           message: result.message,
-          ...(result.previewUrl ? { previewUrl: result.previewUrl } : {}),
-          ...(result.log ? { log: result.log.slice(-3000) } : {}),
+          ...(result.log ? { log: result.log.slice(-2000) } : {}),
         };
       },
     }),
     stopDevServer: tool({
       description:
-        "Stop the running dev server (kills the vite process). Idempotent; if nothing is running, reports that.",
+        "Stop the running dev server (kills the vite process). Idempotent; if nothing is running, reports that. The user's preview pane will go to a 'stopped' state automatically.",
       inputSchema: z.object({}),
       async execute() {
         const result = await stopSandboxDevServer(projectId);
         return {
           ok: result.ok,
-          message: result.message,
+          message: result.ok
+            ? (result.alreadyStopped
+                ? "Dev server was not running."
+                : "Dev server stopped.")
+            : result.message,
           alreadyStopped: Boolean(result.alreadyStopped),
         };
       },

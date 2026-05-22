@@ -87,6 +87,46 @@ function extractUserPrompt(messages: UIMessage[]): string | null {
   return null;
 }
 
+/**
+ * Build a text preamble summarizing prior conversation turns so a fresh
+ * Claude Code session has the context it needs to pick up coherently mid-
+ * conversation (e.g., after the user switched from Botflow to Claude Code).
+ *
+ * We include only user/assistant TEXT — no foreign tool_use blocks (claude
+ * would have no way to interpret them) and no thinking/reasoning parts. The
+ * model can reconstruct anything else by reading the current filesystem.
+ *
+ * Returns null when there's no prior content worth preambling (just the
+ * current user message, or empty history).
+ */
+function buildPriorConversationPreamble(messages: UIMessage[]): string | null {
+  // The LAST message is the user's current prompt — we exclude it.
+  if (messages.length <= 1) return null;
+  const prior = messages.slice(0, -1);
+  const lines: string[] = [];
+  for (const m of prior) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    const parts = m.parts ?? [];
+    const texts: string[] = [];
+    for (const p of parts) {
+      if (p.type === "text" && typeof p.text === "string" && p.text.trim()) {
+        texts.push(p.text);
+      }
+    }
+    if (texts.length === 0) continue;
+    const role = m.role === "user" ? "User" : "Assistant";
+    // Keep each prior turn's text capped so a long history doesn't blow
+    // the preamble budget. Generous cap — 4k chars per turn.
+    let combined = texts.join("\n").trim();
+    if (combined.length > 4000) {
+      combined = combined.slice(0, 4000) + "…[truncated]";
+    }
+    lines.push(`${role}: ${combined}`);
+  }
+  if (lines.length === 0) return null;
+  return lines.join("\n\n");
+}
+
 export async function POST(req: Request) {
   if (!isClaudeCodeFlagEnabled()) {
     return fallback("flag_disabled");
@@ -148,10 +188,22 @@ export async function POST(req: Request) {
     return fallback("project_backend_mismatch");
   }
 
-  const prompt = extractUserPrompt(messages);
-  if (!prompt) {
+  const userPrompt = extractUserPrompt(messages);
+  if (!userPrompt) {
     return jsonError(400, "No user text in last message");
   }
+
+  // Build a prior-conversation preamble so the model has context if this turn
+  // is part of an ongoing conversation (e.g., the user just switched from
+  // Botflow). When there's no resume sessionId (which is the case after a
+  // backend switch, since we wipe the session pointer), this preamble is what
+  // keeps continuity. When resuming a Claude Code session, the SDK already
+  // has the full transcript, so the preamble is mostly redundant — but
+  // harmless and cheap.
+  const preamble = buildPriorConversationPreamble(messages);
+  const prompt = preamble
+    ? `[Prior conversation context — earlier turns from this session. The project filesystem reflects everything that happened.]\n\n${preamble}\n\n[End of context. The user's current message:]\n\n${userPrompt}`
+    : userPrompt;
 
   // Refresh the OAuth token if near expiry, else use the existing one. If both
   // OAuth refresh and OAuth presence fail, fall back to the BYOK API key.

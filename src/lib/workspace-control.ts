@@ -19,6 +19,7 @@ import { sanitizeOutput } from "@/lib/output-sanitizer";
 const DEV_LOG_PATH = "/tmp/dev-server.log";
 const BROWSER_LOG_MAX = 2000;
 const BROWSER_LOG_TTL_SECONDS = 24 * 60 * 60;
+const DEVSERVER_STATE_TTL_SECONDS = 6 * 60 * 60;
 
 export function browserLogKey(projectId: string): string {
   return `browser-log:${projectId}`;
@@ -26,6 +27,53 @@ export function browserLogKey(projectId: string): string {
 
 export function previewRefreshKey(projectId: string): string {
   return `preview-refresh:${projectId}`;
+}
+
+export function devServerStateKey(projectId: string): string {
+  return `devserver-state:${projectId}`;
+}
+
+/**
+ * Snapshot of the dev server's externally-visible state. Published to Redis
+ * whenever start/stop succeeds; the SandboxedWebWorkspace polls and reflects
+ * this into its preview pane so the agent and the user see the same thing.
+ */
+export interface DevServerState {
+  running: boolean;
+  previewUrl: string | null;
+  port: number | null;
+  /** Timestamp of the last state change (start or stop). Used by the client
+   *  poll to detect new changes without false-positive remounts. */
+  updatedAt: number;
+}
+
+async function publishDevServerState(
+  projectId: string,
+  state: DevServerState,
+): Promise<void> {
+  try {
+    const redis = getRedis();
+    await redis.setex(
+      devServerStateKey(projectId),
+      DEVSERVER_STATE_TTL_SECONDS,
+      JSON.stringify(state),
+    );
+  } catch {
+    // Non-fatal — the next poll will just show stale state until things recover.
+  }
+}
+
+export async function getDevServerState(projectId: string): Promise<DevServerState | null> {
+  try {
+    const redis = getRedis();
+    const raw = await redis.get<string>(devServerStateKey(projectId));
+    if (!raw) return null;
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as DevServerState;
+  } catch {
+    return null;
+  }
 }
 
 export interface BrowserLogEntry {
@@ -180,6 +228,16 @@ export default defineConfig(async ({ command, mode }) => {
         if (probe.status < 500) {
           const responseHeaders: Record<string, string> = {};
           probe.headers.forEach((v, k) => { responseHeaders[k] = v; });
+          // Publish to Redis so the workspace's poll picks up the running
+          // state without needing client-side coordination. This is what
+          // makes the agent's startDevServer call materialize the preview
+          // iframe in the user's browser.
+          await publishDevServerState(projectId, {
+            running: true,
+            previewUrl,
+            port,
+            updatedAt: Date.now(),
+          });
           return {
             ok: true,
             message: `Dev server started on ${previewUrl} (port ${port}).`,
@@ -247,6 +305,12 @@ export async function stopSandboxDevServer(projectId: string): Promise<StopDevSe
       projectId,
       "pkill -f 'vite' 2>/dev/null || true; sleep 0.3; rm -f " + DEV_LOG_PATH,
     );
+    await publishDevServerState(projectId, {
+      running: false,
+      previewUrl: null,
+      port: null,
+      updatedAt: Date.now(),
+    });
     return { ok: true, message: "Dev server stopped." };
   } catch (err) {
     return {
@@ -270,6 +334,18 @@ export async function isSandboxDevServerRunning(projectId: string): Promise<IsRu
     );
     const output = result.stdout.trim();
     const running = output === "running";
+    // Reconcile cached state if it drifted (e.g., vite crashed silently).
+    // Only write if we have a definite mismatch; otherwise let the start/stop
+    // calls own the truth so we don't churn the workspace's poll handler.
+    const cached = await getDevServerState(projectId);
+    if (cached && cached.running !== running) {
+      await publishDevServerState(projectId, {
+        running,
+        previewUrl: running ? cached.previewUrl : null,
+        port: running ? cached.port : null,
+        updatedAt: Date.now(),
+      });
+    }
     return {
       ok: true,
       running,

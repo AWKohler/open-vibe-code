@@ -190,18 +190,21 @@ export async function POST(req: Request) {
         port: 5173,
         installFirst: true,
       });
-      return NextResponse.json({
-        ok: result.ok,
-        content: result.message + (result.previewUrl ? `\nPreview: ${result.previewUrl}` : ""),
-        ...(result.log ? { log: result.log.slice(-3000) } : {}),
-      });
+      // Terse content — URL intentionally withheld. The user's workspace
+      // polls preview-state and surfaces the preview automatically.
+      const content = result.ok
+        ? "Dev server started. The preview is now visible to the user."
+        : (result.log ? `${result.message}\n\nLast log:\n${result.log.slice(-2000)}` : result.message);
+      return NextResponse.json({ ok: result.ok, content });
     }
 
     case "stopDevServer": {
       const result = await stopSandboxDevServer(binding.projectId);
       return NextResponse.json({
         ok: result.ok,
-        content: result.message,
+        content: result.ok
+          ? (result.alreadyStopped ? "Dev server was not running." : "Dev server stopped.")
+          : result.message,
         alreadyStopped: Boolean(result.alreadyStopped),
       });
     }

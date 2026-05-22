@@ -2,20 +2,30 @@
  * GET /api/projects/[id]/sandbox/preview-state
  *
  * Lightweight polling endpoint the SandboxedWebWorkspace hits every ~2 seconds
- * while the preview tab is active. Returns the timestamp of the latest agent-
- * initiated preview refresh request (or null if none).
+ * while the preview tab is active. Returns:
  *
- * The client tracks the last-seen `refreshAt`; when it changes, it bumps its
- * `previewReloadKey` to remount the iframe. This is how the agent's
- * `refreshPreview` tool reaches the user's browser — server pushes the signal
- * into Redis, the client picks it up on the next poll.
+ *   - refreshAt: timestamp of the latest `refreshPreview` request (or null).
+ *     The client bumps `previewReloadKey` when this changes, remounting the
+ *     iframe.
+ *
+ *   - devServer: snapshot of the dev server's externally-visible state:
+ *     { running, previewUrl, port, updatedAt } | null
+ *     When `running` flips true (or previewUrl changes), the client wires the
+ *     iframe to the new URL. When it flips false, the client clears the
+ *     preview pane to a "Dev server is stopped" empty state.
+ *
+ * Whoever started/stopped the dev server (Play button or agent tool) is the
+ * one who wrote the state to Redis — the workspace just reflects it.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
-import { getPreviewRefreshAt } from "@/lib/workspace-control";
+import {
+  getDevServerState,
+  getPreviewRefreshAt,
+} from "@/lib/workspace-control";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +44,10 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const refreshAt = await getPreviewRefreshAt(project.id);
-  return NextResponse.json({ refreshAt });
+  const [refreshAt, devServer] = await Promise.all([
+    getPreviewRefreshAt(project.id),
+    getDevServerState(project.id),
+  ]);
+
+  return NextResponse.json({ refreshAt, devServer });
 }

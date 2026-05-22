@@ -26,6 +26,7 @@ import {
   resolveBackends,
   type AgentBackend,
 } from "@/lib/agent/backend-resolution";
+import { clearClaudeCodeSessionId } from "@/lib/agent/claude-code/session-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -131,10 +132,12 @@ export async function POST(
     );
   }
 
-  // Mint a fresh segment id by default. The silent coerce path (creds went
-  // stale, not a deliberate switch) passes mintNewSegment: false so the user
-  // doesn't lose conversation context to a behind-the-scenes correction.
-  const mintNewSegment = body.mintNewSegment !== false;
+  // Do NOT mint a new segment by default. Both agents now read all prior
+  // history (with foreign tool_use blocks transformed client-side via the
+  // tool-name-map), so switching backends preserves conversation continuity.
+  // Callers that genuinely want a clean slate (an explicit "Reset chat"
+  // action) pass mintNewSegment: true.
+  const mintNewSegment = body.mintNewSegment === true;
   const nextSegmentId = mintNewSegment ? randomUUID() : project.currentSegmentId;
 
   const db = getDb();
@@ -146,6 +149,13 @@ export async function POST(
       updatedAt: new Date(),
     })
     .where(eq(projects.id, id));
+
+  // Always wipe the Claude Code session pointer on switch. The session file
+  // inside the sandbox may have been GC'd (sandbox timeout) or contain
+  // partial/foreign state from the prior agent, both of which produce the
+  // dreaded "messages.X.content.Y.tool_use.id: pattern" error from Anthropic
+  // when claude tries to resume. A fresh session is the safer default.
+  await clearClaudeCodeSessionId(project.id);
 
   return NextResponse.json({
     agentBackend: requested,

@@ -385,13 +385,24 @@ export function SandboxedWebWorkspace({
     };
   }, [projectId]);
 
-  // ── Preview refresh polling ──────────────────────────────────────────
-  // The agent's `refreshPreview` tool bumps a Redis key on the server. We
-  // poll for that timestamp every 2s while the preview tab is active and
-  // bump previewReloadKey when it changes, which remounts the iframe.
+  // ── Preview state polling (refresh signal + dev server state) ───────
+  // The Redis-backed preview-state endpoint is the SINGLE SOURCE OF TRUTH for
+  // what the preview pane should show. Two distinct signals flow through it:
+  //
+  //  1. `refreshAt` — bumped by the agent's `refreshPreview` tool. When it
+  //     changes, we remount the iframe (forces a hard reload).
+  //
+  //  2. `devServer` — published by `start/stopSandboxDevServer` (whether
+  //     called by the Play button or by the agent's startDevServer tool).
+  //     When `running` flips true with a URL, we wire the preview pane to it
+  //     and bump previewReloadKey. When it flips false, we clear the pane.
+  //
+  // This is what makes the agent's startDevServer tool actually surface the
+  // running preview to the user — without it, the agent would start the
+  // server but the user's iframe would still be empty.
   const lastRefreshAtRef = useRef<number | null>(null);
+  const lastDevServerStateRef = useRef<{ running: boolean; previewUrl: string | null; updatedAt: number } | null>(null);
   useEffect(() => {
-    if (currentView !== "preview") return;
     if (sandboxStatus !== "ready") return;
     let cancelled = false;
 
@@ -401,19 +412,61 @@ export function SandboxedWebWorkspace({
           cache: "no-store",
         });
         if (!res.ok) return;
-        const data = (await res.json()) as { refreshAt: number | null };
+        const data = (await res.json()) as {
+          refreshAt: number | null;
+          devServer: { running: boolean; previewUrl: string | null; port: number | null; updatedAt: number } | null;
+        };
         if (cancelled) return;
-        const next = data.refreshAt;
-        // First poll establishes the baseline; we only react to *changes*
-        // after that, so a stale leftover signal from before the user
-        // opened the workspace doesn't trigger an immediate reload.
+
+        // ── Refresh signal ───────────────────────────────────────────
+        const nextRefresh = data.refreshAt;
         if (lastRefreshAtRef.current === null) {
-          lastRefreshAtRef.current = next;
-          return;
-        }
-        if (next && next !== lastRefreshAtRef.current) {
-          lastRefreshAtRef.current = next;
+          // First poll establishes baseline so a stale signal from before
+          // the user opened the workspace doesn't trigger an immediate reload.
+          lastRefreshAtRef.current = nextRefresh;
+        } else if (nextRefresh && nextRefresh !== lastRefreshAtRef.current) {
+          lastRefreshAtRef.current = nextRefresh;
           setPreviewReloadKey((k) => k + 1);
+        }
+
+        // ── Dev server state ──────────────────────────────────────────
+        // Mirror Redis truth into local UI state. Only react when the
+        // updatedAt timestamp advances OR when the running/URL pair drifts
+        // from what we last applied — this prevents false-positive remounts
+        // on every poll while still catching genuine changes.
+        const ds = data.devServer;
+        const prev = lastDevServerStateRef.current;
+        const ourDevServerRunning = isDevServerRunningRef.current;
+        if (ds) {
+          const advanced = prev === null || ds.updatedAt > prev.updatedAt;
+          const drifted =
+            ds.running !== ourDevServerRunning ||
+            (ds.running && ds.previewUrl && previews[0]?.baseUrl !== ds.previewUrl);
+          if (advanced || drifted) {
+            lastDevServerStateRef.current = {
+              running: ds.running,
+              previewUrl: ds.previewUrl,
+              updatedAt: ds.updatedAt,
+            };
+            if (ds.running && ds.previewUrl && ds.port !== null) {
+              setPreviews([{ port: ds.port, ready: true, baseUrl: ds.previewUrl }]);
+              setActivePreviewIndex(0);
+              setIsDevServerRunning(true);
+              setPreviewReloadKey((k) => k + 1);
+              // If the agent started the server while the user was on Code
+              // tab, switch them to Preview so they actually see the result.
+              if (currentView !== "preview") setCurrentView("preview");
+            } else {
+              // Stopped — clear the pane to a "stopped" empty state.
+              setPreviews([]);
+              setIsDevServerRunning(false);
+            }
+          }
+        } else if (prev !== null) {
+          // State key disappeared (e.g., TTL expired). Don't tear down a
+          // working preview — just forget our baseline so any future change
+          // re-triggers reconciliation.
+          lastDevServerStateRef.current = null;
         }
       } catch {
         // Network blips are fine; we'll catch up on the next tick.
@@ -426,7 +479,12 @@ export function SandboxedWebWorkspace({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [projectId, currentView, sandboxStatus]);
+  }, [projectId, currentView, sandboxStatus, previews]);
+
+  // Stable ref so the polling effect can read the latest isDevServerRunning
+  // without needing to re-fire when that state flips.
+  const isDevServerRunningRef = useRef(isDevServerRunning);
+  isDevServerRunningRef.current = isDevServerRunning;
 
   // ── Dev server ───────────────────────────────────────────────────────
   const handleStartDevServer = useCallback(async () => {

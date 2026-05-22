@@ -30,6 +30,11 @@ import {
 } from '@/lib/agent/backend-resolution';
 import { BackendBadge, BackendChip } from './BackendBadge';
 import { ThinkingBlock } from './ThinkingBlock';
+import {
+  BOTFLOW_NATIVE_TOOLS,
+  CLAUDE_CODE_TO_BOTFLOW,
+  sanitizeToolUseId,
+} from '@/lib/agent/tool-name-map';
 
 type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: ProjectPlatform };
 
@@ -106,6 +111,137 @@ function ToolStep({ toolName, state, content }: { toolName: string; state: strin
 function formatTokenCount(tokens: number): string {
   if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
   return String(tokens);
+}
+
+// ============================================================================
+// Cross-agent message transform
+// ============================================================================
+//
+// Rewrites a single UIMessage so it's safe to send to the Botflow agent's
+// Anthropic-backed `/api/agent` route, even when the message originated from
+// a turn that ran through Claude Code. Anthropic strictly validates that
+// every `tool_use` block in the request references a tool name registered
+// in the current `tools` parameter; foreign names cause a 400.
+//
+// Strategy:
+//   1. For tool parts whose name maps to a Botflow tool (CLAUDE_CODE_TO_BOTFLOW
+//      entry with a `to`/`mapInput`): rename + rewrite input. Keep state +
+//      output untouched so the matching tool_result still pairs correctly.
+//   2. For tool parts with no Botflow counterpart (entry === null): collapse
+//      the whole part into a text part summarizing what happened, so the
+//      receiving agent has prose context without a phantom tool call.
+//   3. For tool parts that are already native to Botflow (in BOTFLOW_NATIVE_TOOLS):
+//      pass through unchanged.
+//   4. Sanitize toolCallId on every tool part as belt-and-suspenders against
+//      legacy data with invalid characters.
+//
+// Going to Claude Code: this transform is NOT applied — the Claude Code
+// route only takes a string prompt, and the route's own preamble logic
+// summarizes prior conversation as text.
+//
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyPart = any;
+
+function transformMessageForBotflow(message: AnyPart): AnyPart {
+  if (!message || !Array.isArray(message.parts)) return message;
+  const newParts: AnyPart[] = [];
+  for (const part of message.parts) {
+    const transformed = transformPartForBotflow(part);
+    // A transform may emit zero (rare), one, or more parts. Spread.
+    if (Array.isArray(transformed)) {
+      for (const p of transformed) newParts.push(p);
+    } else if (transformed) {
+      newParts.push(transformed);
+    }
+  }
+  return { ...message, parts: newParts };
+}
+
+function transformPartForBotflow(part: AnyPart): AnyPart | AnyPart[] | null {
+  if (!part || typeof part !== 'object') return part;
+  const type: string = part.type ?? '';
+
+  // Non-tool parts pass through (text, reasoning, file, data-*, step-start, etc.).
+  if (!type.startsWith('tool-') && type !== 'dynamic-tool') return part;
+
+  // Extract the tool name from either static-typed (`tool-Read`) or dynamic
+  // (`dynamic-tool` with .toolName) shape.
+  const rawName: string =
+    type === 'dynamic-tool'
+      ? String(part.toolName ?? '')
+      : type.slice('tool-'.length);
+
+  if (!rawName) return part;
+
+  // Native Botflow tool — pass through, just sanitize the id.
+  if (BOTFLOW_NATIVE_TOOLS.has(rawName)) {
+    if (part.toolCallId) {
+      const safe = sanitizeToolUseId(String(part.toolCallId));
+      if (safe !== part.toolCallId) return { ...part, toolCallId: safe };
+    }
+    return part;
+  }
+
+  // Look up in the cross-agent map.
+  const rule = CLAUDE_CODE_TO_BOTFLOW[rawName];
+
+  // No mapping — could be a tool we don't know about. Collapse to a text
+  // summary so the receiving agent has prose context but doesn't try to
+  // replay an unknown tool call.
+  if (rule === null || rule === undefined) {
+    return summarizeUnmappedToolPart(rawName, part);
+  }
+
+  // Mapped — rename and rewrite the input. Preserve state + output so the
+  // tool_use/tool_result pairing inside the AI SDK serialization stays valid.
+  const newType = `tool-${rule.to}`;
+  const newInput =
+    part.input !== undefined ? rule.mapInput(part.input) : part.input;
+
+  const safeId = part.toolCallId
+    ? sanitizeToolUseId(String(part.toolCallId))
+    : part.toolCallId;
+
+  // Static-typed shape: drop dynamic-tool's `toolName` field; just change `type`.
+  if (type === 'dynamic-tool') {
+    return {
+      ...part,
+      type: newType,
+      toolName: rule.to,
+      ...(safeId !== part.toolCallId ? { toolCallId: safeId } : {}),
+      ...(newInput !== part.input ? { input: newInput } : {}),
+    };
+  }
+  return {
+    ...part,
+    type: newType,
+    ...(safeId !== part.toolCallId ? { toolCallId: safeId } : {}),
+    ...(newInput !== part.input ? { input: newInput } : {}),
+  };
+}
+
+function summarizeUnmappedToolPart(name: string, part: AnyPart): AnyPart {
+  // Build a short, prose-style summary the next agent can read like a log
+  // entry. We deliberately don't include the full input/output dumps to
+  // keep token cost down; an interested agent can re-derive specifics by
+  // reading the current filesystem.
+  let summary = `[Earlier turn used \`${name}\``;
+  const state = part.state ?? '';
+  if (state === 'output-available' && part.output !== undefined) {
+    const out = typeof part.output === 'string'
+      ? part.output
+      : (() => { try { return JSON.stringify(part.output); } catch { return String(part.output); } })();
+    summary += ` and got a result (${truncatePreview(out)})`;
+  } else if (state === 'output-error' && part.errorText) {
+    summary += ` and errored: ${truncatePreview(String(part.errorText))}`;
+  }
+  summary += '. The project filesystem reflects whatever changed.]';
+  return { type: 'text', text: summary };
+}
+
+function truncatePreview(s: string, max = 200): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + '…';
 }
 
 // ============================================================================
@@ -283,21 +419,35 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     body: { projectId, platform },
     prepareSendMessagesRequest: ({ body, messages, api }) => {
       const useClaudeCode = agentBackendRef.current === 'claude-code';
-      // Scope the agent's history to the current segment. Older segments are
-      // visible to the user via segment dividers but the new agent should
-      // start with a clean slate.
+
+      // Scope to the current segment. Segments now only break on explicit
+      // Reset (no longer on agent switch), so most of the time this is a
+      // no-op and the full history flows through.
       const segment = currentSegmentIdRef.current;
       const segmentMap = segmentByMessageIdRef.current;
       const scoped = segment
         ? messages.filter((m) => {
             const owner = segmentMap.get(m.id);
-            // Messages without a known segment are assumed to be brand-new
-            // (the user just typed them this turn). Always include them.
+            // Messages without a known segment are brand-new (just typed).
             return owner === undefined || owner === segment;
           })
         : messages;
+
+      // For Botflow outgoing: rewrite any foreign (Claude Code) tool_use
+      // parts into Botflow's tool vocabulary so Anthropic doesn't reject
+      // the request with `messages.X.content.Y.tool_use` errors. Unmapped
+      // tool parts are collapsed into text summaries. Also defensively
+      // sanitize any tool_use IDs that don't match Anthropic's regex.
+      //
+      // For Claude Code outgoing: the bridge takes only the user prompt
+      // (it doesn't accept a messages array), so we pass `scoped` through
+      // unchanged — the route does its own prior-conversation preamble.
+      const finalMessages = useClaudeCode
+        ? scoped
+        : scoped.map(transformMessageForBotflow);
+
       return {
-        body: { ...(body ?? {}), messages: scoped },
+        body: { ...(body ?? {}), messages: finalMessages },
         ...(useClaudeCode ? { api: '/api/agent/claude-code' } : { api }),
       };
     },
@@ -732,48 +882,22 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       }
       const swResp = await res.json().catch(() => ({} as { currentSegmentId?: string }));
       setAgentBackend(next);
-      // Update the segment id so the transport scopes the next turn correctly.
+      // Server may or may not have minted a new segment id — honor whatever
+      // it returns (with this change it stays the same on switch).
       if (typeof swResp.currentSegmentId === 'string') {
         setCurrentSegmentId(swResp.currentSegmentId);
       }
-      // Re-load the chat so older segments stay visible with dividers but the
-      // local message state matches the fresh empty segment.
-      try {
-        const r = await fetch(`/api/chat?projectId=${encodeURIComponent(projectId)}&includeAllSegments=true`);
-        if (r.ok) {
-          const data = await r.json();
-          if (Array.isArray(data?.messages)) {
-            const ids = new Set<string>();
-            const segMap = new Map<string, string>();
-            for (const m of data.messages) {
-              ids.add(m.id);
-              if (typeof m.segmentId === 'string') segMap.set(m.id, m.segmentId);
-            }
-            savedIdsRef.current = ids;
-            segmentByMessageIdRef.current = segMap;
-            setMessages(data.messages);
-          } else {
-            setMessages([]);
-          }
-        } else {
-          setMessages([]);
-        }
-      } catch {
-        setMessages([]);
-      }
-      lastAssistantSavedRef.current = null;
-      setActions([]);
-      setHasAgentResponded(false);
-      setTokenEstimate(0);
-      // Wipe Claude Code usage too — different agent, different context.
+      // Reset Claude Code's view of context — it had its own bar based on
+      // its own session. The next CC turn will populate fresh numbers.
       setClaudeCodeUsage(null);
       setIsCompacting(false);
-      // Drop the browser-log ring buffer — new agent shouldn't see foreign log noise.
-      fetch(`/api/projects/${encodeURIComponent(projectId)}/browser-log`, { method: 'DELETE' }).catch(() => {});
+      // Keep messages, actions, and browser-log in place. The conversation
+      // is continuous; the new agent picks up via the transport-side message
+      // transform (for Botflow) or the route-side preamble (for Claude Code).
       setPendingBackendSwitch(null);
       toast({
         title: `Switched to ${next === 'claude-code' ? 'Claude Code' : 'Botflow'}`,
-        description: 'New conversation started. Older messages are preserved.',
+        description: 'The new agent has the conversation history. Just send your next message.',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to switch backend';
@@ -781,7 +905,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     } finally {
       setSwitchingBackend(false);
     }
-  }, [agentBackend, model, projectId, setMessages, toast]);
+  }, [agentBackend, model, projectId, toast]);
   performBackendSwitchRef.current = performBackendSwitch;
 
   // --- Refs for values needed in effects (avoid deps that change every render) ---
@@ -1909,9 +2033,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
               Switch to {pendingBackendSwitch === 'claude-code' ? 'Claude Code' : 'Botflow'}?
             </div>
             <p className="text-sm text-muted leading-snug">
-              Switching agents starts a new conversation. Your previous messages
-              will stay visible above but the new agent won&apos;t see them as
-              context.
+              The new agent will see the conversation so far and pick up where
+              the previous one left off.
             </p>
             {pendingBackendSwitch === 'claude-code' && !(model === 'claude-sonnet-4-6' || model === 'claude-opus-4-7') && (
               <p className="mt-2 text-xs text-muted">

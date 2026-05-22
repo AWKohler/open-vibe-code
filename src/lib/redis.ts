@@ -17,6 +17,12 @@ const noopRedis = {
   del: async () => 0,
   incr: async () => 0,
   expire: async () => 1,
+  // List ops used by workspace-control's browser-log ring buffer. Returning
+  // empty / OK lets the feature degrade silently when Redis isn't configured
+  // (local dev) — the agent's getBrowserLog tool just shows "no logs yet".
+  lpush: async () => 0,
+  ltrim: async () => 'OK' as const,
+  lrange: async () => [] as string[],
 } as unknown as Redis;
 
 // Singleton — Next.js module cache keeps this alive across hot reloads in dev

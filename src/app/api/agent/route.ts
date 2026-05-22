@@ -168,6 +168,11 @@ function getTools({ hasBackend }: { hasBackend: boolean } = { hasBackend: true }
         "Stop the dev server if running. If none, returns a message indicating so.",
       inputSchema: z.object({}),
     }),
+    isDevServerRunning: tool({
+      description:
+        "Check whether the dev server is currently running. Cheap check. Use before reading logs or refreshing the preview if you're not sure of the current state.",
+      inputSchema: z.object({}),
+    }),
     refreshPreview: tool({
       description:
         "Refresh the open preview window (same as clicking refresh). Fails with a message if dev server is not running or refresh not possible.",

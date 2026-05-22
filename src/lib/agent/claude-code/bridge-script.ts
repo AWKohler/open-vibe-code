@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "5";
+export const BRIDGE_SCRIPT_VERSION = "6";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -89,9 +89,36 @@ async function callHostTool(toolName, input) {
   return response.json();
 }
 
+// Helper: wrap a host-tool callback into the MCP CallToolResult shape.
+// Every custom tool we register has the same shape, so factoring this out
+// keeps the registrations short and uniform.
+function makeHostToolHandler(toolName) {
+  return async (args) => {
+    try {
+      const result = await callHostTool(toolName, args || {});
+      const text = typeof result === "string"
+        ? result
+        : (result && result.content)
+          ? (typeof result.content === "string" ? result.content : JSON.stringify(result.content))
+          : JSON.stringify(result);
+      const isError = result && result.ok === false;
+      return {
+        content: [{ type: "text", text }],
+        ...(isError ? { isError: true } : {}),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: err && err.message ? err.message : String(err) }],
+        isError: true,
+      };
+    }
+  };
+}
+
 function buildCustomTools(customTools) {
   if (!Array.isArray(customTools) || customTools.length === 0) return [];
   const tools = [];
+
   if (customTools.includes("convex_deploy")) {
     tools.push(
       tool(
@@ -100,30 +127,79 @@ function buildCustomTools(customTools) {
         "Call this AFTER editing files under /convex/ — changes are not live until deployed. " +
         "Takes no arguments; the project's deploy key is resolved server-side.",
         {},
-        async () => {
-          try {
-            const result = await callHostTool("convex_deploy", {});
-            const text = typeof result === "string"
-              ? result
-              : (result && result.content)
-                ? (typeof result.content === "string" ? result.content : JSON.stringify(result.content))
-                : JSON.stringify(result);
-            const isError = result && result.ok === false;
-            return {
-              content: [{ type: "text", text }],
-              ...(isError ? { isError: true } : {}),
-            };
-          } catch (err) {
-            return {
-              content: [{ type: "text", text: err && err.message ? err.message : String(err) }],
-              isError: true,
-            };
-          }
-        },
+        makeHostToolHandler("convex_deploy"),
         { annotations: { destructiveHint: true } },
       ),
     );
   }
+
+  // ── Workspace control: dev server lifecycle + browser/dev logs ────────
+  if (customTools.includes("startDevServer")) {
+    tools.push(
+      tool(
+        "startDevServer",
+        "Start the project's Vite dev server inside the sandbox. Idempotent — restarts cleanly if already running. Returns the public preview URL once reachable.",
+        {},
+        makeHostToolHandler("startDevServer"),
+      ),
+    );
+  }
+
+  if (customTools.includes("stopDevServer")) {
+    tools.push(
+      tool(
+        "stopDevServer",
+        "Stop the running dev server (kills the vite process). Idempotent.",
+        {},
+        makeHostToolHandler("stopDevServer"),
+      ),
+    );
+  }
+
+  if (customTools.includes("isDevServerRunning")) {
+    tools.push(
+      tool(
+        "isDevServerRunning",
+        "Check whether the dev server is currently running. Cheap (~50ms). Use before reading logs or refreshing the preview if you're not sure.",
+        {},
+        makeHostToolHandler("isDevServerRunning"),
+      ),
+    );
+  }
+
+  if (customTools.includes("getDevServerLog")) {
+    tools.push(
+      tool(
+        "getDevServerLog",
+        "Tail the dev server stdout/stderr (vite output: HMR events, build errors, warnings).",
+        { linesBack: z.number().int().positive().optional() },
+        makeHostToolHandler("getDevServerLog"),
+      ),
+    );
+  }
+
+  if (customTools.includes("getBrowserLog")) {
+    tools.push(
+      tool(
+        "getBrowserLog",
+        "Read the BROWSER console log from the running preview iframe — console.log/warn/error, runtime JS errors, React errors, Vite HMR events. Indispensable for diagnosing why a feature isn't working in the user's preview.",
+        { linesBack: z.number().int().positive().optional() },
+        makeHostToolHandler("getBrowserLog"),
+      ),
+    );
+  }
+
+  if (customTools.includes("refreshPreview")) {
+    tools.push(
+      tool(
+        "refreshPreview",
+        "Force the preview iframe in the user's workspace to hard-reload. Useful after changes that Vite HMR cannot pick up.",
+        {},
+        makeHostToolHandler("refreshPreview"),
+      ),
+    );
+  }
+
   return tools;
 }
 

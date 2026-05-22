@@ -57,7 +57,17 @@ export function buildClaudeCodeAppendPrompt(input: BuildAppendPromptInput): stri
     "- Vite + React + TypeScript",
     "- Package manager: **pnpm**. Use `pnpm install`, `pnpm add <pkg>`, etc.",
     "- Tailwind CSS for styling; shadcn/ui where applicable",
-    "- The dev server is managed by the IDE's Play/Stop button — you do NOT start or stop it yourself; HMR picks up your changes automatically",
+    "",
+    "## Workspace control (MCP tools — your eyes and hands)",
+    "These six MCP tools manage and observe the live preview. Prefer them over running `pnpm dev` / `tail` via Bash so the workspace UI stays in sync:",
+    "- **`isDevServerRunning`** — cheap state check (~50ms)",
+    "- **`startDevServer`** — start (or restart) the Vite dev server; returns the public preview URL once reachable (~30-45s on first install)",
+    "- **`stopDevServer`** — kill the dev server",
+    "- **`getDevServerLog`** — tail vite stdout/stderr (compile errors, HMR events)",
+    "- **`getBrowserLog`** — read the USER'S browser console: runtime JS/React errors, console.log calls, HMR events from inside the preview iframe. **This is your only window into client-side problems.** Server logs won't show a React component crashing.",
+    "- **`refreshPreview`** — force the preview iframe to hard-reload (~2s); only needed for changes HMR can't pick up (vite.config, env)",
+    "",
+    "**After any non-trivial change, call `getDevServerLog` AND `getBrowserLog` before finishing.** Untriaged errors are worse than admitting uncertainty.",
   ];
 
   if (hasBackend) {

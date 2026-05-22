@@ -22,6 +22,14 @@ import {
   writeGeneratedConvexFiles,
   type DeployResult,
 } from "@/lib/sandbox-convex-deploy";
+import {
+  getSandboxBrowserLog,
+  getSandboxDevServerLog,
+  isSandboxDevServerRunning,
+  requestSandboxPreviewRefresh,
+  startSandboxDevServer,
+  stopSandboxDevServer,
+} from "@/lib/workspace-control";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -174,6 +182,65 @@ export async function POST(req: Request) {
         generatedFilesCount: result.generatedFiles?.length ?? 0,
       });
     }
+    // ── Workspace control: dev server lifecycle + browser/dev logs ──────
+    // All six tools call into the same server-side primitives the Botflow
+    // sandboxed-web agent uses, so the two agent paths stay in lockstep.
+    case "startDevServer": {
+      const result = await startSandboxDevServer(binding.projectId, {
+        port: 5173,
+        installFirst: true,
+      });
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.message + (result.previewUrl ? `\nPreview: ${result.previewUrl}` : ""),
+        ...(result.log ? { log: result.log.slice(-3000) } : {}),
+      });
+    }
+
+    case "stopDevServer": {
+      const result = await stopSandboxDevServer(binding.projectId);
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.message,
+        alreadyStopped: Boolean(result.alreadyStopped),
+      });
+    }
+
+    case "isDevServerRunning": {
+      const result = await isSandboxDevServerRunning(binding.projectId);
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.message,
+        running: result.running,
+      });
+    }
+
+    case "getDevServerLog": {
+      const linesBack = typeof body.input?.linesBack === "number" ? body.input.linesBack : 200;
+      const result = await getSandboxDevServerLog(binding.projectId, linesBack);
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.log ?? result.message,
+      });
+    }
+
+    case "getBrowserLog": {
+      const linesBack = typeof body.input?.linesBack === "number" ? body.input.linesBack : 200;
+      const result = await getSandboxBrowserLog(binding.projectId, linesBack);
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.log ?? result.message,
+      });
+    }
+
+    case "refreshPreview": {
+      const result = await requestSandboxPreviewRefresh(binding.projectId);
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.message,
+      });
+    }
+
     default:
       return NextResponse.json(
         { ok: false, error: `Unknown tool: ${tool}` },

@@ -289,6 +289,145 @@ export function SandboxedWebWorkspace({
     return () => window.removeEventListener("keydown", onKey);
   }, [selectedFile, hasUnsavedChanges, handleSaveFile]);
 
+  // ── Iframe postMessage → server browser log ──────────────────────────
+  // The Vite template at `vite_convex_template/src/main.tsx` posts console
+  // events, errors, and HMR events to `window.parent` with targetOrigin '*'.
+  // We accept them only from *.vercel.run (the sandbox public domain),
+  // buffer them in a ref, and flush via debounced POST to /browser-log so
+  // the agent's `getBrowserLog` tool can read recent activity.
+  const browserLogBufferRef = useRef<
+    Array<{ timestamp: number; level: "log" | "warn" | "error"; message: string; type: "console" | "error" | "hmr" }>
+  >([]);
+  const browserLogFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const FLUSH_THRESHOLD = 50;
+    const FLUSH_INTERVAL_MS = 500;
+
+    function flush() {
+      if (browserLogFlushTimerRef.current) {
+        clearTimeout(browserLogFlushTimerRef.current);
+        browserLogFlushTimerRef.current = null;
+      }
+      const batch = browserLogBufferRef.current.splice(0, browserLogBufferRef.current.length);
+      if (batch.length === 0) return;
+      fetch(`/api/projects/${projectId}/browser-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries: batch }),
+        keepalive: true,
+      }).catch(() => { /* best-effort; the next batch will arrive shortly */ });
+    }
+
+    function schedule() {
+      if (browserLogBufferRef.current.length >= FLUSH_THRESHOLD) {
+        flush();
+        return;
+      }
+      if (browserLogFlushTimerRef.current) return;
+      browserLogFlushTimerRef.current = setTimeout(flush, FLUSH_INTERVAL_MS);
+    }
+
+    function handleMessage(event: MessageEvent) {
+      // Only accept messages from the sandbox's own public domain. In dev the
+      // origin will be sb-xxxx.vercel.run; if a project ever runs locally we
+      // also accept localhost to ease testing.
+      if (
+        !event.origin.endsWith(".vercel.run") &&
+        !event.origin.startsWith("http://localhost")
+      ) return;
+
+      const data = event.data as Record<string, unknown> | undefined;
+      if (!data || typeof data !== "object") return;
+      const type = data.type;
+
+      if (type === "IFRAME_CONSOLE") {
+        const level = data.level === "warn" || data.level === "error" ? data.level : "log";
+        const message = typeof data.message === "string" ? data.message : String(data.message ?? "");
+        if (!message) return;
+        browserLogBufferRef.current.push({
+          timestamp: Date.now(),
+          level,
+          message,
+          type: "console",
+        });
+        schedule();
+      } else if (type === "IFRAME_ERROR") {
+        const message = data.filename
+          ? `${data.message} at ${data.filename}:${data.lineno}:${data.colno}`
+          : String(data.message ?? "");
+        if (!message) return;
+        browserLogBufferRef.current.push({
+          timestamp: Date.now(),
+          level: "error",
+          message,
+          type: "error",
+        });
+        schedule();
+      } else if (type === "VITE_HMR") {
+        const evt = typeof data.event === "string" ? data.event : "";
+        if (!evt) return;
+        const err = typeof data.error === "string" ? data.error : undefined;
+        browserLogBufferRef.current.push({
+          timestamp: Date.now(),
+          level: evt === "error" ? "error" : "log",
+          message: err ? `${evt}: ${err}` : evt,
+          type: "hmr",
+        });
+        schedule();
+      }
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+      // Final flush on unmount.
+      flush();
+    };
+  }, [projectId]);
+
+  // ── Preview refresh polling ──────────────────────────────────────────
+  // The agent's `refreshPreview` tool bumps a Redis key on the server. We
+  // poll for that timestamp every 2s while the preview tab is active and
+  // bump previewReloadKey when it changes, which remounts the iframe.
+  const lastRefreshAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (currentView !== "preview") return;
+    if (sandboxStatus !== "ready") return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/sandbox/preview-state`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { refreshAt: number | null };
+        if (cancelled) return;
+        const next = data.refreshAt;
+        // First poll establishes the baseline; we only react to *changes*
+        // after that, so a stale leftover signal from before the user
+        // opened the workspace doesn't trigger an immediate reload.
+        if (lastRefreshAtRef.current === null) {
+          lastRefreshAtRef.current = next;
+          return;
+        }
+        if (next && next !== lastRefreshAtRef.current) {
+          lastRefreshAtRef.current = next;
+          setPreviewReloadKey((k) => k + 1);
+        }
+      } catch {
+        // Network blips are fine; we'll catch up on the next tick.
+      }
+    };
+
+    void poll();
+    const timer = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [projectId, currentView, sandboxStatus]);
+
   // ── Dev server ───────────────────────────────────────────────────────
   const handleStartDevServer = useCallback(async () => {
     if (isStartingServer) return;

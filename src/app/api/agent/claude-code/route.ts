@@ -194,12 +194,23 @@ export async function POST(req: Request) {
   });
 
   // Tools whose execution stays on our server (the bridge calls back via
-  // /api/internal/claude-code-tool). For sandboxed-web w/ backend this is
-  // currently just `convex_deploy` — its deploy key must never enter the
-  // sandbox env.
+  // /api/internal/claude-code-tool). Workspace control tools (dev server
+  // lifecycle + browser/dev logs) are always available on sandboxed-web —
+  // they don't depend on backend type. `convex_deploy` is gated on hasBackend
+  // because its deploy key must never enter the sandbox env.
   const customTools: string[] = [];
-  if (platform === "sandboxed-web" && hasBackend) {
-    customTools.push("convex_deploy");
+  if (platform === "sandboxed-web") {
+    customTools.push(
+      "startDevServer",
+      "stopDevServer",
+      "isDevServerRunning",
+      "getDevServerLog",
+      "getBrowserLog",
+      "refreshPreview",
+    );
+    if (hasBackend) {
+      customTools.push("convex_deploy");
+    }
   }
 
   const bridgeConfig = {

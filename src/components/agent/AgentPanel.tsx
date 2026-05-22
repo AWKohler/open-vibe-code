@@ -29,6 +29,7 @@ import {
   type AgentBackend,
 } from '@/lib/agent/backend-resolution';
 import { BackendBadge, BackendChip } from './BackendBadge';
+import { ThinkingBlock } from './ThinkingBlock';
 
 type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: ProjectPlatform };
 
@@ -608,6 +609,22 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             }) : a));
             break;
           }
+          case 'isDevServerRunning': {
+            const running = await WebContainerAgent.isDevServerRunning();
+            const msg = running ? 'Dev server is running.' : 'Dev server is not running.';
+            addToolOutput({
+              tool: 'isDevServerRunning',
+              toolCallId: toolCall.toolCallId,
+              output: JSON.stringify({ ok: true, running, message: msg }),
+            });
+            setActions((prev) => prev.map((a) => a.toolCallId === toolCall.toolCallId ? ({
+              ...a,
+              status: 'success',
+              finishedAt: Date.now(),
+              resultPreview: msg,
+            }) : a));
+            break;
+          }
           case 'refreshPreview': {
             const running = await WebContainerAgent.isDevServerRunning();
             if (!running) {
@@ -646,6 +663,10 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             break;
           }
           case 'convexDeploy': {
+            // Sandbox platforms execute convexDeploy server-side; the result
+            // arrives in the stream and is handled by the messages-derived effect.
+            // Running the WebContainer deploy here would be wrong (no container).
+            if (isSandboxPlatform(platform)) break;
             const res = await WebContainerAgent.deployConvex(projectId);
             const msg = res.message;
             addToolOutput({ tool: 'convexDeploy', toolCallId: toolCall.toolCallId, output: msg });
@@ -747,6 +768,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       // Wipe Claude Code usage too — different agent, different context.
       setClaudeCodeUsage(null);
       setIsCompacting(false);
+      // Drop the browser-log ring buffer — new agent shouldn't see foreign log noise.
+      fetch(`/api/projects/${encodeURIComponent(projectId)}/browser-log`, { method: 'DELETE' }).catch(() => {});
       setPendingBackendSwitch(null);
       toast({
         title: `Switched to ${next === 'claude-code' ? 'Claude Code' : 'Botflow'}`,
@@ -891,15 +914,30 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           });
         } else if (isDone || isError) {
           let preview = '';
+          let derivedStatus: 'success' | 'error' = isError ? 'error' : 'success';
           try {
             const out = (tc.output as unknown) ?? '';
-            preview = typeof out === 'string' ? out : JSON.stringify(out);
+            if (typeof out === 'object' && out !== null) {
+              const o = out as Record<string, unknown>;
+              // For structured tool results use the human-readable message and
+              // derive success/error from the `ok` field (server tools like
+              // convexDeploy return { ok, message } even when !ok so state is
+              // still 'output-available').
+              if ('ok' in o) {
+                if (!o.ok) derivedStatus = 'error';
+                preview = typeof o.message === 'string' ? o.message : JSON.stringify(o);
+              } else {
+                preview = JSON.stringify(out);
+              }
+            } else {
+              preview = typeof out === 'string' ? out : JSON.stringify(out);
+            }
           } catch { preview = ''; }
           newActions.push({
             toolCallId,
             toolName,
             args,
-            status: isError ? 'error' : 'success',
+            status: derivedStatus,
             startedAt: Date.now(),
             finishedAt: Date.now(),
             resultPreview: preview.slice(0, 400),
@@ -1338,6 +1376,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                   setMessages([]);
                   setAgentError(null);
                   setPendingImages(prev => { prev.forEach(img => URL.revokeObjectURL(img.localUrl)); return []; });
+                  // Wipe the browser-log ring buffer too — fresh segment, fresh slate.
+                  fetch(`/api/projects/${encodeURIComponent(projectId)}/browser-log`, { method: 'DELETE' }).catch(() => {});
                 } catch {}
               }}
               className="underline hover:text-red-300"
@@ -1446,6 +1486,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                 setTokenEstimate(0);
                 setClaudeCodeUsage(null);
                 setIsCompacting(false);
+                // Wipe browser-log ring buffer — new segment, fresh slate.
+                fetch(`/api/projects/${encodeURIComponent(projectId)}/browser-log`, { method: 'DELETE' }).catch(() => {});
                 // Clean up any pending image attachments
                 setPendingImages(prev => {
                   prev.forEach(img => URL.revokeObjectURL(img.localUrl));
@@ -1507,11 +1549,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                 {filteredParts.map((part, i) => {
                   if (part.type === 'text') return <Markdown key={i} content={part.text} />;
                   if (part.type === 'reasoning') {
-                    return (
-                      <div key={i} className="text-xs text-muted italic border-l-2 border-accent/30 pl-2 my-1">
-                        {part.text}
-                      </div>
-                    );
+                    const rp = part as { type: 'reasoning'; text: string; state?: 'streaming' | 'done' };
+                    return <ThinkingBlock key={i} content={rp.text} state={rp.state} />;
                   }
                   if (part.type === 'file' && 'mediaType' in part && typeof part.mediaType === 'string' && part.mediaType.startsWith('image/') && 'url' in part && typeof part.url === 'string') {
                     return (
@@ -1559,11 +1598,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             group.items.map(({ part, idx }) => {
               if (part.type === 'text') return <Markdown key={`${key}-${idx}`} content={part.text} />;
               if (part.type === 'reasoning') {
-                return (
-                  <div key={`${key}-${idx}`} className="text-xs text-muted italic border-l-2 border-accent/30 pl-2 my-1">
-                    {part.text}
-                  </div>
-                );
+                const rp = part as { type: 'reasoning'; text: string; state?: 'streaming' | 'done' };
+                return <ThinkingBlock key={`${key}-${idx}`} content={rp.text} state={rp.state} />;
               }
               return null;
             });

@@ -1,21 +1,36 @@
 /**
  * Server-side tool surface for the sandboxed-web platform.
  *
- * Reuses the persistent-tools (bash/read/write/edit/applyDiff/glob/grep/listFiles/endTurn)
- * and adds:
- *  - `convexDeploy` — zips /convex + support files from the sandbox and posts to
- *    the existing Fly worker via /api/projects/:id/convex/deploy.
+ * Layered on top of the persistent-tools (bash/read/write/edit/applyDiff/glob/
+ * grep/listFiles/endTurn) with two extra groups:
  *
- * For projects with `backendType === 'none'` we:
+ *  1. Workspace control (always available, regardless of backend):
+ *       startDevServer, stopDevServer, isDevServerRunning,
+ *       getDevServerLog, getBrowserLog, refreshPreview.
+ *     These let the agent verify what's actually running — they're how the
+ *     model goes from "edits files and hopes" to "edits files and verifies."
+ *     All execute server-side via `lib/workspace-control.ts`.
+ *
+ *  2. `convexDeploy` (only when hasBackend) — zips /convex + support files
+ *     from the sandbox and posts to the Convex deploy worker.
+ *
+ * For projects with `backendType === 'none'` we additionally:
  *  - omit `convexDeploy` so the model can't call it.
- *  - wrap `write` and `bash` to refuse writes / installs that would create a
- *    `/convex` folder or pull Convex packages. This is a hard guard so a
- *    stubborn model can't bypass the prompt instructions.
+ *  - wrap `write` and `bash` to refuse writes / installs that would create
+ *    a `/convex` folder or pull Convex packages.
  */
 import { tool } from "ai";
 import { z } from "zod";
 import { getPersistentTools } from "./persistent-tools";
 import { deployConvexFromSandbox } from "@/lib/sandbox-convex-deploy";
+import {
+  getSandboxBrowserLog,
+  getSandboxDevServerLog,
+  isSandboxDevServerRunning,
+  requestSandboxPreviewRefresh,
+  startSandboxDevServer,
+  stopSandboxDevServer,
+} from "@/lib/workspace-control";
 
 const CONVEX_BLOCK_REASON =
   "This project was created with the **No Backend** option. Writing to /convex/ is not allowed because there is no Convex deployment to deploy to. " +
@@ -35,6 +50,106 @@ function isConvexInstallCommand(command: string): boolean {
   return /\b(?:npm|pnpm|yarn|bun)\s+(?:add|install|i)\b[^&|;]*\b(?:convex(?:@|\s|$)|@convex-dev\/)/i.test(command);
 }
 
+/**
+ * Build the workspace-control tool group. Same six tools regardless of backend
+ * type — they operate on the dev server inside the sandbox and the browser
+ * preview, neither of which knows or cares about Convex.
+ */
+function getWorkspaceControlTools(projectId: string) {
+  return {
+    startDevServer: tool({
+      description:
+        "Start the project's Vite dev server inside the sandbox. Idempotent — if already running, the previous instance is killed and a fresh one is started. " +
+        "Returns the public preview URL once the server is actually reachable. May take up to ~45s the first time (npm install).",
+      inputSchema: z.object({}),
+      async execute() {
+        const result = await startSandboxDevServer(projectId, {
+          port: 5173,
+          installFirst: true,
+        });
+        return {
+          ok: result.ok,
+          message: result.message,
+          ...(result.previewUrl ? { previewUrl: result.previewUrl } : {}),
+          ...(result.log ? { log: result.log.slice(-3000) } : {}),
+        };
+      },
+    }),
+    stopDevServer: tool({
+      description:
+        "Stop the running dev server (kills the vite process). Idempotent; if nothing is running, reports that.",
+      inputSchema: z.object({}),
+      async execute() {
+        const result = await stopSandboxDevServer(projectId);
+        return {
+          ok: result.ok,
+          message: result.message,
+          alreadyStopped: Boolean(result.alreadyStopped),
+        };
+      },
+    }),
+    isDevServerRunning: tool({
+      description:
+        "Check whether the dev server is currently running. Cheap (~50ms). Use this before reading logs or refreshing the preview if you're not sure.",
+      inputSchema: z.object({}),
+      async execute() {
+        const result = await isSandboxDevServerRunning(projectId);
+        return {
+          ok: result.ok,
+          running: result.running,
+          message: result.message,
+        };
+      },
+    }),
+    getDevServerLog: tool({
+      description:
+        "Tail the dev server's stdout/stderr (vite output: HMR events, build errors, warnings). Pass linesBack to control how many tail lines to return.",
+      inputSchema: z.object({
+        linesBack: z.number().int().positive().default(200)
+          .describe("Number of lines from the end of the log"),
+      }),
+      async execute({ linesBack }) {
+        const result = await getSandboxDevServerLog(projectId, linesBack);
+        return {
+          ok: result.ok,
+          message: result.message,
+          ...(result.log ? { log: result.log } : {}),
+        };
+      },
+    }),
+    getBrowserLog: tool({
+      description:
+        "Read the user's BROWSER console log from the running preview. This includes console.log/warn/error calls, runtime JavaScript errors, React errors, and Vite HMR events from inside the iframe. " +
+        "Indispensable for diagnosing why a feature isn't working — the dev server log won't show client-side errors. " +
+        "Returns the most recent entries with timestamps and level icons.",
+      inputSchema: z.object({
+        linesBack: z.number().int().positive().default(200)
+          .describe("Number of recent entries to return"),
+      }),
+      async execute({ linesBack }) {
+        const result = await getSandboxBrowserLog(projectId, linesBack);
+        return {
+          ok: result.ok,
+          message: result.message,
+          ...(result.log ? { log: result.log } : {}),
+        };
+      },
+    }),
+    refreshPreview: tool({
+      description:
+        "Force the preview iframe in the user's workspace to reload. Useful after changes that Vite HMR can't pick up (vite.config edits, route additions in some setups). The user's browser refreshes within ~2 seconds.",
+      inputSchema: z.object({}),
+      async execute() {
+        const result = await requestSandboxPreviewRefresh(projectId);
+        return {
+          ok: result.ok,
+          message: result.message,
+        };
+      },
+    }),
+  } as const;
+}
+
 export function getSandboxedWebTools(params: {
   projectId: string;
   hasBackend: boolean;
@@ -44,6 +159,7 @@ export function getSandboxedWebTools(params: {
 }) {
   const { projectId, hasBackend, appBaseUrl, authHeaders, convexUrl } = params;
   const baseTools = getPersistentTools(projectId);
+  const workspaceTools = getWorkspaceControlTools(projectId);
 
   if (!hasBackend) {
     // Wrap `write` and `bash` so the model literally cannot create /convex or
@@ -80,11 +196,13 @@ export function getSandboxedWebTools(params: {
       ...baseTools,
       write: guardedWrite,
       bash: guardedBash,
+      ...workspaceTools,
     } as const;
   }
 
   return {
     ...baseTools,
+    ...workspaceTools,
     convexDeploy: tool({
       description:
         "Deploy Convex backend changes. Zips the /convex folder and supporting files (package.json, lock file, tsconfig.json) from the sandbox and sends them to the deploy worker. Streams may take several minutes. " +

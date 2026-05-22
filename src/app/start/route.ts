@@ -60,16 +60,10 @@ async function provisionUserConvex(
   const data = await res.json() as Record<string, unknown>;
   console.log('[BYOC] create_project raw response:', JSON.stringify(data));
 
-  // Convex CLI API response field names — handle both current and legacy variants
   const projectSlug =
     (data.projectSlug as string | undefined) ||
     (data.slug as string | undefined) ||
     ((data.project as Record<string, unknown> | undefined)?.slug as string | undefined);
-  const adminKey =
-    (data.adminKey as string | undefined) ||
-    (data.deployKey as string | undefined) ||
-    (data.prodAdminKey as string | undefined) ||
-    ((data.prodDeployment as Record<string, unknown> | undefined)?.adminKey as string | undefined);
   const deploymentName =
     (data.deploymentName as string | undefined) ||
     (data.prodDeploymentName as string | undefined) ||
@@ -79,8 +73,34 @@ async function provisionUserConvex(
     (data.prodUrl as string | undefined) ||
     ((data.prodDeployment as Record<string, unknown> | undefined)?.url as string | undefined);
 
-  if (!projectSlug || !adminKey) {
+  if (!projectSlug || !deploymentName) {
     throw new Error(`Incomplete create_project response from Convex API — got keys: ${Object.keys(data).join(', ')}`);
+  }
+
+  // Convex no longer returns adminKey in create_project — fetch it separately.
+  let adminKey =
+    (data.adminKey as string | undefined) ||
+    (data.deployKey as string | undefined) ||
+    ((data.prodDeployment as Record<string, unknown> | undefined)?.adminKey as string | undefined);
+
+  if (!adminKey) {
+    const keyRes = await fetch(
+      `https://api.convex.dev/v1/deployments/${deploymentName}/create_deploy_key`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name: `ide-${Date.now()}` }),
+      },
+    );
+    const keyData = await keyRes.json() as Record<string, unknown>;
+    console.log('[BYOC] create_deploy_key response:', JSON.stringify(keyData));
+    adminKey =
+      (keyData.key as string | undefined) ||
+      (keyData.deployKey as string | undefined) ||
+      (keyData.accessToken as string | undefined);
+    if (!adminKey) {
+      throw new Error(`Failed to obtain Convex deploy key — got: ${JSON.stringify(keyData)}`);
+    }
   }
 
   return {

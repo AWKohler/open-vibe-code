@@ -193,7 +193,7 @@ export function SwiftSimulatorPreview({
   // Event handlers
   // ────────────────────────────────────────────────────────────────────────────
   const handleState = useCallback(
-    (state: SimSessionState, _queuePosition?: number, reason?: string) => {
+    (state: SimSessionState, queuePosition?: number, reason?: string) => {
       // Side-effect (toast) must live outside the setPill updater, which has
       // to stay pure. The inactivity reaper is the one case we explain loudly.
       if (state === "ended" && reason === "inactivity") {
@@ -204,8 +204,17 @@ export function SwiftSimulatorPreview({
       }
       setPill((current) => {
         switch (state) {
-          case "queued":
-            return { kind: "starting", label: "Reserving slot…" };
+          case "queued": {
+            // queuePosition flows from the controller via the WS state msg;
+            // when undefined (briefly between placement and first heartbeat)
+            // we fall back to the generic "Reserving slot…" label rather than
+            // flashing "#?" which looks broken.
+            const label =
+              typeof queuePosition === "number"
+                ? `Queued — #${queuePosition} in line`
+                : "Reserving slot…";
+            return { kind: "starting", label };
+          }
           case "building":
             // build_status 'started' will install a timer.
             return current.kind === "building"

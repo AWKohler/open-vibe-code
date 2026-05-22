@@ -123,9 +123,13 @@ export const CLAUDE_CODE_TO_BOTFLOW: Record<string, ToolRewrite | null> = {
   },
   refreshPreview: passthrough("refreshPreview"),
 
-  // ── Convex MCP tool ──────────────────────────────────────────────────
+  // ── Convex MCP tools ─────────────────────────────────────────────────
   convex_deploy: {
     to: "convexDeploy",
+    mapInput: identityInput,
+  },
+  setup_auth: {
+    to: "setupAuth",
     mapInput: identityInput,
   },
 
@@ -183,6 +187,7 @@ export const BOTFLOW_TO_CLAUDE_CODE: Record<string, ToolRewrite | null> = {
   getBrowserLog:       passthrough("getBrowserLog"),
   refreshPreview:      passthrough("refreshPreview"),
   convexDeploy:        { to: "convex_deploy", mapInput: identityInput },
+  setupAuth:           { to: "setup_auth", mapInput: identityInput },
 };
 
 /**
@@ -207,6 +212,7 @@ export const BOTFLOW_NATIVE_TOOLS = new Set<string>([
   "getBrowserLog",
   "refreshPreview",
   "convexDeploy",
+  "setupAuth",
 ]);
 
 /** ID validation per Anthropic's tool_use_id constraint. */

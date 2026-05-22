@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "6";
+export const BRIDGE_SCRIPT_VERSION = "8";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -241,9 +241,20 @@ async function main() {
       : {}),
     ...(mcpServer
       ? {
+          // v0.3+ shape: the server instance is the value directly. The old
+          // { type: "sdk", name, instance } wrapper was for pre-release
+          // versions; passing it now causes connectSdkMcpServer to throw
+          // "X.connect is not a function" because the SDK calls .connect()
+          // on the wrapper object instead of the server.
           mcpServers: {
-            botflow: { type: "sdk", name: "botflow", instance: mcpServer },
+            botflow: mcpServer,
           },
+          // Auto-approve our own MCP tools. permissionMode: bypassPermissions
+          // also covers them, but listing explicitly here is more surgical and
+          // matches the SDK's recommended pattern.
+          allowedTools: [
+            "mcp__botflow__*",
+          ],
         }
       : {}),
     // Auto-accept all tool calls. We're running in an isolated per-project
@@ -323,7 +334,17 @@ async function main() {
     emit({ type: "end_turn" });
     process.exit(0);
   } catch (err) {
-    emit({ type: "error", error: err && err.message ? err.message : String(err) });
+    // Include the constructor name and a trimmed stack so a minified or
+    // cryptic message (e.g. "Q.connect is not a function") still tells us
+    // which library/file threw. Falls back to plain message if the error
+    // lacks structure. NB: this code runs inside the SANDBOX as plain JS,
+    // not in the TS template — every \${...} here is escaped because the
+    // bridge file is itself a TS template literal.
+    const name = (err && err.constructor && err.constructor.name) || "Error";
+    const message = (err && err.message) || String(err);
+    const stack = (err && err.stack) ? String(err.stack).split("\\n").slice(0, 6).join("\\n") : "";
+    const summary = stack ? \`\${name}: \${message}\\n\${stack}\` : \`\${name}: \${message}\`;
+    emit({ type: "error", error: summary });
     process.exit(1);
   }
 }

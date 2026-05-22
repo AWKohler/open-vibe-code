@@ -118,6 +118,37 @@ export class ConvexPlatformClient {
   }
 
   /**
+   * Set (add or update) environment variables on a deployment.
+   * Used to provision Convex Auth secrets without exposing them to the sandbox.
+   *
+   * For platform-managed deployments: omit accessToken — uses the team token.
+   * For BYOC deployments: pass the user's OAuth access token.
+   */
+  async setDeploymentEnvVars(
+    deploymentName: string,
+    vars: Record<string, string>,
+    accessToken?: string,
+  ): Promise<void> {
+    const url = `${CONVEX_API_BASE}/deployments/${deploymentName}/environment_variables`;
+    const changes = Object.entries(vars).map(([name, value]) => ({ name, value }));
+    const token = accessToken ?? this.teamToken;
+
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ changes }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Failed to set deployment env vars: ${response.status} ${errorText}`);
+    }
+  }
+
+  /**
    * Delete a Convex project and all its deployments
    * @param projectId - The Convex project ID
    */

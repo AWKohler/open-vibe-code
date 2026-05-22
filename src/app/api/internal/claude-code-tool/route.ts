@@ -22,6 +22,9 @@ import {
   writeGeneratedConvexFiles,
   type DeployResult,
 } from "@/lib/sandbox-convex-deploy";
+import { setupConvexAuth } from "@/lib/convex-auth-setup";
+import { getUserCredentials } from "@/lib/user-credentials";
+import { getOrCreatePersistentSandbox } from "@/lib/vercel-sandbox";
 import {
   getSandboxBrowserLog,
   getSandboxDevServerLog,
@@ -241,6 +244,56 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: result.ok,
         content: result.message,
+      });
+    }
+
+    case "setup_auth": {
+      if (project.backendType === "none") {
+        return NextResponse.json({
+          ok: false,
+          content: "This project has no backend — Convex Auth is not available.",
+        });
+      }
+      if (project.platform !== "sandboxed-web") {
+        return NextResponse.json({
+          ok: false,
+          content: "setupAuth is only available for sandboxed-web projects.",
+        });
+      }
+
+      // Resolve SITE_URL from the sandbox's stable preview domain
+      let siteUrl = "https://placeholder.example.com";
+      try {
+        const sandbox = await getOrCreatePersistentSandbox(binding.projectId);
+        siteUrl = sandbox.domain(5173);
+      } catch {
+        // Non-fatal — placeholder is acceptable
+      }
+
+      let userConvexOAuthToken: string | null = null;
+      if (project.backendType === "user") {
+        const creds = await getUserCredentials(binding.userId);
+        userConvexOAuthToken = creds.convexOAuthAccessToken;
+        if (!userConvexOAuthToken) {
+          return NextResponse.json({
+            ok: false,
+            content:
+              "Your Convex account is not connected. Please reconnect it in Settings → Connections before setting up auth.",
+          });
+        }
+      }
+
+      const authResult = await setupConvexAuth(binding.projectId, { siteUrl, userConvexOAuthToken });
+      if (!authResult.ok) {
+        return NextResponse.json({ ok: false, content: authResult.error });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        content: "Auth secrets provisioned on the Convex deployment.",
+        files: authResult.files,
+        packagesToInstall: authResult.packagesToInstall,
+        nextSteps: authResult.nextSteps,
       });
     }
 

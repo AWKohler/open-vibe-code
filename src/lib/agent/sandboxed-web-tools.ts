@@ -216,6 +216,29 @@ export function getSandboxedWebTools(params: {
   return {
     ...baseTools,
     ...workspaceTools,
+    setupAuth: tool({
+      description:
+        "Provision Convex Auth on this project. Generates RSA signing keys server-side, sets CONVEX_AUTH_PRIVATE_KEY, JWKS, and SITE_URL on the Convex deployment (you never see the keys), and returns boilerplate files to write.\n\n" +
+        "Call this ONCE before writing any auth code. After calling it:\n" +
+        "1. Write each file in the returned `files` array using the write tool.\n" +
+        "2. Run: pnpm add @convex-dev/auth @auth/core\n" +
+        "3. Run convexDeploy to push the new auth schema and functions.\n" +
+        "4. Wrap the app root in <ConvexAuthProvider> and add sign-in UI.\n\n" +
+        "Do NOT call convexDeploy before writing the files. Calling this tool again just rotates the signing keys.",
+      inputSchema: z.object({}),
+      async execute() {
+        const url = `${appBaseUrl}/api/projects/${projectId}/convex/setup-auth`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(authHeaders ?? {}),
+          },
+        });
+        const json = await res.json().catch(() => ({ ok: false, error: "Invalid response from setup-auth endpoint." }));
+        return json;
+      },
+    }),
     convexDeploy: tool({
       description:
         "Deploy Convex backend changes. Zips the /convex folder and supporting files (package.json, lock file, tsconfig.json) from the sandbox and sends them to the deploy worker. Streams may take several minutes. " +

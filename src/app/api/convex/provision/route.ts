@@ -65,22 +65,39 @@ export async function POST(req: NextRequest) {
       throw new Error(`Convex create_project failed: ${res.status} ${errText}`);
     }
 
-    const data = await res.json() as {
-      projectSlug?: string; deploymentName?: string; prodUrl?: string; adminKey?: string;
-    };
+    const data = await res.json() as Record<string, unknown>;
+    console.log('[BYOC provision] create_project raw response:', JSON.stringify(data));
 
-    if (!data.projectSlug || !data.adminKey) {
-      throw new Error('Incomplete create_project response from Convex API');
+    const projectSlug =
+      (data.projectSlug as string | undefined) ||
+      (data.slug as string | undefined) ||
+      ((data.project as Record<string, unknown> | undefined)?.slug as string | undefined);
+    const adminKey =
+      (data.adminKey as string | undefined) ||
+      (data.deployKey as string | undefined) ||
+      (data.prodAdminKey as string | undefined) ||
+      ((data.prodDeployment as Record<string, unknown> | undefined)?.adminKey as string | undefined);
+    const deploymentName =
+      (data.deploymentName as string | undefined) ||
+      (data.prodDeploymentName as string | undefined) ||
+      ((data.prodDeployment as Record<string, unknown> | undefined)?.name as string | undefined) ||
+      '';
+    const prodUrl =
+      (data.prodUrl as string | undefined) ||
+      ((data.prodDeployment as Record<string, unknown> | undefined)?.url as string | undefined);
+
+    if (!projectSlug || !adminKey) {
+      throw new Error(`Incomplete create_project response from Convex API — got keys: ${Object.keys(data).join(', ')}`);
     }
 
-    const deploymentUrl = data.prodUrl || `https://${data.deploymentName}.convex.cloud`;
+    const deploymentUrl = prodUrl || `https://${deploymentName}.convex.cloud`;
 
     await db.update(projects)
       .set({
         userConvexUrl: deploymentUrl,
-        userConvexDeployKey: data.adminKey,
-        convexProjectId: data.projectSlug,
-        convexDeploymentId: data.deploymentName || '',
+        userConvexDeployKey: adminKey,
+        convexProjectId: projectSlug,
+        convexDeploymentId: deploymentName,
         convexDeployUrl: deploymentUrl,
         backendType: 'user',
         updatedAt: new Date(),

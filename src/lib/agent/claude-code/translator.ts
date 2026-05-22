@@ -20,6 +20,19 @@ export type BridgeEvent =
   | { type: "session_started"; sessionId: string }
   | { type: "sdk_message"; message: SDKMessage }
   | { type: "tool_request"; reqId: number; tool: string; input: unknown }
+  | {
+      type: "usage";
+      source: "assistant" | "result";
+      tokens: number;
+      breakdown: {
+        input: number;
+        output: number;
+        cacheCreate: number;
+        cacheRead: number;
+      };
+    }
+  | { type: "compact_boundary"; trigger: "manual" | "auto"; preTokens: number }
+  | { type: "compacting" }
   | { type: "end_turn" }
   | { type: "error"; error: string };
 
@@ -219,6 +232,42 @@ export function createTranslator(writer: UIMessageStreamWriter): {
       case "tool_request":
         // Host RPC — not surfaced to the UI directly. The route handles it
         // and the response flows back through SDK messages.
+        break;
+      case "usage":
+        // Forward the SDK's real token usage as a custom data part. The
+        // AgentPanel reads these to drive the context-usage bar; everything
+        // else ignores them.
+        emit({
+          type: "data-claude-code-usage",
+          data: {
+            source: event.source,
+            tokens: event.tokens,
+            breakdown: event.breakdown,
+          },
+          transient: true,
+        } as UIMessageChunk);
+        break;
+      case "compact_boundary":
+        // Auto- or user-initiated compaction. The next assistant usage will
+        // be much smaller; the UI marks the boundary and resets the bar.
+        emit({
+          type: "data-claude-code-compact-boundary",
+          data: {
+            trigger: event.trigger,
+            preTokens: event.preTokens,
+            at: Date.now(),
+          },
+          transient: true,
+        } as UIMessageChunk);
+        break;
+      case "compacting":
+        // Transient status — the UI can show a "compacting…" hint while it
+        // happens. Optional; ignored if the UI doesn't render it.
+        emit({
+          type: "data-claude-code-status",
+          data: { status: "compacting" },
+          transient: true,
+        } as UIMessageChunk);
         break;
       case "end_turn":
         // Synthesize an endTurn tool call so the existing UI's end-of-turn

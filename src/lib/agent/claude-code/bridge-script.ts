@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "4";
+export const BRIDGE_SCRIPT_VERSION = "5";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -44,6 +44,9 @@ export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
  *   { type: "ready" }
  *   { type: "session_started", sessionId }
  *   { type: "sdk_message", message }
+ *   { type: "usage", tokens, breakdown }     — real token counts from the SDK
+ *   { type: "compact_boundary", trigger, preTokens }   — auto/manual compaction
+ *   { type: "compacting" }                   — status message: SDK is compacting
  *   { type: "end_turn" }
  *   { type: "error", error }
  */
@@ -179,6 +182,36 @@ async function main() {
 
   let lastSessionId = null;
 
+  // ---------------------------------------------------------------------------
+  // Token usage + compaction tracking.
+  //
+  // SDKAssistantMessage.message.usage and SDKResultMessage.usage both carry
+  // Anthropic-shape totals: input_tokens, output_tokens, cache_creation_input_tokens,
+  // cache_read_input_tokens. The "context size" sent on a turn is
+  // input_tokens + cache_creation_input_tokens + cache_read_input_tokens.
+  //
+  // SDKCompactBoundaryMessage marks where Claude auto-compacted (or where the
+  // user ran /compact). After the boundary the next assistant message's usage
+  // will reflect a much smaller context — the bar should drop accordingly.
+  // ---------------------------------------------------------------------------
+  function extractUsage(u) {
+    if (!u || typeof u !== "object") return null;
+    const input = Number(u.input_tokens || 0);
+    const output = Number(u.output_tokens || 0);
+    const cacheCreate = Number(u.cache_creation_input_tokens || 0);
+    const cacheRead = Number(u.cache_read_input_tokens || 0);
+    const contextTokens = input + cacheCreate + cacheRead;
+    return {
+      tokens: contextTokens,
+      breakdown: {
+        input,
+        output,
+        cacheCreate,
+        cacheRead,
+      },
+    };
+  }
+
   try {
     for await (const message of query({ prompt, options })) {
       if (message && message.session_id && message.session_id !== lastSessionId) {
@@ -186,6 +219,30 @@ async function main() {
         emit({ type: "session_started", sessionId: message.session_id });
       }
       emit({ type: "sdk_message", message });
+
+      // Pull real token usage out of assistant/result messages so the UI can
+      // drive its context-usage bar from authoritative numbers.
+      if (message && message.type === "assistant" && message.message && message.message.usage) {
+        const u = extractUsage(message.message.usage);
+        if (u) emit({ type: "usage", source: "assistant", ...u });
+      } else if (message && message.type === "result" && message.usage) {
+        const u = extractUsage(message.usage);
+        if (u) emit({ type: "usage", source: "result", ...u });
+      }
+
+      // Surface compaction so the UI can render a "context compacted" divider
+      // and reset its bar basis. The next assistant usage will already reflect
+      // the post-compaction context.
+      if (message && message.type === "system" && message.subtype === "compact_boundary") {
+        const meta = message.compact_metadata || {};
+        emit({
+          type: "compact_boundary",
+          trigger: meta.trigger || "auto",
+          preTokens: Number(meta.pre_tokens || 0),
+        });
+      } else if (message && message.type === "system" && message.subtype === "status" && message.status === "compacting") {
+        emit({ type: "compacting" });
+      }
     }
     emit({ type: "end_turn" });
     process.exit(0);

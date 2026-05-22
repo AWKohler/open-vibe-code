@@ -57,19 +57,37 @@ async function provisionUserConvex(
     throw new Error(`Convex create_project failed: ${res.status} ${errText}`);
   }
 
-  const data = await res.json() as {
-    projectSlug?: string; deploymentName?: string; prodUrl?: string; adminKey?: string;
-  };
+  const data = await res.json() as Record<string, unknown>;
+  console.log('[BYOC] create_project raw response:', JSON.stringify(data));
 
-  if (!data.projectSlug || !data.adminKey) {
-    throw new Error('Incomplete create_project response from Convex API');
+  // Convex CLI API response field names — handle both current and legacy variants
+  const projectSlug =
+    (data.projectSlug as string | undefined) ||
+    (data.slug as string | undefined) ||
+    ((data.project as Record<string, unknown> | undefined)?.slug as string | undefined);
+  const adminKey =
+    (data.adminKey as string | undefined) ||
+    (data.deployKey as string | undefined) ||
+    (data.prodAdminKey as string | undefined) ||
+    ((data.prodDeployment as Record<string, unknown> | undefined)?.adminKey as string | undefined);
+  const deploymentName =
+    (data.deploymentName as string | undefined) ||
+    (data.prodDeploymentName as string | undefined) ||
+    ((data.prodDeployment as Record<string, unknown> | undefined)?.name as string | undefined) ||
+    '';
+  const prodUrl =
+    (data.prodUrl as string | undefined) ||
+    ((data.prodDeployment as Record<string, unknown> | undefined)?.url as string | undefined);
+
+  if (!projectSlug || !adminKey) {
+    throw new Error(`Incomplete create_project response from Convex API — got keys: ${Object.keys(data).join(', ')}`);
   }
 
   return {
-    projectSlug: data.projectSlug,
-    deploymentName: data.deploymentName || '',
-    deploymentUrl: data.prodUrl || `https://${data.deploymentName}.convex.cloud`,
-    adminKey: data.adminKey,
+    projectSlug,
+    deploymentName,
+    deploymentUrl: prodUrl || `https://${deploymentName}.convex.cloud`,
+    adminKey,
   };
 }
 

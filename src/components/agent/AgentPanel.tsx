@@ -244,7 +244,16 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   currentSegmentIdRef.current = currentSegmentId;
 
   // --- Token tracking ---
+  // For Botflow projects: char/4 estimate of accumulated message content.
+  // For Claude Code projects: the real usage number reported by the SDK via
+  // the transient `data-claude-code-usage` part — claude knows its own context
+  // size after any internal compaction, so the bar tracks reality.
   const [tokenEstimate, setTokenEstimate] = useState(0);
+  const [claudeCodeUsage, setClaudeCodeUsage] = useState<{
+    tokens: number;
+    breakdown: { input: number; output: number; cacheCreate: number; cacheRead: number };
+  } | null>(null);
+  const [isCompacting, setIsCompacting] = useState(false);
   const maxTokens = MODEL_CONFIGS[model]?.maxContextTokens ?? 128_000;
 
   // --- First message tracking ---
@@ -305,6 +314,42 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
   const { messages, sendMessage, setMessages, addToolOutput, stop, status } = useChat({
     transport: transportRef.current,
+    // Receive Claude Code's transient data parts: real token usage + compact
+    // boundaries. These never persist to message.parts (they're `transient: true`
+    // server-side), so we capture them here on the live stream and store in
+    // local state.
+    onData(part) {
+      const p = part as { type: string; data?: unknown };
+      if (p.type === 'data-claude-code-usage') {
+        const data = p.data as {
+          tokens?: number;
+          breakdown?: { input: number; output: number; cacheCreate: number; cacheRead: number };
+        } | undefined;
+        if (data && typeof data.tokens === 'number') {
+          setClaudeCodeUsage({
+            tokens: data.tokens,
+            breakdown: data.breakdown ?? { input: 0, output: 0, cacheCreate: 0, cacheRead: 0 },
+          });
+          // Receiving fresh usage means compaction (if any) is done.
+          setIsCompacting(false);
+        }
+      } else if (p.type === 'data-claude-code-compact-boundary') {
+        const data = p.data as { trigger?: 'manual' | 'auto'; preTokens?: number } | undefined;
+        // Reset the bar — claude just compacted; the next usage event will
+        // show the new (much smaller) size.
+        setClaudeCodeUsage(null);
+        setIsCompacting(false);
+        toast({
+          title: 'Context compacted',
+          description: data?.trigger === 'manual'
+            ? 'Conversation history summarized to free up context.'
+            : `Conversation history auto-summarized at ~${formatTokenCount(data?.preTokens ?? 0)} tokens to free up context.`,
+        });
+      } else if (p.type === 'data-claude-code-status') {
+        const data = p.data as { status?: string } | undefined;
+        if (data?.status === 'compacting') setIsCompacting(true);
+      }
+    },
     onFinish({ message, isAbort }) {
       // Don't clear busy on finish — let debounce handle it
       // (onFinish fires between tool rounds in multi-step, causing premature busy=false)
@@ -699,6 +744,9 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       setActions([]);
       setHasAgentResponded(false);
       setTokenEstimate(0);
+      // Wipe Claude Code usage too — different agent, different context.
+      setClaudeCodeUsage(null);
+      setIsCompacting(false);
       setPendingBackendSwitch(null);
       toast({
         title: `Switched to ${next === 'claude-code' ? 'Claude Code' : 'Botflow'}`,
@@ -1148,8 +1196,14 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     sendMessage({ text: 'You stopped without calling endTurn. Please continue or call endTurn if done.' });
   }, [sendMessage]);
 
-  // --- Token usage bar color ---
-  const tokenRatio = maxTokens > 0 ? tokenEstimate / maxTokens : 0;
+  // --- Token usage bar ---
+  // For Claude Code projects we have authoritative usage from the SDK; use it
+  // when present so the bar reflects the real (post-compaction) context size.
+  // Falls back to our char/4 estimate before the first turn completes.
+  const displayedTokens = agentBackend === 'claude-code' && claudeCodeUsage
+    ? claudeCodeUsage.tokens
+    : tokenEstimate;
+  const tokenRatio = maxTokens > 0 ? displayedTokens / maxTokens : 0;
   const tokenBarColor = tokenRatio >= 0.9 ? 'bg-red-500' : tokenRatio >= 0.7 ? 'bg-yellow-500' : 'bg-accent';
 
   const placeholder = useMemo(() => 'Ask Botflow...', []);
@@ -1390,6 +1444,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                 setMessages([]);
                 setHasAgentResponded(false);
                 setTokenEstimate(0);
+                setClaudeCodeUsage(null);
+                setIsCompacting(false);
                 // Clean up any pending image attachments
                 setPendingImages(prev => {
                   prev.forEach(img => URL.revokeObjectURL(img.localUrl));
@@ -1765,20 +1821,27 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           </div>
         </div>
 
-        {/* Inset bottom — Token counter */}
-        {tokenEstimate > 0 && (
+        {/* Inset bottom — Token counter. Shows real Claude Code usage when
+            available; falls back to our char/4 estimate for Botflow. */}
+        {(displayedTokens > 0 || isCompacting) && (
           <div className="flex items-center gap-2 px-4 py-2 border-t border-border">
             <div className="flex-1 h-1 rounded-full bg-soft overflow-hidden">
               <div
-                className={cn('h-full rounded-full transition-all duration-300', tokenBarColor)}
+                className={cn(
+                  'h-full rounded-full transition-all duration-300',
+                  isCompacting ? 'bg-accent animate-pulse' : tokenBarColor,
+                )}
                 style={{ width: `${Math.min(tokenRatio * 100, 100)}%` }}
               />
             </div>
             <span className={cn(
               'text-[10px] tabular-nums',
+              isCompacting ? 'text-accent' :
               tokenRatio >= 0.9 ? 'text-red-400' : tokenRatio >= 0.7 ? 'text-yellow-400' : 'text-muted'
             )}>
-              {formatTokenCount(tokenEstimate)} / {formatTokenCount(maxTokens)}
+              {isCompacting
+                ? 'Compacting…'
+                : `${formatTokenCount(displayedTokens)} / ${formatTokenCount(maxTokens)}`}
             </span>
           </div>
         )}

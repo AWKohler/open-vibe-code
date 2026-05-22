@@ -76,7 +76,6 @@ export async function POST(req: Request) {
           content: "This project was created with the No Backend option — there's nothing to deploy.",
         });
       }
-
       const deployKey = (project.userConvexDeployKey || project.convexDeployKey || "").trim();
       if (!deployKey) {
         return NextResponse.json({
@@ -93,7 +92,23 @@ export async function POST(req: Request) {
       }
 
       // Build the zip from the project's sandbox FS.
-      const zipBlob = await buildConvexDeployZip(binding.projectId);
+      let zipBlob = await buildConvexDeployZip(binding.projectId);
+      if (!zipBlob) {
+        // Sandbox may have expired and been re-created empty. Try auto-seeding.
+        try {
+          const { seedSandboxIfEmpty, writeSandboxEnvFile } = await import("@/lib/vercel-sandbox");
+          const seeded = await seedSandboxIfEmpty(binding.projectId, "viteConvex");
+          if (seeded) {
+            const convexUrl = project.userConvexUrl || project.convexDeployUrl;
+            if (convexUrl) {
+              await writeSandboxEnvFile(binding.projectId, { VITE_CONVEX_URL: convexUrl }).catch(() => undefined);
+            }
+            zipBlob = await buildConvexDeployZip(binding.projectId);
+          }
+        } catch (reseedErr) {
+          console.warn("[claude-code-tool] auto-reseed failed:", reseedErr);
+        }
+      }
       if (!zipBlob) {
         return NextResponse.json({
           ok: false,

@@ -116,6 +116,7 @@ export async function POST(
 
     // 3. Resolve the deploy key — prefer user key, fall back to platform key
     const resolvedDeployKey = (project.userConvexDeployKey || project.convexDeployKey || '').trim();
+    console.log(`[convex/deploy] project=${projectId} backendType=${project.backendType} keyPrefix=${resolvedDeployKey.slice(0, 20) || '(empty)'}`);
     if (!resolvedDeployKey) {
       console.error(`No deploy key available for project ${projectId} (backendType=${project.backendType})`);
       return NextResponse.json(

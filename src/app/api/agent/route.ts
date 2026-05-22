@@ -536,6 +536,7 @@ export async function POST(req: Request) {
     let selectedModel: ModelId = "gpt-5.3-codex";
     // Default to true so non-project agent requests still get the full toolset.
     let hasBackend = true;
+    let convexUrl: string | undefined;
     if (projectId) {
       const [proj] = await db
         .select()
@@ -549,6 +550,7 @@ export async function POST(req: Request) {
       }
       selectedModel = resolveModelId(proj.model);
       hasBackend = proj.backendType !== "none";
+      convexUrl = proj.userConvexUrl || proj.convexDeployUrl || undefined;
     }
 
     // Load credentials from Clerk (Redis-cached)
@@ -576,6 +578,7 @@ export async function POST(req: Request) {
       tools = getSandboxedWebTools({
         projectId,
         hasBackend,
+        convexUrl,
         appBaseUrl: new URL(req.url).origin,
         ...(cookie ? { authHeaders: { cookie } } : {}),
       });

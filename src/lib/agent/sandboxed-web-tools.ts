@@ -40,8 +40,9 @@ export function getSandboxedWebTools(params: {
   hasBackend: boolean;
   appBaseUrl: string;
   authHeaders?: Record<string, string>;
+  convexUrl?: string;
 }) {
-  const { projectId, hasBackend, appBaseUrl, authHeaders } = params;
+  const { projectId, hasBackend, appBaseUrl, authHeaders, convexUrl } = params;
   const baseTools = getPersistentTools(projectId);
 
   if (!hasBackend) {
@@ -94,6 +95,7 @@ export function getSandboxedWebTools(params: {
           projectId,
           appBaseUrl,
           ...(authHeaders ? { authHeaders } : {}),
+          convexUrl,
         });
         if (result.ok) {
           return {

@@ -84,11 +84,34 @@ export async function deployConvexFromSandbox(params: {
    * must replay the inbound request's auth context.
    */
   authHeaders?: Record<string, string>;
+  /**
+   * If provided and the sandbox is empty, auto-reseed with the viteConvex
+   * template and write this URL into .env so Vite picks it up on next start.
+   * Handles the case where the Vercel sandbox expired and was re-created blank.
+   */
+  convexUrl?: string;
 }): Promise<DeployResult> {
-  const { projectId, appBaseUrl, authHeaders = {} } = params;
+  const { projectId, appBaseUrl, authHeaders = {}, convexUrl } = params;
 
   try {
-    const zipBlob = await buildConvexDeployZip(projectId);
+    let zipBlob = await buildConvexDeployZip(projectId);
+
+    if (!zipBlob) {
+      // Sandbox may have expired and been re-created empty. Try auto-seeding.
+      try {
+        const { seedSandboxIfEmpty, writeSandboxEnvFile } = await import("./vercel-sandbox");
+        const seeded = await seedSandboxIfEmpty(projectId, "viteConvex");
+        if (seeded) {
+          if (convexUrl) {
+            await writeSandboxEnvFile(projectId, { VITE_CONVEX_URL: convexUrl }).catch(() => undefined);
+          }
+          zipBlob = await buildConvexDeployZip(projectId);
+        }
+      } catch (reseedErr) {
+        console.warn("[sandbox-convex-deploy] auto-reseed failed:", reseedErr);
+      }
+    }
+
     if (!zipBlob) {
       return {
         ok: false,

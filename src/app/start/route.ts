@@ -93,14 +93,29 @@ async function provisionUserConvex(
       },
     );
     const keyData = await keyRes.json() as Record<string, unknown>;
-    console.log('[BYOC] create_deploy_key response:', JSON.stringify(keyData));
-    adminKey =
-      (keyData.key as string | undefined) ||
-      (keyData.deployKey as string | undefined) ||
-      (keyData.accessToken as string | undefined);
-    if (!adminKey) {
-      throw new Error(`Failed to obtain Convex deploy key — got: ${JSON.stringify(keyData)}`);
+    console.log(`[BYOC] create_deploy_key status=${keyRes.status} response:`, JSON.stringify(keyData));
+    if (!keyRes.ok) {
+      // Platform API v1 may not accept OAuth tokens — try the CLI API fallback
+      const cliKeyRes = await fetch(`https://api.convex.dev/api/get_admin_key`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ deploymentName, teamSlug }),
+      });
+      const cliKeyData = await cliKeyRes.json() as Record<string, unknown>;
+      console.log(`[BYOC] CLI get_admin_key status=${cliKeyRes.status} response:`, JSON.stringify(cliKeyData));
+      adminKey =
+        (cliKeyData.adminKey as string | undefined) ||
+        (cliKeyData.key as string | undefined);
+    } else {
+      adminKey =
+        (keyData.key as string | undefined) ||
+        (keyData.deployKey as string | undefined) ||
+        (keyData.accessToken as string | undefined);
     }
+    if (!adminKey) {
+      throw new Error(`Failed to obtain Convex deploy key — Platform API returned: ${JSON.stringify(keyData)}`);
+    }
+    console.log(`[BYOC] deploy key obtained, prefix: ${adminKey.slice(0, 20)}`);
   }
 
   return {

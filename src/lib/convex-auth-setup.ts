@@ -13,7 +13,7 @@ import { generateKeyPairSync, createPublicKey } from "crypto";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { getConvexPlatformClient, provisionConvexBackend } from "./convex-platform";
+import { provisionConvexBackend } from "./convex-platform";
 
 export interface ConvexAuthFile {
   path: string;
@@ -87,6 +87,34 @@ export default schema;
   ];
 }
 
+/**
+ * Set environment variables on a Convex deployment using its own HTTP API.
+ * This mirrors what the Convex CLI does when running `convex env set`.
+ *
+ * URL format:  POST {deploymentUrl}/api/update_environment_variables
+ * Auth format: Authorization: Convex {adminKey}
+ */
+async function setEnvVarsViaDeployKey(
+  deploymentUrl: string,
+  deployKey: string,
+  vars: Record<string, string>,
+): Promise<void> {
+  const changes = Object.entries(vars).map(([name, value]) => ({ name, value }));
+  const response = await fetch(`${deploymentUrl}/api/update_environment_variables`, {
+    method: "POST",
+    headers: {
+      Authorization: `Convex ${deployKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ changes }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Failed to set Convex env vars (${response.status}): ${errorText}`);
+  }
+}
+
 export async function setupConvexAuth(
   projectId: string,
   opts: { siteUrl: string; userConvexOAuthToken?: string | null },
@@ -101,45 +129,56 @@ export async function setupConvexAuth(
     return { ok: false, error: "This project has no backend — Convex Auth is not available." };
   }
 
-  // Resolve deployment name (auto-provision if missing for platform backends)
-  let deploymentName = project.convexDeploymentId;
-  if (!deploymentName) {
-    if (project.backendType === "user") {
+  // Resolve deploy URL and key based on backend type
+  let deployUrl: string | null;
+  let deployKey: string | null;
+
+  if (project.backendType === "user") {
+    deployUrl = project.userConvexUrl ?? null;
+    deployKey = project.userConvexDeployKey ?? null;
+    if (!deployUrl || !deployKey) {
       return {
         ok: false,
         error: "No Convex deployment is linked to this project. Connect your Convex account in Settings.",
       };
     }
-    // Platform backend: provision now
-    const convexProjectName = `ide-${project.id.slice(0, 8)}`;
-    const convex = await provisionConvexBackend(convexProjectName);
-    await db.update(projects)
-      .set({
-        convexProjectId: convex.projectId,
-        convexDeploymentId: convex.deploymentId,
-        convexDeployUrl: convex.deployUrl,
-        convexDeployKey: convex.deployKey,
-        updatedAt: new Date(),
-      })
-      .where(eq(projects.id, projectId));
-    deploymentName = convex.deploymentId;
+  } else {
+    // Platform backend — auto-provision if not yet created
+    deployUrl = project.convexDeployUrl ?? null;
+    deployKey = project.convexDeployKey ?? null;
+
+    if (!project.convexDeploymentId || !deployKey) {
+      const convexProjectName = `ide-${project.id.slice(0, 8)}`;
+      const convex = await provisionConvexBackend(convexProjectName);
+      await db.update(projects)
+        .set({
+          convexProjectId: convex.projectId,
+          convexDeploymentId: convex.deploymentId,
+          convexDeployUrl: convex.deployUrl,
+          convexDeployKey: convex.deployKey,
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, projectId));
+      deployUrl = convex.deployUrl;
+      deployKey = convex.deployKey;
+    }
+
+    if (!deployUrl) {
+      deployUrl = `https://${project.convexDeploymentId}.convex.cloud`;
+    }
+  }
+
+  if (!deployKey) {
+    return { ok: false, error: "No Convex deploy key available. Try reconnecting your Convex backend in Settings." };
   }
 
   const { privateKeyPem, jwksJson } = generateConvexAuthSecrets();
 
-  // Resolve which token to use for the Management API
-  const client = getConvexPlatformClient();
-  const accessToken = project.backendType === "user" ? (opts.userConvexOAuthToken ?? undefined) : undefined;
-
-  await client.setDeploymentEnvVars(
-    deploymentName,
-    {
-      CONVEX_AUTH_PRIVATE_KEY: privateKeyPem,
-      JWKS: jwksJson,
-      SITE_URL: opts.siteUrl,
-    },
-    accessToken,
-  );
+  await setEnvVarsViaDeployKey(deployUrl, deployKey, {
+    CONVEX_AUTH_PRIVATE_KEY: privateKeyPem,
+    JWKS: jwksJson,
+    SITE_URL: opts.siteUrl,
+  });
 
   return {
     ok: true,

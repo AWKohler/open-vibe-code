@@ -276,6 +276,7 @@ export async function POST(req: Request) {
         "git_pull",
         "git_resolve_conflict",
         "set_git_autonomy",
+        "open_pull_request",
       );
     }
   }

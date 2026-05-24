@@ -243,7 +243,7 @@ export function SandboxGitHubPanel({
           title: "Repository linked",
           description: data.repo?.wasEmpty
             ? "Pushed your initial commit to GitHub."
-            : "Cloned the latest from GitHub into your sandbox.",
+            : "Linked. Click 'Save to GitHub' to push your local files.",
         });
       } catch (e) {
         toast({ title: "Link failed", description: e instanceof Error ? e.message : String(e) });
@@ -264,10 +264,6 @@ export function SandboxGitHubPanel({
         body: JSON.stringify({
           name: newRepoName.trim(),
           isPrivate: newRepoPrivate,
-          // Phase A: existing endpoint always sets auto_init=true. We rely on
-          // our link flow detecting the "almost empty" repo and overwriting
-          // the README — acceptable for now, refined in Phase B when we add a
-          // bare-create variant.
         }),
       });
       const created = await createRes.json();
@@ -638,6 +634,17 @@ export function SandboxGitHubPanel({
         )}
       </div>
 
+      {/* Open PR — only when working on a non-default branch */}
+      {status && status.branch && githubDefaultBranch && status.branch !== githubDefaultBranch && (
+        <OpenPrLink
+          projectId={projectId}
+          owner={githubRepoOwner!}
+          name={githubRepoName!}
+          headBranch={status.branch}
+          baseBranch={githubDefaultBranch}
+        />
+      )}
+
       {/* Conflict modal — opens when pull surfaces conflicts */}
       {conflictModal && (
         <ConflictModal
@@ -652,6 +659,64 @@ export function SandboxGitHubPanel({
         />
       )}
     </div>
+  );
+}
+
+function OpenPrLink({
+  projectId,
+  owner,
+  name,
+  headBranch,
+  baseBranch,
+}: {
+  projectId: string;
+  owner: string;
+  name: string;
+  headBranch: string;
+  baseBranch: string;
+}) {
+  const { toast } = useToast();
+  const [opening, setOpening] = useState(false);
+
+  const handle = async () => {
+    const title = window.prompt(
+      `Open a PR for ${headBranch} → ${baseBranch}?\n\nPR title:`,
+      `Update from ${headBranch}`,
+    );
+    if (!title) return;
+    setOpening(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/github/sandbox/open-pr`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, headBranch, baseBranch }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      window.open(data.url, "_blank", "noopener");
+      toast({
+        title: data.alreadyExists ? "PR already exists" : "PR opened",
+        description: data.url,
+      });
+    } catch (e) {
+      toast({
+        title: "Open PR failed",
+        description: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void handle()}
+      disabled={opening}
+      className="w-full text-[11px] text-muted hover:text-accent px-2 py-1.5 rounded-md border border-dashed border-border hover:border-accent/40 transition-colors"
+    >
+      {opening ? "Opening PR…" : `Open pull request for \`${headBranch}\` → \`${baseBranch}\``}
+    </button>
   );
 }
 

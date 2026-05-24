@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "9";
+export const BRIDGE_SCRIPT_VERSION = "10";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -295,6 +295,23 @@ function buildCustomTools(customTools) {
       ),
     );
   }
+  if (customTools.includes("open_pull_request")) {
+    tools.push(
+      tool(
+        "open_pull_request",
+        "Open a pull request from the current branch to the linked default branch (or a custom base). Push your changes first. Returns alreadyExists=true if a matching PR is already open.",
+        {
+          title: z.string(),
+          body: z.string().optional(),
+          baseBranch: z.string().optional(),
+          headBranch: z.string().optional(),
+          draft: z.boolean().optional(),
+        },
+        makeHostToolHandler("open_pull_request"),
+      ),
+    );
+  }
+
   if (customTools.includes("set_git_autonomy")) {
     tools.push(
       tool(

@@ -395,6 +395,86 @@ function getGitTools(opts: {
         return JSON.stringify({ ok: true, mode });
       },
     }),
+
+    openPullRequest: tool({
+      description:
+        "Open a pull request on GitHub from the current branch to the linked default branch (or a custom base). Push your changes first — PRs require the head branch to exist on the remote. If a PR already exists for the same head→base pair, returns alreadyExists=true with the existing URL.",
+      inputSchema: z.object({
+        title: z.string().describe("PR title — short, present-tense, e.g. 'Add login form'."),
+        body: z.string().optional().describe("Markdown PR description; summary of the change."),
+        baseBranch: z.string().optional().describe("Target branch (defaults to the project's linked default branch)."),
+        headBranch: z.string().optional().describe("Source branch (defaults to the sandbox's current branch)."),
+        draft: z.boolean().optional(),
+      }),
+      async execute({ title, body, baseBranch, headBranch, draft }) {
+        try {
+          const creds = await getUserCredentials(userId);
+          if (!creds.githubAccessToken) {
+            return JSON.stringify({ ok: false, error: "GitHub not connected." });
+          }
+
+          const cur = await getCurrentBranch(projectId);
+          const head = (headBranch ?? "").trim()
+            || (cur.ok && cur.branch ? cur.branch : branch);
+          const base = (baseBranch ?? "").trim() || branch;
+
+          if (head === base) {
+            return JSON.stringify({
+              ok: false,
+              error: "PR head and base are the same branch. Create a feature branch first.",
+              code: "same-branch",
+            });
+          }
+
+          const ghRes = await fetch(
+            `https://api.github.com/repos/${ownerName.owner}/${ownerName.name}/pulls`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${creds.githubAccessToken}`,
+                Accept: "application/vnd.github.v3+json",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ title, body, head, base, draft: draft ?? false }),
+            },
+          );
+          if (ghRes.ok) {
+            const pr = await ghRes.json() as { html_url: string; number: number };
+            return JSON.stringify({ ok: true, url: pr.html_url, number: pr.number });
+          }
+          // 422 = same PR likely exists already; locate it.
+          if (ghRes.status === 422) {
+            const listRes = await fetch(
+              `https://api.github.com/repos/${ownerName.owner}/${ownerName.name}/pulls?head=${encodeURIComponent(`${ownerName.owner}:${head}`)}&base=${encodeURIComponent(base)}&state=open`,
+              {
+                headers: {
+                  Authorization: `Bearer ${creds.githubAccessToken}`,
+                  Accept: "application/vnd.github.v3+json",
+                },
+              },
+            );
+            if (listRes.ok) {
+              const list = await listRes.json() as Array<{ html_url: string; number: number }>;
+              if (list.length > 0) {
+                return JSON.stringify({
+                  ok: true,
+                  alreadyExists: true,
+                  url: list[0].html_url,
+                  number: list[0].number,
+                });
+              }
+            }
+          }
+          const err = (await ghRes.json().catch(() => ({}))) as { message?: string };
+          return JSON.stringify({ ok: false, error: err.message ?? `GitHub ${ghRes.status}` });
+        } catch (e) {
+          return JSON.stringify({
+            ok: false,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
+      },
+    }),
   } as const;
 }
 

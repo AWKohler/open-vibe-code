@@ -133,15 +133,42 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     await getOrCreatePersistentSandbox(id);
 
     let headSha: string | null = null;
+    let wasEmpty = false;
 
-    // Strategy:
-    //   - If the GitHub repo is empty (size === 0 and never auto-init'd): init
-    //     the sandbox in place, commit current tree, push to GitHub.
-    //   - Otherwise: wipe the sandbox tree and clone fresh. The user can still
-    //     re-seed a template later by creating a new project.
-    const repoIsEmpty = repoInfo.size === 0;
+    // Strategy: try to clone. The clone fails with a specific error when the
+    // repo has NO branches at all (truly empty: zero commits). In that case
+    // fall back to init-then-push. The `size === 0` shortcut from earlier
+    // was wrong because a repo with just an auto-generated README still has
+    // commits — clone works fine on it.
+    const clone = await cloneRepoIntoSandbox(id, {
+      token,
+      owner: body.owner,
+      name: body.name,
+      branch,
+      // Layer the remote on top of the sandbox's existing template/working
+      // files rather than wiping them. The sandbox's existing files become
+      // uncommitted changes the user can save with one click. This is the
+      // right default for "I just created a botflow project from a template
+      // and now want to push it to GitHub."
+      strategy: "preserve-local",
+      identity,
+    });
 
-    if (repoIsEmpty) {
+    if (clone.ok) {
+      headSha = clone.info?.headSha ?? null;
+    } else {
+      const stderr = (clone.stderr ?? "").toLowerCase();
+      const looksTrulyEmpty =
+        stderr.includes("you appear to have cloned an empty repository")
+        || stderr.includes("remote branch") && stderr.includes("not found")
+        || stderr.includes("couldn't find remote ref")
+        || stderr.includes("does not exist") && stderr.includes("upstream");
+      if (!looksTrulyEmpty) {
+        return NextResponse.json({ error: clone.message, stderr: clone.stderr }, { status: 500 });
+      }
+
+      // Truly empty repo — init the sandbox in place and push.
+      wasEmpty = true;
       const init = await initSandboxAsRepo(id, {
         owner: body.owner,
         name: body.name,
@@ -151,9 +178,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (!init.ok) {
         return NextResponse.json({ error: init.message, stderr: init.stderr }, { status: 500 });
       }
-      // Push the initial commit so the repo isn't empty going forward. If
-      // there was nothing to commit (sandbox tree was empty), `headSha` is
-      // undefined and we skip the push entirely.
       if (init.headSha) {
         const push = await pushBranch(id, {
           token,
@@ -170,19 +194,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         }
         headSha = push.newSha ?? init.headSha;
       }
-    } else {
-      const clone = await cloneRepoIntoSandbox(id, {
-        token,
-        owner: body.owner,
-        name: body.name,
-        branch,
-        wipe: true,
-        identity,
-      });
-      if (!clone.ok) {
-        return NextResponse.json({ error: clone.message, stderr: clone.stderr }, { status: 500 });
-      }
-      headSha = clone.info?.headSha ?? null;
     }
 
     // Persist link metadata.
@@ -248,7 +259,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         owner: body.owner,
         name: body.name,
         defaultBranch: branch,
-        wasEmpty: repoIsEmpty,
+        wasEmpty,
       },
     });
   } catch (err) {

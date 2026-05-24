@@ -361,6 +361,19 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     return () => window.removeEventListener('agent-turn-finished', handler);
   }, [fetchCredits]);
 
+  // Pre-fill the input with the conflict-resolution prompt when the GitHub
+  // panel's conflict modal asks the assistant to fix things. Scoped to this
+  // project so opening a second workspace tab won't cross-fire.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectId: string; prompt: string }>).detail;
+      if (!detail || detail.projectId !== projectId) return;
+      setInput(detail.prompt);
+    };
+    window.addEventListener('github-conflict-delegate', handler);
+    return () => window.removeEventListener('github-conflict-delegate', handler);
+  }, [projectId]);
+
   // --- Provider access for ModelSelector ---
   // Anthropic models need a path that actually runs them. OAuth-only is real
   // access only when the project is a sandbox (Claude Code path); on a

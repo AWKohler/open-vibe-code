@@ -662,6 +662,81 @@ REQUIRED NEXT STEPS:
       return NextResponse.json({ ok: true, content: "Merge aborted; working tree restored." });
     }
 
+    case "open_pull_request": {
+      if (!project.githubRepoOwner || !project.githubRepoName) {
+        return NextResponse.json({ ok: false, content: "No GitHub repository linked." });
+      }
+      const creds = await getUserCredentials(binding.userId);
+      if (!creds.githubAccessToken) {
+        return NextResponse.json({ ok: false, content: "GitHub not connected." });
+      }
+      const title = typeof body.input?.title === "string" ? body.input.title.trim() : "";
+      if (!title) return NextResponse.json({ ok: false, content: "title is required." });
+      const cur = await getCurrentBranch(binding.projectId);
+      const head = (typeof body.input?.headBranch === "string" && body.input.headBranch.trim())
+        || (cur.ok && cur.branch ? cur.branch : (project.githubDefaultBranch ?? "main"));
+      const base = (typeof body.input?.baseBranch === "string" && body.input.baseBranch.trim())
+        || (project.githubDefaultBranch ?? "main");
+      if (head === base) {
+        return NextResponse.json({
+          ok: false,
+          content: "PR head and base are the same branch. Create a feature branch first.",
+        });
+      }
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${project.githubRepoOwner}/${project.githubRepoName}/pulls`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${creds.githubAccessToken}`,
+            Accept: "application/vnd.github.v3+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            title,
+            body: body.input?.body ?? undefined,
+            head,
+            base,
+            draft: body.input?.draft === true,
+          }),
+        },
+      );
+      if (ghRes.ok) {
+        const pr = await ghRes.json() as { html_url: string; number: number };
+        return NextResponse.json({
+          ok: true,
+          content: `Opened PR #${pr.number}: ${pr.html_url}`,
+          url: pr.html_url,
+          number: pr.number,
+        });
+      }
+      if (ghRes.status === 422) {
+        const listRes = await fetch(
+          `https://api.github.com/repos/${project.githubRepoOwner}/${project.githubRepoName}/pulls?head=${encodeURIComponent(`${project.githubRepoOwner}:${head}`)}&base=${encodeURIComponent(base)}&state=open`,
+          {
+            headers: {
+              Authorization: `Bearer ${creds.githubAccessToken}`,
+              Accept: "application/vnd.github.v3+json",
+            },
+          },
+        );
+        if (listRes.ok) {
+          const list = await listRes.json() as Array<{ html_url: string; number: number }>;
+          if (list.length > 0) {
+            return NextResponse.json({
+              ok: true,
+              content: `A PR for this branch already exists: ${list[0].html_url}`,
+              url: list[0].html_url,
+              number: list[0].number,
+              alreadyExists: true,
+            });
+          }
+        }
+      }
+      const err = (await ghRes.json().catch(() => ({}))) as { message?: string };
+      return NextResponse.json({ ok: false, content: err.message ?? `GitHub ${ghRes.status}` });
+    }
+
     case "set_git_autonomy": {
       const mode = body.input?.mode;
       if (mode !== "autonomous" && mode !== "manual" && mode !== "ask-each-time") {

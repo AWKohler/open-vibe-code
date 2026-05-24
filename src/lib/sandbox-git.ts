@@ -121,47 +121,84 @@ export async function cloneRepoIntoSandbox(
     owner: string;
     name: string;
     branch: string;
-    /** Wipe the sandbox root before cloning. Use only when caller knows it's safe. */
-    wipe?: boolean;
+    /**
+     * How to reconcile existing sandbox contents with the cloned tree:
+     *   - "wipe": remove everything in the sandbox first, then clone fresh.
+     *     Use only when caller knows the sandbox has no work to preserve.
+     *   - "preserve-local": clone the repo elsewhere, then copy the .git
+     *     directory plus any remote-only files into the sandbox while
+     *     keeping the sandbox's existing files untouched on conflicts.
+     *     The result: the sandbox's template/work files become uncommitted
+     *     changes the user can save with a single "Save to GitHub" click.
+     */
+    strategy?: "wipe" | "preserve-local";
     /** Identity to set as git user.name / user.email after clone. */
     identity?: { name?: string; email?: string };
   },
 ): Promise<GitResult & { info?: ClonedRepoInfo }> {
-  const { token, owner, name, branch, wipe, identity } = opts;
+  const { token, owner, name, branch, identity } = opts;
+  const strategy = opts.strategy ?? "preserve-local";
   const auth = authedUrl(owner, name, token);
-
-  // Wipe existing contents if requested. `find ... -mindepth 1` avoids
-  // removing /vercel/sandbox itself.
-  if (wipe) {
-    const wipeRes = await sandboxBash(
-      projectId,
-      `find ${SANDBOX_ROOT} -mindepth 1 -maxdepth 1 -exec rm -rf {} +`,
-    );
-    if (wipeRes.exitCode !== 0) {
-      return gitErr(wipeRes.stderr, "Failed to clear sandbox before clone");
-    }
-  }
-
-  // Clone into the sandbox root. We use a temp dir + move pattern because
-  // `git clone` refuses to target a non-empty directory; an empty wipe gets
-  // around that, but we want to support cloning into a dir that has stray
-  // hidden files (e.g. .env from a prior session) without forcing a wipe.
-  //
-  // Strategy: clone to /tmp/botflow-clone, then `cp -a` its contents into
-  // SANDBOX_ROOT (overwriting non-git collisions silently), then rm the tmp.
   const tmp = `/tmp/botflow-clone-${Date.now()}`;
   const escapedAuth = auth.replace(/'/g, "'\"'\"'");
-  const script = [
+
+  // Always clone to a temp dir first — git refuses to clone into a non-empty
+  // directory, and we want full control over how the result lands in the
+  // sandbox.
+  const cloneScript = [
     "set -e",
     `rm -rf ${tmp}`,
     `git clone --depth 1 --branch '${branch.replace(/'/g, "'\\''")}' '${escapedAuth}' ${tmp}`,
-    // Move into place — note `.` so dotfiles (.gitignore, .git) come along
-    `cp -a ${tmp}/. ${SANDBOX_ROOT}/`,
-    `rm -rf ${tmp}`,
   ].join(" && ");
-  const cloneRes = await sandboxBash(projectId, script);
+  const cloneRes = await sandboxBash(projectId, cloneScript);
   if (cloneRes.exitCode !== 0) {
     return gitErr(cloneRes.stderr, "git clone failed");
+  }
+
+  if (strategy === "wipe") {
+    // Wipe sandbox root, then move the cloned tree (including .git and
+    // dotfiles) into place.
+    const wipeRes = await sandboxBash(
+      projectId,
+      [
+        "set -e",
+        `find ${SANDBOX_ROOT} -mindepth 1 -maxdepth 1 -exec rm -rf {} +`,
+        `cp -a ${tmp}/. ${SANDBOX_ROOT}/`,
+        `rm -rf ${tmp}`,
+      ].join(" && "),
+    );
+    if (wipeRes.exitCode !== 0) {
+      return gitErr(wipeRes.stderr, "Failed to install clone into sandbox");
+    }
+  } else {
+    // preserve-local: move only the .git directory and any files that don't
+    // already exist locally. Existing local files become uncommitted
+    // modifications relative to HEAD; the user can save them with one click.
+    //
+    // `cp -a -n` (--no-clobber) skips files that exist; we use that for the
+    // working-tree copy. The .git directory itself we always replace —
+    // otherwise we'd end up with two .git folders.
+    const layerRes = await sandboxBash(
+      projectId,
+      [
+        "set -e",
+        `rm -rf ${SANDBOX_ROOT}/.git`,
+        `cp -a ${tmp}/.git ${SANDBOX_ROOT}/.git`,
+        // Copy remote-only files into the sandbox without overwriting local
+        // edits. `find -mindepth 1 -maxdepth 1` excludes the temp dir
+        // itself and the cloned .git (already moved).
+        `for src in ${tmp}/* ${tmp}/.[!.]* ${tmp}/..?*; do`,
+        `  [ -e "$src" ] || continue`,
+        `  base=$(basename "$src")`,
+        `  [ "$base" = ".git" ] && continue`,
+        `  if [ ! -e "${SANDBOX_ROOT}/$base" ]; then cp -a "$src" "${SANDBOX_ROOT}/$base"; fi`,
+        `done`,
+        `rm -rf ${tmp}`,
+      ].join("\n"),
+    );
+    if (layerRes.exitCode !== 0) {
+      return gitErr(layerRes.stderr, "Failed to layer clone over sandbox");
+    }
   }
 
   // Strip the auth token from the remote URL and replace with the bare HTTPS URL.

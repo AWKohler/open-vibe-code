@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { and, eq } from "drizzle-orm";
 import {
   sandboxBash,
   sandboxGlob,
@@ -9,6 +10,8 @@ import {
   sandboxWriteFile,
 } from "@/lib/vercel-sandbox";
 import { applyDiff } from "@/lib/agent/diff";
+import { getDb } from "@/db";
+import { chatQuestions, projects } from "@/db/schema";
 
 // Server-side tool execution for the persistent (Vercel Sandbox) platform.
 // Each tool's execute() runs in the Next.js route handler and talks directly
@@ -240,6 +243,108 @@ export function getPersistentTools(projectId: string) {
         return safe(async () => {
           const entries = await sandboxListFiles(projectId, path, Boolean(recursive));
           return { count: entries.length, entries };
+        });
+      },
+    }),
+
+    askQuestion: tool({
+      description:
+        "Surface an in-chat multiple-choice question to the user. The user sees the question inline in the chat with buttons for each option and picks one (or several if multiSelect). Use this when you genuinely need a decision from the user and continuing without it would be guessing.\n\n" +
+        "Pass an array of one or more questions; the user answers each in turn. Each question needs: `id` (your slug), `question` (the prompt text), `options` (label + 1-line description each). Optional: `header` (short tag), `multiSelect` (default false), `allowCustom` + `customPlaceholder` to let the user type a free-form answer.\n\n" +
+        "The tool blocks for up to 5 minutes waiting for an answer. If the user dismisses or doesn't answer in time, the tool returns `{ answered: false }` — continue without that input.",
+      inputSchema: z.object({
+        questions: z
+          .array(
+            z.object({
+              id: z.string(),
+              header: z.string().optional(),
+              question: z.string(),
+              options: z.array(
+                z.object({
+                  id: z.string(),
+                  label: z.string(),
+                  description: z.string().optional(),
+                }),
+              ),
+              multiSelect: z.boolean().optional(),
+              allowCustom: z.boolean().optional(),
+              customPlaceholder: z.string().optional(),
+            }),
+          )
+          .min(1),
+      }),
+      async execute({ questions }, ctx) {
+        return safe(async () => {
+          const toolCallId = ctx?.toolCallId ?? `${projectId}-${Date.now()}`;
+          const db = getDb();
+          const [proj] = await db
+            .select({ userId: projects.userId, currentSegmentId: projects.currentSegmentId })
+            .from(projects)
+            .where(eq(projects.id, projectId))
+            .limit(1);
+          if (!proj) {
+            return { ok: false, answered: false, error: "Project not found." };
+          }
+
+          // Insert the question row. Use the toolCallId as the lookup key so
+          // the UI can match the row to the assistant's tool part in the
+          // message timeline.
+          await db.insert(chatQuestions).values({
+            projectId,
+            userId: proj.userId,
+            segmentId: proj.currentSegmentId,
+            toolCallId,
+            questions: questions as unknown as object,
+            status: "pending",
+          });
+
+          // Poll until the user answers or 5 minutes elapse.
+          const deadline = Date.now() + 5 * 60 * 1000;
+          while (Date.now() < deadline) {
+            await new Promise<void>((r) => setTimeout(r, 2000));
+            const [row] = await db
+              .select({ status: chatQuestions.status, answer: chatQuestions.answer })
+              .from(chatQuestions)
+              .where(
+                and(
+                  eq(chatQuestions.toolCallId, toolCallId),
+                  eq(chatQuestions.projectId, projectId),
+                ),
+              )
+              .limit(1);
+            if (!row) break;
+            if (row.status === "answered") {
+              const ans = row.answer as
+                | { selectedIds?: string[]; text?: string; selectedLabels?: string[] }
+                | null;
+              return {
+                ok: true,
+                answered: true,
+                selectedIds: ans?.selectedIds ?? [],
+                selectedLabels: ans?.selectedLabels ?? [],
+                customText: ans?.text ?? null,
+              };
+            }
+            if (row.status === "dismissed") {
+              return {
+                ok: true,
+                answered: false,
+                dismissed: true,
+              };
+            }
+          }
+          // Timed out — best-effort mark dismissed so future UI doesn't show stale.
+          await db
+            .update(chatQuestions)
+            .set({ status: "dismissed", updatedAt: new Date() })
+            .where(
+              and(
+                eq(chatQuestions.toolCallId, toolCallId),
+                eq(chatQuestions.projectId, projectId),
+              ),
+            )
+            .catch(() => undefined);
+          return { ok: true, answered: false, timedOut: true };
         });
       },
     }),

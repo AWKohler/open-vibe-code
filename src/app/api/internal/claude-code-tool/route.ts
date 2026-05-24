@@ -13,16 +13,16 @@
  * the MCP tool's result.
  */
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { projects } from "@/db/schema";
+import { chatQuestions, projects } from "@/db/schema";
 import { resolveToolToken } from "@/lib/agent/claude-code/tool-token";
 import {
   buildConvexDeployZip,
   writeGeneratedConvexFiles,
   type DeployResult,
 } from "@/lib/sandbox-convex-deploy";
-import { setupConvexAuth } from "@/lib/convex-auth-setup";
+import { setupConvexAuth, refreshAuthSiteUrl } from "@/lib/convex-auth-setup";
 import { getUserCredentials } from "@/lib/user-credentials";
 import { getOrCreatePersistentSandbox } from "@/lib/vercel-sandbox";
 import {
@@ -33,6 +33,19 @@ import {
   startSandboxDevServer,
   stopSandboxDevServer,
 } from "@/lib/workspace-control";
+import {
+  abortMerge,
+  commitAll,
+  getCurrentBranch,
+  getDiff,
+  getStatus,
+  hasGitDir,
+  pullBranch,
+  pushBranch,
+  resolveWithContent,
+  resolveWithSide,
+} from "@/lib/sandbox-git";
+import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -193,6 +206,10 @@ export async function POST(req: Request) {
         port: 5173,
         installFirst: true,
       });
+      if (result.ok && result.previewUrl) {
+        // Keep SITE_URL in sync — fire-and-forget, non-fatal.
+        void refreshAuthSiteUrl(binding.projectId, result.previewUrl).catch(() => {});
+      }
       // Terse content — URL intentionally withheld. The user's workspace
       // polls preview-state and surfaces the preview automatically.
       const content = result.ok
@@ -283,18 +300,382 @@ export async function POST(req: Request) {
         }
       }
 
-      const authResult = await setupConvexAuth(binding.projectId, { siteUrl, userConvexOAuthToken });
+      let authResult;
+      try {
+        authResult = await setupConvexAuth(binding.projectId, { siteUrl, userConvexOAuthToken });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[claude-code-tool/setup_auth] threw:", err);
+        return NextResponse.json({ ok: false, content: `setupAuth failed: ${message}` });
+      }
       if (!authResult.ok) {
         return NextResponse.json({ ok: false, content: authResult.error });
       }
 
       return NextResponse.json({
         ok: true,
-        content: "Auth secrets provisioned on the Convex deployment.",
+        content: authResult.context,
         files: authResult.files,
         packagesToInstall: authResult.packagesToInstall,
-        nextSteps: authResult.nextSteps,
       });
+    }
+
+    case "setup_oauth_provider": {
+      if (!project.authConfigured) {
+        return NextResponse.json({
+          ok: false,
+          content: "Auth must be set up before adding OAuth providers. Call setup_auth first.",
+        });
+      }
+      if (project.backendType === "none") {
+        return NextResponse.json({
+          ok: false,
+          content: "This project has no backend — OAuth providers are not available.",
+        });
+      }
+
+      // We re-use the REST API endpoints rather than duplicating the DB logic.
+      // The internal tool token doesn't carry a Clerk session, so we call the
+      // Next.js API with a synthetic request that includes the user's context
+      // via a server-side URL call. Instead, we duplicate the minimal logic here.
+      const { getDb: getDbLocal } = await import("@/db");
+      const { oauthProviderRequests: oauthTable } = await import("@/db/schema");
+      const { eq: eqLocal, and: andLocal, desc: descLocal } = await import("drizzle-orm");
+
+      const dbLocal = getDbLocal();
+
+      const inputProvider = (body.input?.provider as string | undefined) ?? "google";
+      if (inputProvider !== "google") {
+        return NextResponse.json({
+          ok: false,
+          content: `Unsupported OAuth provider: ${inputProvider}. Only 'google' is supported.`,
+        });
+      }
+
+      const deployUrl = project.userConvexUrl ?? project.convexDeployUrl ?? null;
+      const convexSiteUrl = deployUrl
+        ? deployUrl.replace(".convex.cloud", ".convex.site")
+        : null;
+
+      // Cancel stale pending requests
+      await dbLocal
+        .update(oauthTable)
+        .set({ status: "dismissed", updatedAt: new Date() })
+        .where(
+          andLocal(
+            eqLocal(oauthTable.projectId, project.id),
+            eqLocal(oauthTable.status, "pending"),
+          ),
+        );
+
+      // Create new request
+      const [oauthRecord] = await dbLocal
+        .insert(oauthTable)
+        .values({
+          projectId: project.id,
+          userId: binding.userId,
+          provider: inputProvider,
+          status: "pending",
+          convexSiteUrl,
+        })
+        .returning();
+
+      const requestId = oauthRecord.id;
+
+      // Poll for up to 5 minutes for the user to complete the modal
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise<void>((r) => setTimeout(r, 3000));
+
+        const [statusRow] = await dbLocal
+          .select({ status: oauthTable.status })
+          .from(oauthTable)
+          .where(
+            andLocal(
+              eqLocal(oauthTable.id, requestId),
+              eqLocal(oauthTable.projectId, project.id),
+            ),
+          )
+          .limit(1);
+
+        if (!statusRow) break; // Shouldn't happen — bail gracefully
+
+        if (statusRow.status === "completed") {
+          return NextResponse.json({
+            ok: true,
+            content: `=== GOOGLE OAUTH CREDENTIALS SAVED ===
+
+AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET are now set on your Convex deployment.
+
+REQUIRED NEXT STEPS:
+
+1. Update convex/auth.ts — add the Google provider:
+
+   import { convexAuth } from "@convex-dev/auth/server";
+   import { Password } from "@convex-dev/auth/providers/Password";
+   import Google from "@auth/core/providers/google";
+
+   export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
+     providers: [Password, Google],
+   });
+
+2. Run convex_deploy to push the updated auth config.
+
+3. Add a Google sign-in button to the UI:
+
+   const { signIn } = useAuthActions();
+   <button onClick={() => void signIn("google")}>Sign in with Google</button>
+
+   Clicking the button redirects to Google's consent screen.
+   On return, Convex Auth creates or merges the user account automatically.`,
+          });
+        }
+
+        if (statusRow.status === "dismissed") {
+          return NextResponse.json({
+            ok: false,
+            content:
+              "User dismissed the Google OAuth modal without saving credentials. " +
+              "Do not retry automatically. Continue with other work.",
+          });
+        }
+        // status === 'pending' — keep polling
+      }
+
+      return NextResponse.json({
+        ok: false,
+        content:
+          "Timed out waiting for Google OAuth credentials (5 minutes). " +
+          "Call setup_oauth_provider again when the user is ready.",
+      });
+    }
+
+    case "ask_question": {
+      // Mirror of the Botflow askQuestion execute: insert a chat_questions
+      // row keyed by a synthetic tool_call_id, poll for an answer, return.
+      const inputQuestions = body.input?.questions;
+      if (!Array.isArray(inputQuestions) || inputQuestions.length === 0) {
+        return NextResponse.json({
+          ok: false,
+          content: "askQuestion requires a non-empty questions array.",
+        });
+      }
+
+      const toolCallId = `claude-${randomUUID()}`;
+      const dbLocal = getDb();
+      await dbLocal.insert(chatQuestions).values({
+        projectId: binding.projectId,
+        userId: binding.userId,
+        segmentId: project.currentSegmentId,
+        toolCallId,
+        questions: inputQuestions as unknown as object,
+        status: "pending",
+      });
+
+      const deadline = Date.now() + 5 * 60 * 1000;
+      while (Date.now() < deadline) {
+        await new Promise<void>((r) => setTimeout(r, 2000));
+        const [row] = await dbLocal
+          .select({ status: chatQuestions.status, answer: chatQuestions.answer })
+          .from(chatQuestions)
+          .where(
+            and(
+              eq(chatQuestions.toolCallId, toolCallId),
+              eq(chatQuestions.projectId, binding.projectId),
+            ),
+          )
+          .limit(1);
+        if (!row) break;
+        if (row.status === "answered") {
+          const ans = row.answer as
+            | { selectedIds?: string[]; selectedLabels?: string[]; text?: string | null }
+            | null;
+          const labels = ans?.selectedLabels ?? [];
+          const summary = labels.length > 0
+            ? `User picked: ${labels.join(", ")}${ans?.text ? ` (with custom note: "${ans.text}")` : ""}`
+            : (ans?.text ?? "Answered");
+          return NextResponse.json({
+            ok: true,
+            content: summary,
+            answered: true,
+            selectedIds: ans?.selectedIds ?? [],
+            selectedLabels: labels,
+            customText: ans?.text ?? null,
+          });
+        }
+        if (row.status === "dismissed") {
+          return NextResponse.json({
+            ok: true,
+            content: "User dismissed the question without picking an option. Do not retry; continue with whatever default is reasonable.",
+            answered: false,
+            dismissed: true,
+          });
+        }
+      }
+
+      await dbLocal
+        .update(chatQuestions)
+        .set({ status: "dismissed", updatedAt: new Date() })
+        .where(
+          and(
+            eq(chatQuestions.toolCallId, toolCallId),
+            eq(chatQuestions.projectId, binding.projectId),
+          ),
+        )
+        .catch(() => undefined);
+      return NextResponse.json({
+        ok: true,
+        content: "Question timed out (5 minutes) without an answer. Continue with a reasonable default.",
+        answered: false,
+        timedOut: true,
+      });
+    }
+
+    // ── Git tools — gated server-side by the project having a linked repo ──
+    case "git_status": {
+      if (!project.githubRepoOwner) {
+        return NextResponse.json({
+          ok: false,
+          content: "This project has no GitHub repository linked.",
+        });
+      }
+      if (!(await hasGitDir(binding.projectId))) {
+        return NextResponse.json({
+          ok: false,
+          content: "Sandbox has no .git directory. Ask the user to re-link the repository.",
+        });
+      }
+      const res = await getStatus(binding.projectId);
+      if (!res.ok) return NextResponse.json({ ok: false, content: res.message });
+      return NextResponse.json({ ok: true, content: JSON.stringify(res.status) });
+    }
+
+    case "git_diff": {
+      if (!project.githubRepoOwner) {
+        return NextResponse.json({ ok: false, content: "No GitHub repository linked." });
+      }
+      const path = typeof body.input?.path === "string" ? body.input.path : undefined;
+      const staged = body.input?.staged === true;
+      const res = await getDiff(binding.projectId, { path, staged });
+      if (!res.ok) return NextResponse.json({ ok: false, content: res.message });
+      return NextResponse.json({ ok: true, content: res.diff ?? "(no changes)" });
+    }
+
+    case "git_commit": {
+      if (!project.githubRepoOwner) {
+        return NextResponse.json({ ok: false, content: "No GitHub repository linked." });
+      }
+      const message = typeof body.input?.message === "string" ? body.input.message.trim() : "";
+      if (!message) {
+        return NextResponse.json({ ok: false, content: "Commit message is required." });
+      }
+      const res = await commitAll(binding.projectId, message);
+      if (!res.ok) return NextResponse.json({ ok: false, content: res.message });
+      if (res.nothingToCommit) {
+        return NextResponse.json({ ok: true, content: "No changes to commit." });
+      }
+      return NextResponse.json({ ok: true, content: `Committed as ${res.sha}.` });
+    }
+
+    case "git_push": {
+      if (!project.githubRepoOwner || !project.githubRepoName) {
+        return NextResponse.json({ ok: false, content: "No GitHub repository linked." });
+      }
+      const creds = await getUserCredentials(binding.userId);
+      if (!creds.githubAccessToken) {
+        return NextResponse.json({ ok: false, content: "GitHub not connected." });
+      }
+      const cur = await getCurrentBranch(binding.projectId);
+      const branch = cur.ok && cur.branch ? cur.branch : (project.githubDefaultBranch ?? "main");
+      const force = body.input?.force === true;
+      const res = await pushBranch(binding.projectId, {
+        token: creds.githubAccessToken,
+        owner: project.githubRepoOwner,
+        name: project.githubRepoName,
+        branch,
+        force,
+      });
+      if (!res.ok) {
+        const note = res.code === "non-fast-forward"
+          ? " Call git_pull first, resolve any conflicts, then retry git_push."
+          : "";
+        return NextResponse.json({ ok: false, content: `${res.message}${note}` });
+      }
+      return NextResponse.json({ ok: true, content: `Pushed ${res.newSha} to ${branch}.` });
+    }
+
+    case "git_pull": {
+      if (!project.githubRepoOwner || !project.githubRepoName) {
+        return NextResponse.json({ ok: false, content: "No GitHub repository linked." });
+      }
+      const creds = await getUserCredentials(binding.userId);
+      if (!creds.githubAccessToken) {
+        return NextResponse.json({ ok: false, content: "GitHub not connected." });
+      }
+      const cur = await getCurrentBranch(binding.projectId);
+      const branch = cur.ok && cur.branch ? cur.branch : (project.githubDefaultBranch ?? "main");
+      const res = await pullBranch(binding.projectId, {
+        token: creds.githubAccessToken,
+        owner: project.githubRepoOwner,
+        name: project.githubRepoName,
+        branch,
+      });
+      if (!res.ok) return NextResponse.json({ ok: false, content: res.message });
+      if (res.clean) return NextResponse.json({ ok: true, content: "Up to date / fast-forwarded." });
+      return NextResponse.json({
+        ok: true,
+        content: `Merge conflicts to resolve in:\n${res.conflicts.join("\n")}\n\nResolve each with git_resolve_conflict, then call git_commit with a merge message.`,
+        conflicts: res.conflicts,
+      });
+    }
+
+    case "git_resolve_conflict": {
+      if (!project.githubRepoOwner) {
+        return NextResponse.json({ ok: false, content: "No GitHub repository linked." });
+      }
+      const path = typeof body.input?.path === "string" ? body.input.path : "";
+      if (!path) return NextResponse.json({ ok: false, content: "path is required." });
+      const side = body.input?.side;
+      const content = body.input?.content;
+      if (side === "ours" || side === "theirs") {
+        const res = await resolveWithSide(binding.projectId, path, side);
+        if (!res.ok) return NextResponse.json({ ok: false, content: res.message });
+        return NextResponse.json({ ok: true, content: `Resolved ${path} with ${side}.` });
+      }
+      if (typeof content === "string") {
+        const res = await resolveWithContent(binding.projectId, path, content);
+        if (!res.ok) return NextResponse.json({ ok: false, content: res.message });
+        return NextResponse.json({ ok: true, content: `Resolved ${path} with custom merge.` });
+      }
+      return NextResponse.json({
+        ok: false,
+        content: "Provide either side=ours|theirs or content=<merged text>.",
+      });
+    }
+
+    case "git_abort_merge": {
+      if (!project.githubRepoOwner) {
+        return NextResponse.json({ ok: false, content: "No GitHub repository linked." });
+      }
+      const res = await abortMerge(binding.projectId);
+      if (!res.ok) return NextResponse.json({ ok: false, content: res.message });
+      return NextResponse.json({ ok: true, content: "Merge aborted; working tree restored." });
+    }
+
+    case "set_git_autonomy": {
+      const mode = body.input?.mode;
+      if (mode !== "autonomous" && mode !== "manual" && mode !== "ask-each-time") {
+        return NextResponse.json({
+          ok: false,
+          content: "mode must be 'autonomous', 'manual', or 'ask-each-time'.",
+        });
+      }
+      const db = getDb();
+      await db
+        .update(projects)
+        .set({ gitAutonomy: mode, updatedAt: new Date() })
+        .where(eq(projects.id, binding.projectId));
+      return NextResponse.json({ ok: true, content: `Git autonomy set to ${mode}.` });
     }
 
     default:

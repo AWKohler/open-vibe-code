@@ -30,6 +30,7 @@ import {
 import { deriveAgentBackend } from '@/lib/agent/derive-backend';
 import { BackendBadge, BackendChip } from './BackendBadge';
 import { ThinkingBlock } from './ThinkingBlock';
+import { QuestionPrompt, type QuestionConfig, type QuestionAnswerPayload } from './QuestionPrompt';
 import {
   BOTFLOW_NATIVE_TOOLS,
   CLAUDE_CODE_TO_BOTFLOW,
@@ -244,6 +245,50 @@ function truncatePreview(s: string, max = 200): string {
   return s.slice(0, max - 1) + '…';
 }
 
+/**
+ * Repair orphaned tool calls in the message list before the next API request.
+ *
+ * When the user clicks Stop (X) mid-stream, the streaming response is aborted.
+ * If the abort happened while a tool call was in-flight (state !== 'output-available'),
+ * the assistant message has a `tool_use` block with no matching `tool_result`.
+ * Anthropic rejects any request containing such a conversation with a 400 error:
+ *   "messages: tool_use block must be followed by a tool_result"
+ *
+ * This function converts orphaned tool parts to plain text notes so the
+ * history is always in a state the API accepts.
+ */
+function repairOrphanedToolCalls(messages: AnyPart[]): AnyPart[] {
+  return messages.map((msg: AnyPart) => {
+    if (!msg || msg.role !== 'assistant' || !Array.isArray(msg.parts)) return msg;
+
+    let changed = false;
+    const repairedParts = msg.parts.map((part: AnyPart) => {
+      if (!part || typeof part !== 'object') return part;
+      const type = String(part.type ?? '');
+
+      // Only care about tool parts (static `tool-<name>` or dynamic `dynamic-tool`)
+      if (!type.startsWith('tool-') && type !== 'dynamic-tool') return part;
+
+      // Parts with output are fine; orphaned = no output yet
+      const state = String(part.state ?? '');
+      if (state === 'output-available' || state === 'output-error') return part;
+
+      const toolName =
+        type === 'dynamic-tool'
+          ? String(part.toolName ?? 'unknown')
+          : type.slice('tool-'.length);
+
+      changed = true;
+      return {
+        type: 'text',
+        text: `[Tool call \`${toolName}\` was interrupted — the agent was stopped before it completed.]`,
+      };
+    });
+
+    return changed ? { ...msg, parts: repairedParts } : msg;
+  });
+}
+
 // ============================================================================
 // Main AgentPanel
 // ============================================================================
@@ -439,9 +484,13 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
       // For Claude Code outgoing: the bridge takes only the user prompt
       // (it doesn't accept a messages array), so we pass `scoped` through
       // unchanged — the route does its own prior-conversation preamble.
-      const finalMessages = useClaudeCode
+      const transformed = useClaudeCode
         ? scoped
         : scoped.map(transformMessageForBotflow);
+
+      // Repair any orphaned tool calls (tool_use with no tool_result) that
+      // were left by a Stop-button abort mid-stream.
+      const finalMessages = repairOrphanedToolCalls(transformed);
 
       return {
         body: { ...(body ?? {}), messages: finalMessages },
@@ -1612,6 +1661,25 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
           // User messages or assistant messages with no tools — no timeline
           if (m.role === 'user' || !hasTools) {
+            // System-note messages (the bookkeeping note inserted on GitHub link
+            // and any similar future signals) render as a subtle chip, not a
+            // normal user bubble. Detection is by text prefix to keep the chat
+            // route unchanged.
+            const firstText = filteredParts.find(p => p.type === 'text') as { type: 'text'; text: string } | undefined;
+            const isSystemNote =
+              m.role === 'user'
+              && firstText
+              && firstText.text.trimStart().startsWith('[system-note]');
+            if (isSystemNote) {
+              return (
+                <Fragment key={m.id}>
+                  {dividerEl}
+                  <div className={cn('rounded-lg border border-border/60 bg-elevated/40 px-2.5 py-1.5 text-[11px] text-muted', olderClass)}>
+                    {firstText.text.replace(/^\s*\[system-note\]\s*/, '')}
+                  </div>
+                </Fragment>
+              );
+            }
             return (
               <Fragment key={m.id}>
                 {dividerEl}
@@ -1695,10 +1763,75 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                       <div key={`tl-${ti}`} className={isLastInTimeline ? 'pb-2' : ''}>
                         {group.items.map(({ part, idx }) => {
                           if (!isToolUIPart(part)) return null;
+                          const toolName = getToolName(part);
+
+                          // askQuestion: render inline QuestionPrompt instead of the
+                          // generic ToolStep. The input carries the questions array; we
+                          // POST the user's pick to /chat/questions/answer keyed on
+                          // the tool's call id, which unblocks the server-side execute.
+                          // Claude Code wraps MCP tools with `mcp__botflow__` prefix
+                          // and uses snake_case for the tool name.
+                          if (
+                            toolName === 'askQuestion'
+                            || toolName === 'ask_question'
+                            || toolName === 'mcp__botflow__ask_question'
+                          ) {
+                            const tc = part as { toolCallId?: string; state?: string; input?: { questions?: QuestionConfig[] }; output?: unknown };
+                            const qs = (tc.input?.questions ?? []) as QuestionConfig[];
+                            const callId = tc.toolCallId ?? `${m.id}-${idx}`;
+                            const isPending = tc.state === 'input-streaming' || tc.state === 'input-available';
+                            const isDone = tc.state === 'output-available';
+                            // Derive a collapsed-summary answer payload from the tool output
+                            const summaryAnswer: QuestionAnswerPayload | undefined = (() => {
+                              if (!isDone) return undefined;
+                              const o = tc.output as { answered?: boolean; selectedIds?: string[]; selectedLabels?: string[]; customText?: string | null; dismissed?: boolean } | null;
+                              if (!o) return undefined;
+                              if (o.dismissed || o.answered === false) return { kind: 'skip' };
+                              return {
+                                kind: qs[0]?.multiSelect ? 'multi' : 'single',
+                                selectedIds: o.selectedIds ?? [],
+                                text: o.customText ?? undefined,
+                              };
+                            })();
+                            return (
+                              <div key={idx} className="my-2">
+                                <QuestionPrompt
+                                  questions={qs}
+                                  output={summaryAnswer}
+                                  disabled={!isPending}
+                                  onSubmit={async (answer) => {
+                                    // Look up selected labels from the active (first) question.
+                                    const activeQ = qs[0];
+                                    const labels = (answer.selectedIds ?? [])
+                                      .map((id) => activeQ?.options.find(o => o.id === id)?.label)
+                                      .filter((l): l is string => Boolean(l));
+                                    await fetch(`/api/projects/${encodeURIComponent(projectId)}/chat/questions/answer`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        toolCallId: callId,
+                                        selectedIds: answer.selectedIds ?? [],
+                                        selectedLabels: labels,
+                                        text: answer.text,
+                                      }),
+                                    });
+                                  }}
+                                  onSkip={async () => {
+                                    await fetch(`/api/projects/${encodeURIComponent(projectId)}/chat/questions/answer`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ toolCallId: callId, dismissed: true }),
+                                    });
+                                  }}
+                                />
+                              </div>
+                            );
+                          }
+
                           return (
                             <ToolStep
                               key={idx}
-                              toolName={getToolName(part)}
+                              toolName={toolName}
                               state={part.state}
                               content={
                                 <pre className="text-xs overflow-auto bg-surface p-2 rounded border border-border">
@@ -1902,6 +2035,10 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                     }
                     setShowCompletionWarning(false);
                     setMessageQueue([]);
+                    // Signal workspace to dismiss any pending tool-driven modals
+                    // (e.g. GoogleOAuthModal from setupOAuthProvider) and tell
+                    // the server-side polling loops to terminate early.
+                    window.dispatchEvent(new CustomEvent('agent-user-stopped'));
                   }}
                   title="Stop"
                   aria-label="Stop"

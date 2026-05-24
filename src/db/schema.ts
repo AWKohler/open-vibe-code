@@ -29,7 +29,11 @@ export const projects = pgTable('projects', {
   githubRepoOwner: text('github_repo_owner'),         // GitHub username or org
   githubRepoName: text('github_repo_name'),           // Repository name
   githubDefaultBranch: text('github_default_branch').default('main'), // Default branch
-  githubLastPushedSha: text('github_last_pushed_sha'), // Last commit SHA pushed to GitHub
+  githubLastPushedSha: text('github_last_pushed_sha'), // Last commit SHA pushed to GitHub (webcontainer flow)
+  // Sandbox GitHub flow: 'autonomous' | 'manual' | 'ask-each-time'. Null = the agent
+  // hasn't yet asked the user how they want commits handled. Drives whether
+  // git_* tool descriptions instruct the agent to commit/push on its own.
+  gitAutonomy: text('git_autonomy'),
   // User-managed Convex backend (BYO Convex)
   userConvexUrl: text('user_convex_url'),
   userConvexDeployKey: text('user_convex_deploy_key'),
@@ -40,6 +44,8 @@ export const projects = pgTable('projects', {
   // User custom domain (Pro/Max only)
   customDomain: text('custom_domain'),
   customDomainStatus: text('custom_domain_status'), // 'pending' | 'active' | 'error'
+  // Convex Auth — set to true after setupAuth runs successfully
+  authConfigured: boolean('auth_configured').notNull().default(false),
   // Public sharing
   isPublic: boolean('is_public').notNull().default(false),
   publicSlug: text('public_slug'), // human-readable unique URL slug, nullable
@@ -247,6 +253,56 @@ export const chatImages = pgTable('chat_images', {
 
 export type ChatImage = typeof chatImages.$inferSelect;
 export type NewChatImage = typeof chatImages.$inferInsert;
+
+// OAuth provider credential requests — created by the agent's setupOAuthProvider
+// tool call; resolved when the user fills in the modal in the workspace UI.
+export const oauthProviderRequests = pgTable('oauth_provider_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull(),
+  /** Which OAuth provider to configure. Currently only 'google'. */
+  provider: text('provider').notNull(),
+  /** 'pending' → modal is open. 'completed' → credentials saved. 'dismissed' → user cancelled. */
+  status: text('status').notNull().default('pending'),
+  /** The .convex.site URL shown to the user in the modal as the redirect URI. */
+  convexSiteUrl: text('convex_site_url'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  projectIdIdx: index('oauth_provider_requests_project_id_idx').on(t.projectId),
+}));
+
+export type OAuthProviderRequest = typeof oauthProviderRequests.$inferSelect;
+export type NewOAuthProviderRequest = typeof oauthProviderRequests.$inferInsert;
+
+// In-chat questions surfaced by the agent (via the askQuestion tool) and
+// resolved by the user clicking an option in the agent panel. Used as the
+// async-handshake channel for the Claude Code bridge path; the Botflow path
+// resolves the tool client-side via addToolOutput and doesn't depend on this
+// table, but writes to it for cross-agent visibility.
+export const chatQuestions = pgTable('chat_questions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull(),
+  /** Identifier of the conversation segment this question belongs to. */
+  segmentId: uuid('segment_id'),
+  /** Identifier supplied by the agent's tool call so the bridge can match the answer back. */
+  toolCallId: text('tool_call_id').notNull(),
+  /** Array of UserInputQuestion objects: { id, header, question, options[], multiSelect? }. */
+  questions: jsonb('questions').notNull(),
+  /** 'pending' → not yet answered. 'answered' → user picked. 'dismissed' → user skipped or agent stopped. */
+  status: text('status').notNull().default('pending'),
+  /** User's answer: { questionId: { selectedIds[], text? } } once status === 'answered'. */
+  answer: jsonb('answer'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  projectIdIdx: index('chat_questions_project_id_idx').on(t.projectId),
+  toolCallIdIdx: index('chat_questions_tool_call_id_idx').on(t.toolCallId),
+}));
+
+export type ChatQuestion = typeof chatQuestions.$inferSelect;
+export type NewChatQuestion = typeof chatQuestions.$inferInsert;
 
 // Usage tracking for subscription tier enforcement
 // One row per (userId, period, model) — upserted on every agent call completion

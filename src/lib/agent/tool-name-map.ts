@@ -132,6 +132,10 @@ export const CLAUDE_CODE_TO_BOTFLOW: Record<string, ToolRewrite | null> = {
     to: "setupAuth",
     mapInput: identityInput,
   },
+  setup_oauth_provider: {
+    to: "setupOAuthProvider",
+    mapInput: identityInput,
+  },
 
   // ── No Botflow counterpart — collapse to text summary on transit ─────
   Task: null,
@@ -188,6 +192,7 @@ export const BOTFLOW_TO_CLAUDE_CODE: Record<string, ToolRewrite | null> = {
   refreshPreview:      passthrough("refreshPreview"),
   convexDeploy:        { to: "convex_deploy", mapInput: identityInput },
   setupAuth:           { to: "setup_auth", mapInput: identityInput },
+  setupOAuthProvider:  { to: "setup_oauth_provider", mapInput: identityInput },
 };
 
 /**
@@ -213,6 +218,7 @@ export const BOTFLOW_NATIVE_TOOLS = new Set<string>([
   "refreshPreview",
   "convexDeploy",
   "setupAuth",
+  "setupOAuthProvider",
 ]);
 
 /** ID validation per Anthropic's tool_use_id constraint. */

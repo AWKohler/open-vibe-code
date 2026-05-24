@@ -14,10 +14,12 @@
  *
  * Out of scope for v1 (deferred — both panels are heavily WebContainer-coupled
  * and need a separate refactor):
- *   • GitHub panel
  *   • Publish panel (Cloudflare deploy)
  *   • HTML snapshot capture (requires postMessage from a cross-origin iframe;
  *     verify the template's main.tsx forwarding works to *.vercel.run first)
+ *
+ * GitHub: Phase A wiring lives in `./github-panel.tsx` and renders as a
+ * sidebar tab on the Code view.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -57,6 +59,8 @@ import {
   type BackendType,
 } from "@/lib/project-platform";
 import { FileSearch } from "@/components/persistent-workspace/file-search";
+import { GoogleOAuthModal } from "@/components/workspace/google-oauth-modal";
+import { SandboxGitHubPanel } from "./github-panel";
 
 type WorkspaceView = "preview" | "code" | "database";
 type SandboxStatus = "idle" | "booting" | "ready" | "error";
@@ -90,7 +94,12 @@ export function SandboxedWebWorkspace({
 
   // ── UI state ─────────────────────────────────────────────────────────
   const [showSidebar, setShowSidebar] = useState(true);
-  const [sidebarTab, setSidebarTab] = useState<"files" | "search" | "env">("files");
+  const [sidebarTab, setSidebarTab] = useState<"files" | "search" | "env" | "git">("files");
+
+  // GitHub link state (lives on `projects`; mirrored locally for the panel)
+  const [githubRepoOwner, setGithubRepoOwner] = useState<string | null>(null);
+  const [githubRepoName, setGithubRepoName] = useState<string | null>(null);
+  const [githubDefaultBranch, setGithubDefaultBranch] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<WorkspaceView>("preview");
 
   // ── Preview / dev server ─────────────────────────────────────────────
@@ -109,6 +118,14 @@ export function SandboxedWebWorkspace({
     initialBackendType ?? "platform",
   );
   const hasBackend = projectUsesConvex(backendType);
+  /** True once setupAuth has run successfully on this project. */
+  const [hasAuth, setHasAuth] = useState(false);
+  /** Pending OAuth provider request surfaced by the agent's setupOAuthProvider tool. */
+  const [pendingOAuthRequest, setPendingOAuthRequest] = useState<{
+    id: string;
+    provider: string;
+    convexSiteUrl: string | null;
+  } | null>(null);
 
   // Fall back to Preview if Database tab is selected but no backend
   useEffect(() => {
@@ -117,7 +134,7 @@ export function SandboxedWebWorkspace({
     }
   }, [hasBackend, currentView]);
 
-  // Fetch project metadata (backendType) on mount
+  // Fetch project metadata (backendType + authConfigured + GitHub link) on mount
   useEffect(() => {
     (async () => {
       try {
@@ -127,6 +144,10 @@ export function SandboxedWebWorkspace({
         if (!initialBackendType && typeof proj?.backendType === "string") {
           setBackendType(normalizeBackendType(proj.backendType));
         }
+        if (proj?.authConfigured === true) setHasAuth(true);
+        if (typeof proj?.githubRepoOwner === "string") setGithubRepoOwner(proj.githubRepoOwner);
+        if (typeof proj?.githubRepoName === "string") setGithubRepoName(proj.githubRepoName);
+        if (typeof proj?.githubDefaultBranch === "string") setGithubDefaultBranch(proj.githubDefaultBranch);
       } catch (e) {
         console.warn("Failed to load project metadata", e);
       }
@@ -486,6 +507,70 @@ export function SandboxedWebWorkspace({
   const isDevServerRunningRef = useRef(isDevServerRunning);
   isDevServerRunningRef.current = isDevServerRunning;
 
+  // ── OAuth provider request polling ───────────────────────────────────
+  // When the agent calls setupOAuthProvider, it creates a pending request in
+  // the DB. We poll for it and show the GoogleOAuthModal when one is found.
+  //
+  // NOTE: we deliberately do NOT gate on hasAuth here. setupAuth sets
+  // authConfigured=true server-side but the workspace only reads it on mount.
+  // If the user runs setupAuth then setupOAuthProvider in the same session,
+  // hasAuth would still be false. Polling regardless is cheap (one indexed
+  // DB read every 2.5s returning null most of the time).
+  useEffect(() => {
+    if (!hasBackend || sandboxStatus !== "ready") return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/convex/oauth-provider-status`,
+          { cache: "no-store" },
+        );
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as {
+          ok: boolean;
+          pending: { id: string; provider: string; convexSiteUrl: string | null } | null;
+        };
+        if (!cancelled && data.ok) {
+          setPendingOAuthRequest(data.pending);
+        }
+      } catch {
+        // Network blip — retry on next tick
+      }
+    };
+
+    void poll();
+    const timer = setInterval(poll, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [projectId, hasBackend, sandboxStatus]);
+
+  // ── Agent-stop → dismiss pending OAuth request ────────────────────────
+  // When the user clicks X while setupOAuthProvider is polling, we need to:
+  //  1. Close the modal immediately.
+  //  2. POST a dismiss to the DB so the server-side polling loop sees
+  //     status='dismissed' on its next tick and returns instead of continuing
+  //     to poll for another 5 minutes.
+  useEffect(() => {
+    const handleAgentStopped = () => {
+      // Close modal immediately
+      setPendingOAuthRequest((current) => {
+        if (current) {
+          // Fire-and-forget dismiss — non-fatal if it fails
+          fetch(`/api/projects/${projectId}/convex/setup-oauth-provider`, {
+            method: "DELETE",
+          }).catch(() => {});
+        }
+        return null;
+      });
+    };
+
+    window.addEventListener("agent-user-stopped", handleAgentStopped);
+    return () => window.removeEventListener("agent-user-stopped", handleAgentStopped);
+  }, [projectId]);
+
   // ── Dev server ───────────────────────────────────────────────────────
   const handleStartDevServer = useCallback(async () => {
     if (isStartingServer) return;
@@ -557,6 +642,15 @@ export function SandboxedWebWorkspace({
   // ── Render ───────────────────────────────────────────────────────────
   return (
     <div className="h-screen flex bolt-bg text-fg">
+      {/* Google OAuth credential modal — shown when agent calls setupOAuthProvider */}
+      {pendingOAuthRequest && (
+        <GoogleOAuthModal
+          requestId={pendingOAuthRequest.id}
+          convexSiteUrl={pendingOAuthRequest.convexSiteUrl}
+          projectId={projectId}
+          onClose={() => setPendingOAuthRequest(null)}
+        />
+      )}
       {/* Agent sidebar. Hold the initial prompt until the sandbox is ready —
           otherwise the agent fires its first turn against an empty filesystem
           while the seed is still cloning, and tools fail. */}
@@ -733,10 +827,11 @@ export function SandboxedWebWorkspace({
                           { value: "files", text: "Files" },
                           { value: "search", text: "Search" },
                           { value: "env", text: "ENV" },
-                        ] as TabOption<"files" | "search" | "env">[]
+                          { value: "git", text: "Git" },
+                        ] as TabOption<"files" | "search" | "env" | "git">[]
                       }
                       selected={sidebarTab}
-                      onSelect={(v) => setSidebarTab(v as "files" | "search" | "env")}
+                      onSelect={(v) => setSidebarTab(v as "files" | "search" | "env" | "git")}
                       stretch
                     />
                   </div>
@@ -755,8 +850,25 @@ export function SandboxedWebWorkspace({
                           handleFileSelect(path);
                         }}
                       />
-                    ) : (
+                    ) : sidebarTab === "env" ? (
                       <EnvPanel projectId={projectId} />
+                    ) : (
+                      <SandboxGitHubPanel
+                        projectId={projectId}
+                        githubRepoOwner={githubRepoOwner}
+                        githubRepoName={githubRepoName}
+                        githubDefaultBranch={githubDefaultBranch}
+                        onRepoLinked={(owner, name, branch) => {
+                          setGithubRepoOwner(owner);
+                          setGithubRepoName(name);
+                          setGithubDefaultBranch(branch);
+                        }}
+                        onRepoUnlinked={() => {
+                          setGithubRepoOwner(null);
+                          setGithubRepoName(null);
+                          setGithubDefaultBranch(null);
+                        }}
+                      />
                     )}
                   </div>
                 </div>

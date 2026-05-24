@@ -259,9 +259,24 @@ export async function POST(req: Request) {
       "getDevServerLog",
       "getBrowserLog",
       "refreshPreview",
+      // In-chat question primitive — always available on sandboxed-web.
+      "ask_question",
     );
     if (hasBackend) {
       customTools.push("convex_deploy");
+    }
+    // Git tools — only when a repo is linked. Gating must match the project
+    // state at turn-start; the host route also re-checks at execution time.
+    if (project.githubRepoOwner && project.githubRepoName) {
+      customTools.push(
+        "git_status",
+        "git_diff",
+        "git_commit",
+        "git_push",
+        "git_pull",
+        "git_resolve_conflict",
+        "set_git_autonomy",
+      );
     }
   }
 

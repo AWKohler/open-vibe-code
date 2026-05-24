@@ -7,6 +7,7 @@ import {
   startSandboxDevServer,
   stopSandboxDevServer,
 } from "@/lib/workspace-control";
+import { refreshAuthSiteUrl } from "@/lib/convex-auth-setup";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +41,11 @@ export async function POST(
   });
 
   if (result.ok) {
+    // Keep SITE_URL in sync with the current sandbox domain so Convex Auth
+    // magic links always point at the right frontend. Non-fatal if it fails.
+    if (result.previewUrl) {
+      void refreshAuthSiteUrl(project.id, result.previewUrl).catch(() => {});
+    }
     return NextResponse.json({
       previewUrl: result.previewUrl,
       port: result.port,

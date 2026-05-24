@@ -1,0 +1,93 @@
+/**
+ * Record a user's answer to an in-chat askQuestion tool call.
+ *
+ * Body: { toolCallId, selectedIds, selectedLabels?, text?, dismissed? }
+ *   • toolCallId — matches the chat_questions row created by the agent's
+ *                  askQuestion tool execute.
+ *   • selectedIds — option ids the user picked. Required unless dismissed.
+ *   • selectedLabels — denormalized labels so the agent can read them
+ *                       without dereferencing option ids. Provided by the
+ *                       UI from the active question's options.
+ *   • text — optional custom free-form answer (when allowCustom).
+ *   • dismissed — true if the user cancelled / skipped.
+ *
+ * On success the row is marked `answered` (or `dismissed`); the agent's
+ * polling execute unblocks within ~2 seconds and the agent's next turn
+ * sees the structured answer.
+ */
+import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { and, eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import { chatQuestions, projects } from "@/db/schema";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
+interface AnswerBody {
+  toolCallId?: string;
+  questionId?: string; // Allow lookup by row id too (for Claude Code path)
+  selectedIds?: string[];
+  selectedLabels?: string[];
+  text?: string;
+  dismissed?: boolean;
+}
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  try {
+    const { userId } = await auth();
+    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const db = getDb();
+    const [proj] = await db.select().from(projects).where(eq(projects.id, id));
+    if (!proj || proj.userId !== userId) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    const body = (await req.json()) as AnswerBody;
+    if (!body.toolCallId && !body.questionId) {
+      return NextResponse.json(
+        { error: "toolCallId or questionId is required" },
+        { status: 400 },
+      );
+    }
+
+    const whereClause = body.toolCallId
+      ? and(eq(chatQuestions.projectId, id), eq(chatQuestions.toolCallId, body.toolCallId))
+      : and(eq(chatQuestions.projectId, id), eq(chatQuestions.id, body.questionId!));
+
+    if (body.dismissed) {
+      const [updated] = await db
+        .update(chatQuestions)
+        .set({ status: "dismissed", updatedAt: new Date() })
+        .where(whereClause)
+        .returning();
+      if (!updated) return NextResponse.json({ error: "Question not found" }, { status: 404 });
+      return NextResponse.json({ ok: true, status: "dismissed" });
+    }
+
+    const answer = {
+      selectedIds: body.selectedIds ?? [],
+      selectedLabels: body.selectedLabels ?? [],
+      text: body.text ?? null,
+    };
+    const [updated] = await db
+      .update(chatQuestions)
+      .set({
+        status: "answered",
+        answer: answer as unknown as object,
+        updatedAt: new Date(),
+      })
+      .where(whereClause)
+      .returning();
+    if (!updated) return NextResponse.json({ error: "Question not found" }, { status: 404 });
+    return NextResponse.json({ ok: true, status: "answered" });
+  } catch (err) {
+    console.error("POST /chat/questions/answer failed:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to record answer" },
+      { status: 500 },
+    );
+  }
+}

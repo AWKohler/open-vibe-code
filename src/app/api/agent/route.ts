@@ -542,6 +542,12 @@ export async function POST(req: Request) {
     // Default to true so non-project agent requests still get the full toolset.
     let hasBackend = true;
     let convexUrl: string | undefined;
+    let githubLink: {
+      owner: string;
+      name: string;
+      branch: string;
+      autonomy: "autonomous" | "manual" | "ask-each-time" | null;
+    } | undefined;
     if (projectId) {
       const [proj] = await db
         .select()
@@ -556,6 +562,21 @@ export async function POST(req: Request) {
       selectedModel = resolveModelId(proj.model);
       hasBackend = proj.backendType !== "none";
       convexUrl = proj.userConvexUrl || proj.convexDeployUrl || undefined;
+      if (proj.githubRepoOwner && proj.githubRepoName) {
+        const autonomyValue = proj.gitAutonomy;
+        const autonomy: "autonomous" | "manual" | "ask-each-time" | null =
+          autonomyValue === "autonomous"
+          || autonomyValue === "manual"
+          || autonomyValue === "ask-each-time"
+            ? autonomyValue
+            : null;
+        githubLink = {
+          owner: proj.githubRepoOwner,
+          name: proj.githubRepoName,
+          branch: proj.githubDefaultBranch ?? "main",
+          autonomy,
+        };
+      }
     }
 
     // Load credentials from Clerk (Redis-cached)
@@ -586,6 +607,9 @@ export async function POST(req: Request) {
         convexUrl,
         appBaseUrl: new URL(req.url).origin,
         ...(cookie ? { authHeaders: { cookie } } : {}),
+        ...(githubLink
+          ? { github: { ...githubLink, userId } }
+          : {}),
       });
     } else if (isSandboxPlatform(platform ?? "") && projectId) {
       tools = getPersistentTools(projectId);

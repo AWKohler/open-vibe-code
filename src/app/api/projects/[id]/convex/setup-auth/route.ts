@@ -3,10 +3,9 @@
  *
  * Provisions Convex Auth on a sandboxed-web project:
  *   1. Generates an RSA-256 key pair server-side.
- *   2. Sets CONVEX_AUTH_PRIVATE_KEY, JWKS, and SITE_URL on the Convex
- *      deployment via the Convex Management API (credentials never enter
- *      the sandbox).
- *   3. Returns boilerplate file templates for the agent to write.
+ *   2. Sets CONVEX_AUTH_PRIVATE_KEY, JWKS, SITE_URL, CONVEX_SITE_URL on the
+ *      Convex deployment via its own admin HTTP API. Credentials stay server-side.
+ *   3. Returns boilerplate file templates + a rich reference context.
  *
  * Safe to call multiple times — it just rotates the signing keys.
  */
@@ -26,66 +25,72 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const { userId } = await auth();
-  if (!userId) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id: projectId } = await params;
-  const db = getDb();
-  const [project] = await db
-    .select()
-    .from(projects)
-    .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
-    .limit(1);
-
-  if (!project) {
-    return NextResponse.json({ ok: false, error: "Project not found" }, { status: 404 });
-  }
-  if (project.backendType === "none") {
-    return NextResponse.json(
-      { ok: false, error: "This project has no backend — Convex Auth is not available." },
-      { status: 400 },
-    );
-  }
-  if (project.platform !== "sandboxed-web") {
-    return NextResponse.json(
-      { ok: false, error: "setupAuth is only available for sandboxed-web projects." },
-      { status: 400 },
-    );
-  }
-
-  // Resolve SITE_URL from the sandbox's stable preview domain
-  let siteUrl = "https://placeholder.example.com";
   try {
-    const sandbox = await getOrCreatePersistentSandbox(projectId);
-    siteUrl = sandbox.domain(5173);
-  } catch {
-    // Non-fatal — placeholder is good enough for most auth flows
-  }
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    }
 
-  // For BYOC backends, use the user's Convex OAuth access token
-  let userConvexOAuthToken: string | null = null;
-  if (project.backendType === "user") {
-    const creds = await getUserCredentials(userId);
-    userConvexOAuthToken = creds.convexOAuthAccessToken;
-    if (!userConvexOAuthToken) {
+    const { id: projectId } = await params;
+    const db = getDb();
+    const [project] = await db
+      .select()
+      .from(projects)
+      .where(and(eq(projects.id, projectId), eq(projects.userId, userId)))
+      .limit(1);
+
+    if (!project) {
+      return NextResponse.json({ ok: false, error: "Project not found" }, { status: 404 });
+    }
+    if (project.backendType === "none") {
       return NextResponse.json(
-        {
-          ok: false,
-          error:
-            "Your Convex account is not connected. Please reconnect it in Settings → Connections before setting up auth.",
-        },
-        { status: 402 },
+        { ok: false, error: "This project has no backend — Convex Auth is not available." },
+        { status: 400 },
       );
     }
+    if (project.platform !== "sandboxed-web") {
+      return NextResponse.json(
+        { ok: false, error: "setupAuth is only available for sandboxed-web projects." },
+        { status: 400 },
+      );
+    }
+
+    // Resolve SITE_URL from the sandbox's stable preview domain
+    let siteUrl = "https://placeholder.example.com";
+    try {
+      const sandbox = await getOrCreatePersistentSandbox(projectId);
+      siteUrl = sandbox.domain(5173);
+    } catch (err) {
+      console.warn("[setup-auth] could not resolve sandbox preview URL:", err);
+    }
+
+    // For BYOC backends, use the user's Convex OAuth access token
+    let userConvexOAuthToken: string | null = null;
+    if (project.backendType === "user") {
+      const creds = await getUserCredentials(userId);
+      userConvexOAuthToken = creds.convexOAuthAccessToken;
+      if (!userConvexOAuthToken) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error:
+              "Your Convex account is not connected. Please reconnect it in Settings → Connections before setting up auth.",
+          },
+          { status: 402 },
+        );
+      }
+    }
+
+    const result = await setupConvexAuth(projectId, { siteUrl, userConvexOAuthToken });
+
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
+    }
+
+    return NextResponse.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[setup-auth] unhandled error:", err);
+    return NextResponse.json({ ok: false, error: `setupAuth failed: ${message}` }, { status: 500 });
   }
-
-  const result = await setupConvexAuth(projectId, { siteUrl, userConvexOAuthToken });
-
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 500 });
-  }
-
-  return NextResponse.json(result);
 }

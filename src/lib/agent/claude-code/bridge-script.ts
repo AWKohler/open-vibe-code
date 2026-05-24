@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "8";
+export const BRIDGE_SCRIPT_VERSION = "9";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -196,6 +196,114 @@ function buildCustomTools(customTools) {
         "Force the preview iframe in the user's workspace to hard-reload. Useful after changes that Vite HMR cannot pick up.",
         {},
         makeHostToolHandler("refreshPreview"),
+      ),
+    );
+  }
+
+  if (customTools.includes("ask_question")) {
+    tools.push(
+      tool(
+        "ask_question",
+        "Ask the user a multiple-choice question inline in the chat. Use when you genuinely need a decision and continuing without it would be guessing. Each question needs: id (slug), question (prompt), options (each with id, label, optional description). Optional: header, multiSelect (default false), allowCustom + customPlaceholder for free-form input. Blocks up to 5 minutes; returns { answered: false } on dismiss/timeout — proceed without that input.",
+        {
+          questions: z.array(z.object({
+            id: z.string(),
+            header: z.string().optional(),
+            question: z.string(),
+            options: z.array(z.object({
+              id: z.string(),
+              label: z.string(),
+              description: z.string().optional(),
+            })),
+            multiSelect: z.boolean().optional(),
+            allowCustom: z.boolean().optional(),
+            customPlaceholder: z.string().optional(),
+          })),
+        },
+        makeHostToolHandler("ask_question"),
+      ),
+    );
+  }
+
+  // ── Git tools (Phase D — only registered when project has a GitHub repo) ──
+  // The host route gates these on project.githubRepoOwner; we still need to
+  // advertise them to Claude Code when the route includes them in customTools.
+  if (customTools.includes("git_status")) {
+    tools.push(
+      tool(
+        "git_status",
+        "Show the working-tree status: current branch, ahead/behind counts, and lists of added/modified/deleted/untracked/conflicted files.",
+        {},
+        makeHostToolHandler("git_status"),
+      ),
+    );
+  }
+  if (customTools.includes("git_diff")) {
+    tools.push(
+      tool(
+        "git_diff",
+        "Show the unified diff of working-tree changes. Optionally limit to a single path or show only staged changes.",
+        {
+          path: z.string().optional(),
+          staged: z.boolean().optional(),
+        },
+        makeHostToolHandler("git_diff"),
+      ),
+    );
+  }
+  if (customTools.includes("git_commit")) {
+    tools.push(
+      tool(
+        "git_commit",
+        "Stage all working-tree changes and create a local commit. Does NOT push to GitHub — call git_push for that. Skipped silently if there's nothing to commit.",
+        { message: z.string() },
+        makeHostToolHandler("git_commit"),
+      ),
+    );
+  }
+  if (customTools.includes("git_push")) {
+    tools.push(
+      tool(
+        "git_push",
+        "Push the current branch to GitHub. Returns code=\"non-fast-forward\" when the remote has diverged — call git_pull first in that case. Use force=true only after the user explicitly approves overwriting remote.",
+        { force: z.boolean().optional() },
+        makeHostToolHandler("git_push"),
+      ),
+    );
+  }
+  if (customTools.includes("git_pull")) {
+    tools.push(
+      tool(
+        "git_pull",
+        "Fetch and merge the current branch from GitHub. Returns { clean: true } on fast-forward or { clean: false, conflicts: [paths] } when conflicts need resolving — use git_resolve_conflict for each.",
+        {},
+        makeHostToolHandler("git_pull"),
+      ),
+    );
+  }
+  if (customTools.includes("git_resolve_conflict")) {
+    tools.push(
+      tool(
+        "git_resolve_conflict",
+        "Resolve a merge conflict for a single file. Pass side='ours' or side='theirs' to use one wholesale, or pass content to write a custom merge. Afterwards call git_commit (with a merge message) to finalize once all conflicts are resolved.",
+        {
+          path: z.string(),
+          side: z.enum(["ours", "theirs"]).optional(),
+          content: z.string().optional(),
+        },
+        makeHostToolHandler("git_resolve_conflict"),
+      ),
+    );
+  }
+  if (customTools.includes("set_git_autonomy")) {
+    tools.push(
+      tool(
+        "set_git_autonomy",
+        "Record the user's chosen git-autonomy mode for this project. Call this exactly once after asking the autonomy question, with the value the user picked.",
+        {
+          mode: z.enum(["autonomous", "manual", "ask-each-time"]),
+        },
+        makeHostToolHandler("set_git_autonomy"),
       ),
     );
   }

@@ -91,7 +91,7 @@ export function GoogleOAuthModal({
           </svg>
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold text-fg">Connect Google Sign-In</h2>
-            <p className="text-xs text-muted mt-0.5">Enter your Google OAuth credentials to enable "Sign in with Google"</p>
+            <p className="text-xs text-muted mt-0.5">Enter your Google OAuth credentials to enable &ldquo;Sign in with Google&rdquo;</p>
           </div>
           <button
             onClick={handleDismiss}

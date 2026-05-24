@@ -18,7 +18,6 @@ import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertCircle, Check, GitMerge, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 
 export interface ConflictBlob {

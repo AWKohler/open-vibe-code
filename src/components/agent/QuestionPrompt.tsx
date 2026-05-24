@@ -72,9 +72,14 @@ export function QuestionPrompt({
   disabled = false,
   className,
 }: QuestionPromptProps) {
-  const total = questions.length;
-  const clampedIndex = Math.max(1, Math.min(questionIndex, total));
-  const active = questions[clampedIndex - 1];
+  const total = Array.isArray(questions) ? questions.length : 0;
+  const clampedIndex = Math.max(1, Math.min(questionIndex, Math.max(total, 1)));
+  const active = total > 0 ? questions[clampedIndex - 1] : undefined;
+  // Defend against partial / malformed input: during `input-streaming` the
+  // tool's args arrive piece-by-piece and `options` may be missing or not yet
+  // an array. Treating `options` as the canonical "is this question ready?"
+  // signal lets the UI render a tiny placeholder until it is.
+  const options = Array.isArray(active?.options) ? active!.options : null;
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [customText, setCustomText] = useState("");
@@ -88,20 +93,28 @@ export function QuestionPrompt({
   const customEnabled = active?.allowCustom ?? false;
 
   const canSubmit = useMemo(() => {
-    if (!active) return false;
+    if (!active || !options) return false;
     const nonCustom = selectedIds.filter((id) => id !== QUESTION_CUSTOM_ID).length;
     const hasCustomText = customText.trim().length > 0;
     const total = nonCustom + (hasCustomText ? 1 : 0);
     if (active.multiSelect) return total >= 1;
     return total === 1;
-  }, [active, selectedIds, customText]);
+  }, [active, options, selectedIds, customText]);
 
   // ── Collapsed summary mode ────────────────────────────────────────────
   if (output) {
     return <CollapsedSummary questions={questions} output={output} className={className} />;
   }
 
-  if (!active) return null;
+  if (!active || !options) {
+    // Partial / streaming state. Render a minimal placeholder so the agent
+    // panel doesn't crash mid-stream.
+    return (
+      <div className={cn("rounded-xl border border-border bg-elevated/60 px-3 py-2 text-[11px] text-muted", className)}>
+        Preparing question…
+      </div>
+    );
+  }
 
   const toggleMulti = (id: string) => {
     setSelectedIds((prev) =>
@@ -169,7 +182,7 @@ export function QuestionPrompt({
 
       {/* Options */}
       <div className="px-2 pb-2 space-y-px">
-        {active.options.map((option, idx) => {
+        {options.map((option, idx) => {
           const checked = selectedIds.includes(option.id);
           return (
             <button
@@ -213,7 +226,7 @@ export function QuestionPrompt({
                   : "bg-transparent text-muted border-border",
               )}
             >
-              {optionBadge(active.options.length)}
+              {optionBadge(options.length)}
             </span>
             <input
               type="text"
@@ -266,8 +279,8 @@ function CollapsedSummary({
   const summary = useMemo(() => {
     if (output.kind === "skip") return "Skipped";
     const selectedLabels: string[] = [];
-    for (const q of questions) {
-      for (const opt of q.options) {
+    for (const q of questions ?? []) {
+      for (const opt of (q?.options ?? [])) {
         if (output.selectedIds?.includes(opt.id)) selectedLabels.push(opt.label);
       }
     }
@@ -278,7 +291,8 @@ function CollapsedSummary({
   return (
     <div
       className={cn(
-        "rounded-xl border border-border bg-elevated/60 px-3 py-1.5",
+        // Fully opaque bg so the timeline rail behind this card is masked.
+        "rounded-xl border border-border bg-elevated px-3 py-1.5",
         className,
       )}
     >

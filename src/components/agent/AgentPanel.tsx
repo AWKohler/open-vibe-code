@@ -1794,7 +1794,13 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                               };
                             })();
                             return (
-                              <div key={idx} className="my-2">
+                              // `relative z-10` lifts the card above the
+                              // absolutely-positioned timeline rail so the
+                              // card's opaque background masks the line
+                              // within its own bounds. The line still
+                              // continues above and below the card,
+                              // connecting it to neighboring tool steps.
+                              <div key={idx} className="relative z-10 my-2">
                                 <QuestionPrompt
                                   questions={qs}
                                   output={summaryAnswer}

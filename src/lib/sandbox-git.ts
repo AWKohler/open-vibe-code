@@ -500,7 +500,9 @@ export async function pullBranch(
       stashed = true;
     }
 
-    const merge = await git(projectId, ["merge", "--no-rebase", `origin/${opts.branch}`]);
+    // No --no-rebase here: that's a `git pull` flag and `git merge` rejects
+    // it by dumping its help text to stderr. Plain `git merge` always merges.
+    const merge = await git(projectId, ["merge", `origin/${opts.branch}`]);
 
     if (merge.exitCode === 0) {
       // Restore stashed changes on top of the merged tree.

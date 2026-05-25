@@ -349,7 +349,11 @@ export function SandboxGitHubPanel({
       const res = await fetch(`/api/projects/${projectId}/github/sandbox/pull`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error ?? `HTTP ${res.status}`);
+        // Concatenate the high-level message and stderr so the user (and
+        // we, debugging) can see what git actually said.
+        const errMsg = data.error ?? `HTTP ${res.status}`;
+        const stderr = (data.stderr as string | undefined) ?? "";
+        throw new Error(stderr ? `${errMsg}\n\n${stderr.slice(-600)}` : errMsg);
       }
       if (data.clean) {
         toast({ title: "Up to date" });

@@ -751,20 +751,25 @@ export function SandboxedWebWorkspace({
             </span>
           </Button>
 
-          <button
-            ref={publishBtnRef}
-            onClick={() => setPublishOpen((v) => !v)}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition",
-              cloudflareProjectName
-                ? "text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10"
-                : "text-muted hover:text-fg hover:bg-soft",
+          <div className="relative">
+            <Button
+              ref={publishBtnRef}
+              variant="default"
+              size="sm"
+              className={cn(
+                "font-bold text-sm",
+                cloudflareProjectName && "bg-green-600 hover:bg-green-700 text-white",
+              )}
+              onClick={() => setPublishOpen((v) => !v)}
+              title={cloudflareProjectName ? "Manage deployment" : "Publish to Cloudflare Pages"}
+            >
+              <Globe size={14} className="mr-1.5" />
+              {cloudflareProjectName ? "Published" : "Publish"}
+            </Button>
+            {cloudflareProjectName && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-500 border-2 border-surface pointer-events-none" />
             )}
-            title={cloudflareProjectName ? "Manage deployment" : "Publish to Cloudflare Pages"}
-          >
-            <Globe size={15} />
-            <span>{cloudflareProjectName ? "Published" : "Publish"}</span>
-          </button>
+          </div>
 
           {currentView === "code" && (
             <Button

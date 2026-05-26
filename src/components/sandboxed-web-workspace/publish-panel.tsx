@@ -48,7 +48,6 @@ interface SandboxPublishPanelProps {
 }
 
 function stripAnsi(s: string): string {
-  // eslint-disable-next-line no-control-regex
   return s.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
@@ -81,7 +80,7 @@ export function SandboxPublishPanel({
   onUnpublished,
   canUseCustomDomain,
   managedDomainsEnabled,
-  managedDomainId,
+  managedDomainId: _managedDomainId,
   managedDomainHostname,
   onManagedDomainChanged,
   customDomain,

@@ -73,7 +73,7 @@ export interface CreateDnsRecordInput {
   comment?: string;
 }
 
-export interface UpdateDnsRecordInput extends Partial<CreateDnsRecordInput> {}
+export type UpdateDnsRecordInput = Partial<CreateDnsRecordInput>;
 
 // ─── Zones ────────────────────────────────────────────────────────────────
 

@@ -89,6 +89,14 @@ export function SandboxPublishPanel({
 }: SandboxPublishPanelProps) {
   const initial: PublishState = cloudflareProjectName ? "published" : "idle";
   const [state, setState] = useState<PublishState>(initial);
+
+  // The workspace fetches project metadata asynchronously, so cloudflareProjectName
+  // can flip from null → set after the panel mounts. Reflect that in the panel's
+  // state so the "published" view shows up without a manual refresh.
+  useEffect(() => {
+    if (cloudflareProjectName && state === "idle") setState("published");
+    if (!cloudflareProjectName && state === "published") setState("idle");
+  }, [cloudflareProjectName, state]);
   const [logs, setLogs] = useState<string[]>([]);
   const [statusLine, setStatusLine] = useState<string>("");
   const [errorOutput, setErrorOutput] = useState<string>("");

@@ -356,7 +356,7 @@ export function SandboxGitHubPanel({
         throw new Error(stderr ? `${errMsg}\n\n${stderr.slice(-600)}` : errMsg);
       }
       if (data.clean) {
-        toast({ title: "Up to date" });
+        toast({ title: data.changed ? "Pulled latest from GitHub" : "Already up to date" });
       } else {
         setConflictModal({
           branch: data.branch,

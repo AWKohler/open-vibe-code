@@ -443,98 +443,79 @@ export async function pushBranch(
 }
 
 /**
- * Fetch + merge. Stashes uncommitted local changes around the merge so
- * stray working-tree modifications (dev-server cache writes, formatter
- * output, etc.) don't block a clean pull.
+ * Fetch + merge. Pre-commits uncommitted local changes as a "WIP" commit
+ * before merging so that conflicts have the user-expected ours/theirs
+ * semantics ("ours" = my local edits, "theirs" = what GitHub has).
  *
- * Semantics:
- *   - Fetches origin/<branch>.
- *   - If the working tree has uncommitted changes (`git status --porcelain`
- *     is non-empty): stash them with --include-untracked, run the merge,
- *     then attempt to pop the stash on success.
- *   - Merge uses --no-rebase (the default) so non-fast-forward histories
- *     get a real merge commit. We do NOT pass --no-ff: when the local
- *     branch is strictly behind, git fast-forwards and no merge commit
- *     is created. This is what non-developer users expect.
+ * We previously used `git stash push` / `git stash pop`, but that inverts
+ * the semantics during a pop conflict: stash content lands as `theirs` and
+ * post-merge HEAD as `ours`. That made "Use GitHub's" in the conflict
+ * modal silently apply the local edits.
  *
  * Returns:
- *   - `{ ok: true, clean: true }` on a clean merge / fast-forward.
+ *   - `{ ok: true, clean: true, changed }` on a clean merge / fast-forward.
+ *     `changed` indicates whether HEAD moved (so the UI can distinguish
+ *     "pulled new commits" from "already up to date").
  *   - `{ ok: true, clean: false, conflicts }` when files conflict.
- *   - `GitErr` for unrecoverable failures (network, identity, etc.).
+ *   - `GitErr` for unrecoverable failures.
  */
 export async function pullBranch(
   projectId: string,
   opts: { token: string; owner: string; name: string; branch: string },
 ): Promise<
-  | (GitOk & { clean: true })
+  | (GitOk & { clean: true; changed: boolean })
   | (GitOk & { clean: false; conflicts: string[] })
   | GitErr
 > {
   return withAuthRemote(projectId, opts, async () => {
-    // Fetch first — separate step so we can distinguish network errors
-    // from merge conflicts in the user's response.
     const fetch = await git(projectId, ["fetch", "origin", opts.branch]);
     if (fetch.exitCode !== 0) {
       return gitErr(fetch.stderr, "git fetch failed");
     }
 
-    // Detect uncommitted local changes that would block a merge.
+    const before = await git(projectId, ["rev-parse", "HEAD"]);
+    const beforeSha = before.exitCode === 0 ? before.stdout.trim() : "";
+
+    // Pre-commit any pending changes so the merge sees them on `ours`.
     const dirty = await git(projectId, ["status", "--porcelain"]);
     const hasDirty = dirty.stdout.trim().length > 0;
-
-    let stashed = false;
     if (hasDirty) {
-      const stash = await git(projectId, [
-        "stash",
-        "push",
-        "--include-untracked",
-        "-m",
-        "botflow-pull-autostash",
-      ]);
-      if (stash.exitCode !== 0) {
-        return gitErr(
-          stash.stderr,
-          "Could not stash your uncommitted changes before pulling. Save or discard them first.",
-        );
+      // Ensure an identity exists; without it `git commit` fails. The
+      // link/clone path sets one, but be defensive for older sandboxes.
+      await setLocalIdentity(projectId, {});
+      const add = await git(projectId, ["add", "-A"]);
+      if (add.exitCode !== 0) {
+        return gitErr(add.stderr, "Could not stage your pending changes before pulling.");
       }
-      stashed = true;
+      const wip = await git(projectId, [
+        "commit",
+        "-m",
+        "Local changes (pre-pull snapshot)",
+        "--allow-empty",
+        "--no-verify",
+      ]);
+      if (wip.exitCode !== 0) {
+        return gitErr(wip.stderr, "Could not commit your pending changes before pulling.");
+      }
     }
 
-    // No --no-rebase here: that's a `git pull` flag and `git merge` rejects
-    // it by dumping its help text to stderr. Plain `git merge` always merges.
-    const merge = await git(projectId, ["merge", `origin/${opts.branch}`]);
+    const merge = await git(projectId, ["merge", "--no-edit", `origin/${opts.branch}`]);
 
     if (merge.exitCode === 0) {
-      // Restore stashed changes on top of the merged tree.
-      if (stashed) {
-        const pop = await git(projectId, ["stash", "pop"]);
-        if (pop.exitCode !== 0) {
-          // The pop itself produced conflicts — surface them via the
-          // standard conflict modal.
-          const status = await getStatus(projectId);
-          if (status.ok && status.status && status.status.files.conflicted.length > 0) {
-            return {
-              ok: true as const,
-              clean: false as const,
-              conflicts: status.status.files.conflicted,
-            };
-          }
-          return gitErr(
-            pop.stderr,
-            "Pull completed but couldn't restore your local changes. They remain in the stash; run `git stash list` to inspect.",
-          );
-        }
-      }
-      return { ok: true as const, clean: true as const };
+      const after = await git(projectId, ["rev-parse", "HEAD"]);
+      const afterSha = after.exitCode === 0 ? after.stdout.trim() : "";
+      return {
+        ok: true as const,
+        clean: true as const,
+        changed: afterSha !== beforeSha,
+      };
     }
 
-    // Merge failed. Conflicts on the merge itself?
+    // Merge produced conflicts. With the WIP commit approach, ours = local
+    // changes (the WIP commit on the current branch) and theirs = remote —
+    // matching what the conflict modal labels.
     const status = await getStatus(projectId);
     if (status.ok && status.status && status.status.files.conflicted.length > 0) {
-      // Leave the stash in place; it will be popped after the user
-      // finalizes the merge via the conflict modal. (Future improvement:
-      // store the stash ref on the project and pop it on resolve. For
-      // now, the stash is reachable via `git stash list`.)
       return {
         ok: true as const,
         clean: false as const,
@@ -542,11 +523,6 @@ export async function pullBranch(
       };
     }
 
-    // Some other merge failure. If we stashed, restore so the user isn't
-    // left with surprising missing files.
-    if (stashed) {
-      await git(projectId, ["stash", "pop"]).catch(() => undefined);
-    }
     return gitErr(merge.stderr, "git merge failed");
   });
 }
@@ -647,6 +623,18 @@ export async function finalizeMerge(
 export async function abortMerge(projectId: string): Promise<GitResult> {
   const res = await git(projectId, ["merge", "--abort"]);
   if (res.exitCode !== 0) return gitErr(res.stderr, "git merge --abort failed");
+
+  // If the last commit is the pre-pull WIP snapshot we created in
+  // pullBranch, undo it so the user is restored to their pre-pull state
+  // with local edits as uncommitted changes (what they expect from
+  // "Discard my changes").
+  const lastMsg = await git(projectId, ["log", "-1", "--pretty=%s"]);
+  if (lastMsg.exitCode === 0 && lastMsg.stdout.trim() === "Local changes (pre-pull snapshot)") {
+    const undo = await git(projectId, ["reset", "--mixed", "HEAD~1"]);
+    if (undo.exitCode !== 0) {
+      return gitErr(undo.stderr, "Merge aborted but couldn't restore local edits.");
+    }
+  }
   return { ok: true };
 }
 

@@ -71,7 +71,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     }
 
     if (res.clean) {
-      return NextResponse.json({ ok: true, clean: true, branch });
+      return NextResponse.json({ ok: true, clean: true, branch, changed: res.changed });
     }
 
     // Eagerly fetch conflict blobs so the modal renders without another fetch.

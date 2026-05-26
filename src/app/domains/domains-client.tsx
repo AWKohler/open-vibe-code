@@ -147,7 +147,7 @@ function AddDomainModal({
           <button onClick={onClose} disabled={busy} className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg hover:bg-soft transition disabled:opacity-50">
             Cancel
           </button>
-          <button onClick={submit} disabled={busy || !apex.trim()} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-400 transition disabled:opacity-50">
+          <button onClick={submit} disabled={busy || !apex.trim()} className="inline-flex items-center gap-2 rounded-lg bg-fg px-3 py-2 text-sm font-medium text-bg shadow-md hover:opacity-90 transition disabled:opacity-50">
             {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
             Add domain
           </button>
@@ -245,7 +245,7 @@ function RecordEditor({
         )}
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} disabled={busy} className="rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg hover:bg-soft transition disabled:opacity-50">Cancel</button>
-          <button onClick={submit} disabled={busy || !name || !content} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-400 transition disabled:opacity-50">
+          <button onClick={submit} disabled={busy || !name || !content} className="inline-flex items-center gap-2 rounded-lg bg-fg px-3 py-2 text-sm font-medium text-bg shadow-md hover:opacity-90 transition disabled:opacity-50">
             {busy && <Loader2 size={14} className="animate-spin" />}
             {initial ? "Save" : "Add record"}
           </button>
@@ -375,7 +375,7 @@ function DomainDetail({
               <h3 className="text-base font-semibold text-fg">DNS records</h3>
               <p className="text-xs text-muted">Manage the records in your Cloudflare zone.</p>
             </div>
-            <button onClick={() => setEditing("new")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-400 transition">
+            <button onClick={() => setEditing("new")} className="inline-flex items-center gap-1 rounded-lg bg-fg px-3 py-1.5 text-xs font-medium text-bg shadow-sm hover:opacity-90 transition">
               <Plus size={12} /> Add record
             </button>
           </div>
@@ -440,8 +440,10 @@ function DomainDetail({
 // ── Main client component ───────────────────────────────────────────────────
 export default function DomainsClient() {
   const [domains, setDomains] = useState<Domain[] | null>(null);
-  const [tier, setTier] = useState<string>("free");
-  const [managedDomainsEnabled, setManagedDomainsEnabled] = useState(false);
+  const [, setTier] = useState<string>("free");
+  // Tri-state: null = still loading the plan. Avoids the upgrade-CTA flash for
+  // paid users while /api/domains is in flight.
+  const [managedDomainsEnabled, setManagedDomainsEnabled] = useState<boolean | null>(null);
   const [maxManagedDomains, setMaxManagedDomains] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -472,11 +474,18 @@ export default function DomainsClient() {
   return (
     <div className="min-h-screen bg-bg text-fg">
       <header className="sticky top-0 z-30 border-b border-border bg-bg/85 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-6 py-3.5">
+        <div className="mx-auto max-w-7xl px-6 py-5">
           <div className="grid grid-cols-3 items-center">
-            <div className="flex items-center gap-3">
-              <Link href="/projects" className="text-base font-semibold tracking-tight">Botflow</Link>
-            </div>
+            <Link className="flex items-center gap-3" href="/">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/brand/botflow-glyph.svg" alt="" className="h-8 w-8" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/brand/botflow-wordmark.svg"
+                alt="Botflow"
+                className="h-5 w-auto botflow-wordmark-invert"
+              />
+            </Link>
             <nav className="hidden md:flex items-center justify-center gap-7 text-sm text-muted">
               <a href="/projects" className="hover:text-fg transition">My Projects</a>
               <a href="/explore" className="hover:text-fg transition">Explore</a>
@@ -487,14 +496,15 @@ export default function DomainsClient() {
             <div className="flex items-center justify-end gap-2">
               <SignedOut>
                 <SignInButton>
-                  <button className="inline-flex items-center rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-fg hover:bg-soft transition">Log in</button>
+                  <button className="inline-flex items-center rounded-xl border border-border bg-elevated px-3.5 py-2 text-sm font-medium text-fg shadow-sm hover:bg-soft transition">Log in</button>
                 </SignInButton>
               </SignedOut>
               <SignedIn>
                 <button
                   onClick={() => setSettingsOpen(true)}
-                  className="inline-flex items-center rounded-xl border border-border bg-elevated px-2.5 py-2 text-sm text-fg hover:bg-soft transition"
+                  className="inline-flex items-center justify-center rounded-xl border border-border bg-elevated px-2.5 py-2 text-sm text-fg shadow-sm hover:bg-soft transition"
                   title="Settings"
+                  aria-label="Settings"
                 >
                   <Cog className="h-4 w-4" />
                 </button>
@@ -515,16 +525,23 @@ export default function DomainsClient() {
                   Transfer your domain to Botflow&apos;s Cloudflare account for full DNS control, then assign it to any project.
                 </p>
               </div>
-              {managedDomainsEnabled ? (
+              {managedDomainsEnabled === null ? (
+                // Plan still loading — render a neutral placeholder so the
+                // upsell CTA doesn't briefly flash for paid users.
+                <div className="h-10 w-32 rounded-xl bg-elevated animate-pulse" />
+              ) : managedDomainsEnabled ? (
                 <button
                   onClick={() => setAddOpen(true)}
                   disabled={domains !== null && domains.length >= maxManagedDomains}
-                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-400 transition disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-fg px-4 py-2.5 text-sm font-medium text-bg shadow-md hover:opacity-90 transition disabled:opacity-50"
                 >
                   <Plus size={15} /> Add domain
                 </button>
               ) : (
-                <Link href="/pricing" className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-pink-500 px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition">
+                <Link
+                  href="/pricing"
+                  className="inline-flex items-center gap-2 rounded-xl bg-fg px-4 py-2.5 text-sm font-medium text-bg shadow-md hover:opacity-90 transition"
+                >
                   <Sparkles size={15} /> Upgrade to Pro
                 </Link>
               )}
@@ -534,11 +551,11 @@ export default function DomainsClient() {
               <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</div>
             )}
 
-            {!managedDomainsEnabled && (
-              <div className="mb-8 rounded-2xl border border-border bg-elevated p-6 bg-gradient-to-br from-amber-500/5 to-pink-500/5">
+            {managedDomainsEnabled === false && (
+              <div className="mb-8 rounded-2xl border border-border bg-surface p-6">
                 <div className="flex items-start gap-4">
-                  <div className="rounded-xl bg-gradient-to-br from-amber-500/20 to-pink-500/20 p-3">
-                    <Lock className="h-6 w-6 text-amber-400" />
+                  <div className="rounded-xl border border-border bg-elevated p-3">
+                    <Lock className="h-6 w-6 text-muted" />
                   </div>
                   <div className="flex-1">
                     <h3 className="mb-1 text-lg font-semibold text-fg">Managed domains are a Pro feature</h3>
@@ -547,7 +564,10 @@ export default function DomainsClient() {
                       We&apos;ll manage DNS, SSL certificates, and proxy your traffic through Cloudflare&apos;s CDN.
                       Your projects can then use your real domain — no <span className="font-mono">.pages.dev</span> suffix.
                     </p>
-                    <Link href="/pricing" className="mt-4 inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3.5 py-2 text-sm font-medium text-white hover:bg-emerald-400 transition">
+                    <Link
+                      href="/pricing"
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl bg-fg px-3.5 py-2 text-sm font-medium text-bg shadow-md hover:opacity-90 transition"
+                    >
                       View pricing →
                     </Link>
                   </div>
@@ -562,7 +582,7 @@ export default function DomainsClient() {
                 <Globe className="mx-auto mb-3 h-10 w-10 text-muted/60" />
                 <h3 className="mb-1 text-lg font-semibold text-fg">No domains yet</h3>
                 <p className="mb-5 text-sm text-muted">Add your first domain to give your projects a real home on the web.</p>
-                <button onClick={() => setAddOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-400 transition">
+                <button onClick={() => setAddOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-fg px-4 py-2 text-sm font-medium text-bg shadow-md hover:opacity-90 transition">
                   <Plus size={14} /> Add your first domain
                 </button>
               </div>

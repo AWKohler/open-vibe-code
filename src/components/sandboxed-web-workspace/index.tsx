@@ -751,26 +751,6 @@ export function SandboxedWebWorkspace({
             </span>
           </Button>
 
-          <div className="relative">
-            <Button
-              ref={publishBtnRef}
-              variant="default"
-              size="sm"
-              className={cn(
-                "font-bold text-sm",
-                cloudflareProjectName && "bg-green-600 hover:bg-green-700 text-white",
-              )}
-              onClick={() => setPublishOpen((v) => !v)}
-              title={cloudflareProjectName ? "Manage deployment" : "Publish to Cloudflare Pages"}
-            >
-              <Globe size={14} className="mr-1.5" />
-              {cloudflareProjectName ? "Published" : "Publish"}
-            </Button>
-            {cloudflareProjectName && (
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-500 border-2 border-surface pointer-events-none" />
-            )}
-          </div>
-
           {currentView === "code" && (
             <Button
               variant="ghost"
@@ -853,6 +833,25 @@ export function SandboxedWebWorkspace({
                 />
               </div>
             )}
+            <div className="relative">
+              <Button
+                ref={publishBtnRef}
+                variant="default"
+                size="sm"
+                className={cn(
+                  "font-bold text-sm",
+                  cloudflareProjectName && "bg-green-600 hover:bg-green-700 text-white",
+                )}
+                onClick={() => setPublishOpen((v) => !v)}
+                title={cloudflareProjectName ? "Manage deployment" : "Publish to Cloudflare Pages"}
+              >
+                <Globe size={14} className="mr-1.5" />
+                {cloudflareProjectName ? "Published" : "Publish"}
+              </Button>
+              {cloudflareProjectName && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-500 border-2 border-surface pointer-events-none" />
+              )}
+            </div>
             <UserButton />
           </div>
         </div>

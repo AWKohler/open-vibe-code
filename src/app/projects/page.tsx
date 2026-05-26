@@ -176,6 +176,7 @@ export default function ProjectsPage() {
               <nav className="hidden md:flex items-center justify-center gap-7 text-sm text-muted">
                 <a className="text-fg font-medium" href="/projects">My Projects</a>
                 <a className="hover:text-fg transition" href="/explore">Explore</a>
+                <a className="hover:text-fg transition" href="/domains">Domains</a>
                 <a className="hover:text-fg transition" href="/pricing">Pricing</a>
                 <a className="hover:text-fg transition" href="/docs">Docs</a>
               </nav>

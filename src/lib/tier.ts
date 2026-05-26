@@ -28,8 +28,12 @@ export interface TierLimits {
   maxScreenshotsPerDay: number;
   // Agent request timeout (seconds)
   maxAgentDurationSecs: number;
-  // Whether to allow custom deploy domains
+  // Whether to allow custom deploy domains (legacy CNAME approach)
   customDomain: boolean;
+  // Whether to allow managed domains (CF-zone-controlled, full DNS management)
+  managedDomains: boolean;
+  // Cap on number of managed domains per user
+  maxManagedDomains: number;
 }
 
 // ─── Env-var helpers ──────────────────────────────────────────────────────────
@@ -56,6 +60,8 @@ export function getLimitsForTier(tier: Tier): TierLimits {
         maxScreenshotsPerDay: 5,
         maxAgentDurationSecs: 120,
         customDomain: false,
+        managedDomains: false,
+        maxManagedDomains: 0,
       };
 
     case 'pro':
@@ -69,6 +75,8 @@ export function getLimitsForTier(tier: Tier): TierLimits {
         maxScreenshotsPerDay: 50,
         maxAgentDurationSecs: 240,
         customDomain: true,
+        managedDomains: true,
+        maxManagedDomains: 3,
       };
 
     case 'max':
@@ -82,6 +90,8 @@ export function getLimitsForTier(tier: Tier): TierLimits {
         maxScreenshotsPerDay: Infinity,
         maxAgentDurationSecs: 300,
         customDomain: true,
+        managedDomains: true,
+        maxManagedDomains: 20,
       };
   }
 }

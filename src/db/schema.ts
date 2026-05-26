@@ -41,9 +41,12 @@ export const projects = pgTable('projects', {
   // Cloudflare Pages deployment
   cloudflareProjectName: text('cloudflare_project_name'),
   cloudflareDeploymentUrl: text('cloudflare_deployment_url'),
-  // User custom domain (Pro/Max only)
+  // User custom domain (Pro/Max only) — legacy CNAME approach (webcontainer flow)
   customDomain: text('custom_domain'),
   customDomainStatus: text('custom_domain_status'), // 'pending' | 'active' | 'error'
+  // Managed domain assignment (Pro/Max) — new approach where Botflow controls the CF zone
+  managedDomainId: uuid('managed_domain_id'),
+  managedDomainHostname: text('managed_domain_hostname'), // e.g. "www.myapp.com"
   // Convex Auth — set to true after setupAuth runs successfully
   authConfigured: boolean('auth_configured').notNull().default(false),
   // Public sharing
@@ -331,3 +334,45 @@ export const usageRecords = pgTable('usage_records', {
 
 export type UsageRecord = typeof usageRecords.$inferSelect;
 export type NewUsageRecord = typeof usageRecords.$inferInsert;
+
+// ─── Managed Domains ────────────────────────────────────────────────────────
+// Domains the user has transferred to Botflow's Cloudflare account.
+// Botflow controls the zone (NS records point at CF) and we expose DNS record
+// management. Pro/Max only.
+export const userDomains = pgTable('user_domains', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),                    // Clerk user id
+  apexDomain: text('apex_domain').notNull(),            // e.g. "myapp.com"
+  cfZoneId: text('cf_zone_id'),                         // Cloudflare zone id
+  status: text('status').notNull().default('pending_ns'), // 'pending_ns' | 'active' | 'error'
+  nameservers: jsonb('nameservers').$type<string[]>(),  // CF nameservers user needs to set
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  userApexUnique: uniqueIndex('user_domains_user_apex_unique').on(t.userId, t.apexDomain),
+  userIdIdx: index('user_domains_user_id_idx').on(t.userId),
+}));
+
+export type UserDomain = typeof userDomains.$inferSelect;
+export type NewUserDomain = typeof userDomains.$inferInsert;
+
+// Individual DNS records within a managed domain's zone. Cached locally for
+// fast list views; CF remains the source of truth on writes.
+export const domainDnsRecords = pgTable('domain_dns_records', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  domainId: uuid('domain_id').notNull().references(() => userDomains.id, { onDelete: 'cascade' }),
+  cfRecordId: text('cf_record_id'),
+  type: text('type').notNull(),       // 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS'
+  name: text('name').notNull(),       // e.g. "www", "@", "mail"
+  content: text('content').notNull(),
+  ttl: integer('ttl').notNull().default(1), // 1 = auto
+  priority: integer('priority'),
+  proxied: boolean('proxied').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  domainIdIdx: index('domain_dns_records_domain_id_idx').on(t.domainId),
+}));
+
+export type DomainDnsRecord = typeof domainDnsRecords.$inferSelect;
+export type NewDomainDnsRecord = typeof domainDnsRecords.$inferInsert;

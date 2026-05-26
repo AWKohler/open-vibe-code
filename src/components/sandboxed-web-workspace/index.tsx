@@ -833,6 +833,7 @@ export function SandboxedWebWorkspace({
                 />
               </div>
             )}
+            <UserButton />
             <div className="relative">
               <Button
                 ref={publishBtnRef}
@@ -852,7 +853,6 @@ export function SandboxedWebWorkspace({
                 <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-green-500 border-2 border-surface pointer-events-none" />
               )}
             </div>
-            <UserButton />
           </div>
         </div>
 

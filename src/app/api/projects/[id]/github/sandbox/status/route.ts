@@ -10,12 +10,13 @@ import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
-import { getStatus, hasGitDir } from "@/lib/sandbox-git";
+import { fetchOrigin, getCurrentBranch, getStatus, hasGitDir } from "@/lib/sandbox-git";
+import { getUserCredentials } from "@/lib/user-credentials";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function POST(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   try {
     const { userId } = await auth();
@@ -39,11 +40,36 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
       );
     }
 
+    // When `?fetch=1` is passed, refresh the cached origin/<branch> ref so
+    // the behind count reflects commits that landed on GitHub since the
+    // last fetch. The default path stays cheap (no network) so callers
+    // that just want working-tree state aren't penalized.
+    const shouldFetch = req.nextUrl.searchParams.get("fetch") === "1";
+    let fetchError: string | undefined;
+    if (shouldFetch) {
+      const creds = await getUserCredentials(userId);
+      if (creds.githubAccessToken) {
+        const cur = await getCurrentBranch(id);
+        const branch = cur.ok && cur.branch ? cur.branch : (proj.githubDefaultBranch ?? "main");
+        const fetched = await fetchOrigin(id, {
+          token: creds.githubAccessToken,
+          owner: proj.githubRepoOwner,
+          name: proj.githubRepoName,
+          branch,
+        });
+        if (!fetched.ok) {
+          // Non-fatal: fall back to local-only status. Surface the stderr
+          // so the panel can hint the user (e.g. token expired).
+          fetchError = fetched.stderr || fetched.message;
+        }
+      }
+    }
+
     const res = await getStatus(id);
     if (!res.ok) {
       return NextResponse.json({ error: res.message, stderr: res.stderr }, { status: 500 });
     }
-    return NextResponse.json({ ok: true, status: res.status });
+    return NextResponse.json({ ok: true, status: res.status, fetched: shouldFetch && !fetchError, fetchError });
   } catch (err) {
     console.error("POST /github/sandbox/status failed:", err);
     return NextResponse.json(

@@ -173,34 +173,63 @@ export function SandboxGitHubPanel({
   }, [account?.connected, isLinked, loadRepos]);
 
   // ── Status (only when linked) ────────────────────────────────────────
-  const refreshStatus = useCallback(async () => {
-    if (!isLinked) return;
-    setStatusLoading(true);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/github/sandbox/status`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        setStatus(data.status ?? null);
-      } else if (res.status === 409) {
-        // Sandbox has no .git — surfaced as a recoverable state
-        setStatus(null);
-        toast({
-          title: "Sandbox missing .git directory",
-          description: "Re-link the repository to re-clone.",
-        });
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast({ title: "Failed to read git status", description: err.error ?? `HTTP ${res.status}` });
+  // `withFetch` does a `git fetch origin` first so the behind count
+  // reflects commits that landed on GitHub since the last refresh.
+  // The refresh button always passes withFetch=true; the background
+  // poll alternates so we get periodic remote awareness without
+  // hammering GitHub on every render.
+  const refreshStatus = useCallback(
+    async (withFetch = false) => {
+      if (!isLinked) return;
+      setStatusLoading(true);
+      try {
+        const url = `/api/projects/${projectId}/github/sandbox/status${withFetch ? "?fetch=1" : ""}`;
+        const res = await fetch(url, { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          setStatus(data.status ?? null);
+        } else if (res.status === 409) {
+          setStatus(null);
+          toast({
+            title: "Sandbox missing .git directory",
+            description: "Re-link the repository to re-clone.",
+          });
+        } else {
+          const err = await res.json().catch(() => ({}));
+          toast({ title: "Failed to read git status", description: err.error ?? `HTTP ${res.status}` });
+        }
+      } catch (e) {
+        toast({ title: "Failed to read git status", description: e instanceof Error ? e.message : String(e) });
+      } finally {
+        setStatusLoading(false);
       }
-    } catch (e) {
-      toast({ title: "Failed to read git status", description: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setStatusLoading(false);
-    }
-  }, [isLinked, projectId, toast]);
+    },
+    [isLinked, projectId, toast],
+  );
 
   useEffect(() => {
-    if (isLinked) void refreshStatus();
+    if (!isLinked) return;
+    // Initial load fetches so the UI immediately reflects remote-side
+    // commits made since the last open.
+    void refreshStatus(true);
+    // Periodic background fetch so the panel learns about new remote
+    // commits without the user clicking refresh. 60s is gentle on
+    // GitHub's rate limits while still feeling live.
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshStatus(true);
+    }, 60_000);
+    // Also re-fetch as soon as the tab regains focus — common case is
+    // "I just made a commit on GitHub in another tab".
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshStatus(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, [isLinked, refreshStatus]);
 
   // ── Actions ──────────────────────────────────────────────────────────
@@ -563,9 +592,9 @@ export function SandboxGitHubPanel({
           </span>
           <button
             type="button"
-            onClick={refreshStatus}
+            onClick={() => void refreshStatus(true)}
             className="hover:text-fg"
-            title="Refresh status"
+            title="Refresh status (fetches latest from GitHub)"
             disabled={statusLoading}
           >
             <RefreshCw size={11} className={statusLoading ? "animate-spin" : undefined} />

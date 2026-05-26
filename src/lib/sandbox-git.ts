@@ -415,6 +415,23 @@ async function withAuthRemote<T>(
   }
 }
 
+/**
+ * Run `git fetch origin <branch>` so the cached `origin/<branch>` ref reflects
+ * the latest commits on GitHub. Cheap, side-effect-only — does not touch the
+ * working tree or local branches. Use before `getStatus` when you want
+ * accurate behind counts.
+ */
+export async function fetchOrigin(
+  projectId: string,
+  opts: { token: string; owner: string; name: string; branch: string },
+): Promise<GitResult> {
+  return withAuthRemote(projectId, opts, async () => {
+    const res = await git(projectId, ["fetch", "origin", opts.branch]);
+    if (res.exitCode !== 0) return gitErr(res.stderr, "git fetch failed");
+    return { ok: true };
+  });
+}
+
 export async function pushBranch(
   projectId: string,
   opts: { token: string; owner: string; name: string; branch: string; force?: boolean; setUpstream?: boolean },

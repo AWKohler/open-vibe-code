@@ -87,6 +87,9 @@ export async function findZoneByName(apexDomain: string): Promise<CfZone | null>
 /**
  * Create a new zone, or adopt an existing one already under the account.
  * Idempotent — if the zone already exists (CF error 1061) we look it up and return it.
+ * After adoption, we kick activation_check so the zone's status reflects whether
+ * NS records at the registrar still point at CF (otherwise it can sit "active"
+ * indefinitely even though the world has moved on).
  */
 export async function createZone(apexDomain: string): Promise<CfZone> {
   const { accountId } = getCfConfig();
@@ -103,7 +106,12 @@ export async function createZone(apexDomain: string): Promise<CfZone> {
   const isAlreadyExists = res.errors?.some(e => e.code === 1061 || /already exists/i.test(e.message ?? ''));
   if (isAlreadyExists) {
     const existing = await findZoneByName(apexDomain);
-    if (existing) return existing;
+    if (existing) {
+      // Re-validate NS so we don't trust a stale "active" status.
+      await activationCheck(existing.id).catch(() => {});
+      const refreshed = await getZone(existing.id).catch(() => null);
+      return refreshed ?? existing;
+    }
   }
   throw new Error(`CF createZone failed: ${JSON.stringify(res.errors)}`);
 }

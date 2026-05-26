@@ -74,13 +74,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // CF reports zone.status === 'active' even when the user previously pointed
+  // NS at CF and later reverted at their registrar. Trusting that status causes
+  // the UI to skip the "set your nameservers" instructions, leaving users with
+  // a managed-domain that no one can resolve. Always start as pending_ns so the
+  // detail view explains what to do; the status poll will flip it active once
+  // CF's NS check confirms.
   const [row] = await db
     .insert(userDomains)
     .values({
       userId,
       apexDomain: apex,
       cfZoneId: zone.id,
-      status: zone.status === 'active' ? 'active' : 'pending_ns',
+      status: 'pending_ns',
       nameservers: zone.name_servers,
     })
     .returning();

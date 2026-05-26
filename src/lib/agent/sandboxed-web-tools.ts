@@ -209,7 +209,7 @@ function getGitTools(opts: {
 
   const autonomyHint =
     autonomy === "autonomous"
-      ? "AUTONOMY: After making meaningful changes, call gitCommit and then gitPush on your own. Brief commit messages, no need to ask the user."
+      ? "AUTONOMY: After making meaningful changes you MUST call gitCommit AND THEN gitPush — both, in that order. gitCommit only writes a local commit; it does NOT contact GitHub. Never tell the user something is 'pushed' or 'saved to GitHub' until gitPush has returned successfully. Brief commit messages, no need to ask the user."
       : autonomy === "manual"
         ? "AUTONOMY: Do NOT call gitCommit or gitPush on your own. The user pushes from the panel; you only edit files."
         : autonomy === "ask-each-time"

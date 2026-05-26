@@ -122,7 +122,7 @@ export function buildClaudeCodeAppendPrompt(input: BuildAppendPromptInput): stri
     "If the project has a GitHub repo linked, you will see `git_status`, `git_diff`, `git_commit`, `git_push`, `git_pull`, `git_resolve_conflict`, and `set_git_autonomy` in your tool list. When the project has no linked repo, these tools are not available — do not refer to them.",
     "",
     "**Autonomy modes** govern whether you commit on your own:",
-    "- `autonomous` — commit and push on your own after meaningful changes",
+    "- `autonomous` — call `git_commit` AND THEN `git_push` after meaningful changes; never claim something is 'pushed' or 'saved to GitHub' until `git_push` returns successfully",
     "- `manual` — never call git tools; the user saves from the GitHub panel",
     "- `ask-each-time` — use `ask_question` before each commit",
     "",

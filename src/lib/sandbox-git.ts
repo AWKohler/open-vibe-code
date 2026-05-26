@@ -320,6 +320,10 @@ export async function getStatus(projectId: string): Promise<GitResult & { status
       continue;
     }
 
+    // (the porcelain output above only emits ahead/behind when the local
+    // branch has an upstream set. We re-derive them below from rev-list so
+    // the panel still shows behind counts after an init+push link.)
+
     summary.isClean = false;
     const code = line.slice(0, 2);
     const rest = line.slice(3);
@@ -351,6 +355,31 @@ export async function getStatus(projectId: string): Promise<GitResult & { status
     if (all.includes("D")) summary.files.deleted.push(rest);
     else if (all.includes("A")) summary.files.added.push(rest);
     else if (all.includes("M")) summary.files.modified.push(rest);
+  }
+
+  // Re-derive ahead/behind from rev-list so we don't depend on upstream
+  // tracking config. `git status --branch` only emits the [ahead N, behind M]
+  // segment when `branch.<name>.merge` is set — which the init+push link
+  // path can miss, leaving the panel unable to show "↓ N behind" even
+  // after a successful fetch. `git rev-list --count A..B` works regardless
+  // of upstream config as long as both refs exist locally.
+  if (summary.branch) {
+    const ref = `refs/remotes/origin/${summary.branch}`;
+    const refExists = await git(projectId, ["rev-parse", "--verify", "--quiet", ref]);
+    if (refExists.exitCode === 0) {
+      const [behindRes, aheadRes] = await Promise.all([
+        git(projectId, ["rev-list", "--count", `HEAD..${ref}`]),
+        git(projectId, ["rev-list", "--count", `${ref}..HEAD`]),
+      ]);
+      if (behindRes.exitCode === 0) {
+        const n = parseInt(behindRes.stdout.trim(), 10);
+        if (Number.isFinite(n)) summary.behind = n;
+      }
+      if (aheadRes.exitCode === 0) {
+        const n = parseInt(aheadRes.stdout.trim(), 10);
+        if (Number.isFinite(n)) summary.ahead = n;
+      }
+    }
   }
 
   return { ok: true, status: summary };

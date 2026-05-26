@@ -111,6 +111,7 @@ export function SandboxPublishPanel({
   const [managedOptions, setManagedOptions] = useState<ManagedDomainOption[] | null>(null);
   const [selectedDomainId, setSelectedDomainId] = useState<string>("");
   const [selectedSubdomain, setSelectedSubdomain] = useState<string>("www");
+  const [mirrorToOther, setMirrorToOther] = useState<boolean>(true);
   const [managedBusy, setManagedBusy] = useState(false);
   const [managedErr, setManagedErr] = useState<string | null>(null);
 
@@ -262,7 +263,11 @@ export function SandboxPublishPanel({
       const res = await fetch(`/api/projects/${projectId}/managed-domain`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ domainId: selectedDomainId, subdomain: selectedSubdomain }),
+        body: JSON.stringify({
+          domainId: selectedDomainId,
+          subdomain: selectedSubdomain,
+          mirrorToOther,
+        }),
       });
       const j = await res.json();
       if (!res.ok) { setManagedErr(j.error ?? "Failed"); return; }
@@ -512,6 +517,27 @@ export function SandboxPublishPanel({
                           <span className="text-sm text-muted">.{managedOptions.find(d => d.id === selectedDomainId)?.apexDomain ?? "…"}</span>
                         </div>
                         <p className="text-[10px] text-muted">Use <code>@</code> for the apex domain ({managedOptions.find(d => d.id === selectedDomainId)?.apexDomain}).</p>
+                        {(() => {
+                          const apex = managedOptions.find(d => d.id === selectedDomainId)?.apexDomain;
+                          if (!apex) return null;
+                          const sub = (selectedSubdomain ?? "").trim().toLowerCase();
+                          const isApex = !sub || sub === "@" || sub === apex;
+                          const otherLabel = isApex ? `www.${apex}` : apex;
+                          return (
+                            <label className="flex items-start gap-2 rounded-lg border border-border bg-bg/50 p-2.5 text-[11px] text-fg cursor-pointer hover:bg-soft/40 transition">
+                              <input
+                                type="checkbox"
+                                checked={mirrorToOther}
+                                onChange={(e) => setMirrorToOther(e.target.checked)}
+                                className="mt-0.5 rounded border-border"
+                              />
+                              <span>
+                                Also serve at <span className="font-mono text-emerald-300">{otherLabel}</span>
+                                <span className="block text-[10px] text-muted mt-0.5">Both hostnames will load the same site.</span>
+                              </span>
+                            </label>
+                          );
+                        })()}
                         {managedErr && (
                           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-300">{managedErr}</div>
                         )}

@@ -22,11 +22,64 @@ async function getProject(userId: string, projectId: string) {
   return p ?? null;
 }
 
-// POST /api/projects/[id]/managed-domain { domainId, subdomain? }
-// Attach a managed domain (and optional subdomain) to this project's CF Pages site.
-//   subdomain: "" or "@" → apex (myapp.com)
-//              "www"      → www.myapp.com (default)
-//              "app"      → app.myapp.com
+/** Build the fully-qualified hostname from a (sub, apex) pair. "" / "@" / apex → apex. */
+function buildHostname(sub: string, apex: string): string {
+  const s = sub.trim().toLowerCase();
+  if (!s || s === '@' || s === apex) return apex;
+  if (s.endsWith(`.${apex}`)) return s;
+  return `${s}.${apex}`;
+}
+
+/** Inverse of buildHostname — CF expects "@" for apex, the leftmost label otherwise. */
+function recordNameFor(hostname: string, apex: string): string {
+  if (hostname === apex) return '@';
+  return hostname.replace(`.${apex}`, '');
+}
+
+/**
+ * Wire one hostname to the project: create the proxied CNAME in the zone and
+ * attach the hostname to the Pages project. Idempotent (upsert + attach handles 409).
+ */
+async function attachOne(
+  zoneId: string,
+  pagesProjectName: string,
+  hostname: string,
+  apex: string,
+) {
+  const pagesTarget = `${pagesProjectName}.pages.dev`;
+  await upsertDnsRecord(zoneId, {
+    type: 'CNAME',
+    name: recordNameFor(hostname, apex),
+    content: pagesTarget,
+    proxied: true,
+    ttl: 1,
+    comment: 'Managed by Botflow',
+  });
+  await attachPagesCustomDomain(pagesProjectName, hostname);
+}
+
+/**
+ * Remove one hostname from the project: detach Pages binding and delete the
+ * matching CNAME (only if it still points at the Pages target — never delete
+ * unrelated records the user may have added).
+ */
+async function detachOne(
+  zoneId: string,
+  pagesProjectName: string,
+  hostname: string,
+) {
+  await detachPagesCustomDomain(pagesProjectName, hostname).catch(() => {});
+  const records = await listDnsRecords(zoneId).catch(() => [] as Awaited<ReturnType<typeof listDnsRecords>>);
+  const match = records.find(
+    (r) => r.type === 'CNAME' && r.name === hostname && r.content.endsWith('.pages.dev'),
+  );
+  if (match) await deleteDnsRecord(zoneId, match.id).catch(() => {});
+}
+
+// POST /api/projects/[id]/managed-domain { domainId, subdomain?, mirrorToOther? }
+//   subdomain          "" / "@" → apex; "www" → www.apex; "app" → app.apex; default "www"
+//   mirrorToOther      true → also serve the "other side": apex if primary is www;
+//                              www if primary is apex. Both serve identical content.
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -49,7 +102,11 @@ export async function POST(
     return NextResponse.json({ error: 'Managed domains require Pro or Max.', upgrade: true }, { status: 403 });
   }
 
-  const body = (await req.json().catch(() => ({}))) as { domainId?: string; subdomain?: string };
+  const body = (await req.json().catch(() => ({}))) as {
+    domainId?: string;
+    subdomain?: string;
+    mirrorToOther?: boolean;
+  };
   if (!body.domainId) {
     return NextResponse.json({ error: 'domainId required' }, { status: 400 });
   }
@@ -68,64 +125,56 @@ export async function POST(
     );
   }
 
-  const sub = (body.subdomain ?? 'www').trim().toLowerCase();
-  const hostname = !sub || sub === '@' || sub === domain.apexDomain
-    ? domain.apexDomain
-    : sub.endsWith(`.${domain.apexDomain}`)
-      ? sub
-      : `${sub}.${domain.apexDomain}`;
+  const apex = domain.apexDomain;
+  const sub = body.subdomain ?? 'www';
+  const primaryHostname = buildHostname(sub, apex);
 
-  // If the project was previously attached to a different managed hostname, detach first.
-  if (project.managedDomainHostname && project.managedDomainHostname !== hostname) {
-    await detachPagesCustomDomain(project.cloudflareProjectName, project.managedDomainHostname).catch(() => {});
+  // If the project was previously attached to a different managed hostname, detach
+  // that first so we don't orphan a Pages binding pointing at a stale name.
+  if (project.managedDomainHostname && project.managedDomainHostname !== primaryHostname) {
+    await detachOne(domain.cfZoneId, project.cloudflareProjectName, project.managedDomainHostname).catch(() => {});
   }
 
-  // Create the DNS record in the user's managed zone.
-  // For apex (root) we use a proxied CNAME to *.pages.dev — CF supports CNAME flattening.
-  // For subdomain we use a regular proxied CNAME.
-  const pagesTarget = `${project.cloudflareProjectName}.pages.dev`;
-  const recordName = hostname === domain.apexDomain ? '@' : hostname.replace(`.${domain.apexDomain}`, '');
+  // Build the list of hostnames to wire up. mirrorToOther adds the natural pair
+  // (apex ↔ www) so a user picking "www" can serve apex too with one click.
+  const hostnames = new Set<string>([primaryHostname]);
+  if (body.mirrorToOther) {
+    const other = primaryHostname === apex ? `www.${apex}` : apex;
+    hostnames.add(other);
+  }
+
   try {
-    await upsertDnsRecord(domain.cfZoneId, {
-      type: 'CNAME',
-      name: recordName,
-      content: pagesTarget,
-      proxied: true,
-      ttl: 1,
-      comment: 'Managed by Botflow',
-    });
+    for (const h of hostnames) {
+      await attachOne(domain.cfZoneId, project.cloudflareProjectName, h, apex);
+    }
   } catch (err) {
     return NextResponse.json(
-      { error: `DNS record creation failed: ${err instanceof Error ? err.message : String(err)}` },
+      { error: err instanceof Error ? err.message : String(err) },
       { status: 502 },
     );
   }
 
-  // Tell CF Pages about the custom hostname so it provisions a cert + routes traffic.
-  try {
-    await attachPagesCustomDomain(project.cloudflareProjectName, hostname);
-  } catch (err) {
-    return NextResponse.json(
-      { error: `Failed to attach domain to Pages project: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 502 },
-    );
-  }
-
-  const deploymentUrl = `https://${hostname}`;
+  const deploymentUrl = `https://${primaryHostname}`;
   await db
     .update(projects)
     .set({
       managedDomainId: domain.id,
-      managedDomainHostname: hostname,
+      managedDomainHostname: primaryHostname,
       cloudflareDeploymentUrl: deploymentUrl,
       updatedAt: new Date(),
     })
     .where(eq(projects.id, project.id));
 
-  return NextResponse.json({ ok: true, hostname, url: deploymentUrl });
+  return NextResponse.json({
+    ok: true,
+    hostname: primaryHostname,
+    url: deploymentUrl,
+    hostnames: [...hostnames],
+  });
 }
 
 // DELETE — detach managed domain from this project.
+// Cleans up BOTH the primary hostname and the apex/www mirror if one exists.
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -137,7 +186,7 @@ export async function DELETE(
   const project = await getProject(userId, projectId);
   if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
   if (!project.managedDomainId || !project.managedDomainHostname) {
-    return NextResponse.json({ ok: true }); // nothing to do
+    return NextResponse.json({ ok: true });
   }
 
   const db = getDb();
@@ -147,20 +196,14 @@ export async function DELETE(
     .where(eq(userDomains.id, project.managedDomainId))
     .limit(1);
 
-  if (domain?.cfZoneId) {
-    // Detach the Pages binding.
-    if (project.cloudflareProjectName) {
-      await detachPagesCustomDomain(project.cloudflareProjectName, project.managedDomainHostname).catch(() => {});
-    }
-    // Remove the CNAME record we created.
-    try {
-      const records = await listDnsRecords(domain.cfZoneId);
-      const recordName = project.managedDomainHostname; // fully-qualified in CF
-      const match = records.find(
-        (r) => r.type === 'CNAME' && r.name === recordName && r.content.endsWith('.pages.dev'),
-      );
-      if (match) await deleteDnsRecord(domain.cfZoneId, match.id).catch(() => {});
-    } catch { /* best-effort cleanup */ }
+  if (domain?.cfZoneId && project.cloudflareProjectName) {
+    // Detach primary + the natural mirror (covers both apex+www if mirrorToOther
+    // was used at attach time; harmless no-ops otherwise).
+    const apex = domain.apexDomain;
+    const primary = project.managedDomainHostname;
+    const mirror = primary === apex ? `www.${apex}` : (primary === `www.${apex}` ? apex : null);
+    await detachOne(domain.cfZoneId, project.cloudflareProjectName, primary).catch(() => {});
+    if (mirror) await detachOne(domain.cfZoneId, project.cloudflareProjectName, mirror).catch(() => {});
   }
 
   await db

@@ -77,7 +77,17 @@ export type UpdateDnsRecordInput = Partial<CreateDnsRecordInput>;
 
 // ─── Zones ────────────────────────────────────────────────────────────────
 
-/** Create a new zone (apex domain) under the configured CF account. */
+/** Look up a zone by exact apex name. Returns null if not found. */
+export async function findZoneByName(apexDomain: string): Promise<CfZone | null> {
+  const res = await cfFetch<CfZone[]>(`/zones?name=${encodeURIComponent(apexDomain)}`);
+  if (!res.success) return null;
+  return res.result?.[0] ?? null;
+}
+
+/**
+ * Create a new zone, or adopt an existing one already under the account.
+ * Idempotent — if the zone already exists (CF error 1061) we look it up and return it.
+ */
 export async function createZone(apexDomain: string): Promise<CfZone> {
   const { accountId } = getCfConfig();
   const res = await cfFetch<CfZone>('/zones', {
@@ -87,13 +97,15 @@ export async function createZone(apexDomain: string): Promise<CfZone> {
       type: 'full',
     },
   });
-  if (!res.success) {
-    // 1061 = "An A, AAAA, or CNAME record with that host already exists"
-    // 1097 = "Invalid zone name"
-    // 1099 = zone already exists in another account
-    throw new Error(`CF createZone failed: ${JSON.stringify(res.errors)}`);
+  if (res.success) return res.result;
+
+  // 1061 = zone already exists in this CF account → adopt it
+  const isAlreadyExists = res.errors?.some(e => e.code === 1061 || /already exists/i.test(e.message ?? ''));
+  if (isAlreadyExists) {
+    const existing = await findZoneByName(apexDomain);
+    if (existing) return existing;
   }
-  return res.result;
+  throw new Error(`CF createZone failed: ${JSON.stringify(res.errors)}`);
 }
 
 export async function getZone(zoneId: string): Promise<CfZone> {

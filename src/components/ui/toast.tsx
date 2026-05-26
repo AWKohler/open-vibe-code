@@ -10,6 +10,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toast = useCallback((t: Omit<Toast, 'id'>) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
+    try {
+      const label = `[toast] ${t.title ?? ''}${t.description ? ` — ${t.description}` : ''}`;
+      const isError = /fail|error|denied|conflict|unable/i.test(`${t.title ?? ''} ${t.description ?? ''}`);
+      if (isError) console.error(label); else console.log(label);
+    } catch {}
     setToasts((prev) => [...prev, { id, ...t }]);
     // auto dismiss
     setTimeout(() => {

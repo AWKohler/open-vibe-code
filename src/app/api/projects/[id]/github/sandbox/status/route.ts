@@ -40,11 +40,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       );
     }
 
-    // When `?fetch=1` is passed, refresh the cached origin/<branch> ref so
-    // the behind count reflects commits that landed on GitHub since the
-    // last fetch. The default path stays cheap (no network) so callers
-    // that just want working-tree state aren't penalized.
-    const shouldFetch = req.nextUrl.searchParams.get("fetch") === "1";
+    // Fetch the cached origin/<branch> ref so the behind count reflects
+    // commits that landed on GitHub since the last fetch. We default to
+    // fetching because the per-call cost is small (~100–300 ms against
+    // GitHub) and the alternative — stale behind counts — is the kind
+    // of bug users notice and rightly complain about. Callers that
+    // explicitly don't want network can pass `?fetch=0`.
+    const fetchParam = req.nextUrl.searchParams.get("fetch");
+    const shouldFetch = fetchParam !== "0";
     let fetchError: string | undefined;
     if (shouldFetch) {
       const creds = await getUserCredentials(userId);

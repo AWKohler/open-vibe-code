@@ -374,6 +374,17 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     return () => window.removeEventListener('github-conflict-delegate', handler);
   }, [projectId]);
 
+  // Sandbox publish panel "Fix with Agent" — same shape as github-conflict-delegate.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ projectId: string; prompt: string }>).detail;
+      if (!detail || detail.projectId !== projectId) return;
+      setInput(detail.prompt);
+    };
+    window.addEventListener('sandbox-build-error-delegate', handler);
+    return () => window.removeEventListener('sandbox-build-error-delegate', handler);
+  }, [projectId]);
+
   // Linking a GitHub repo only inserts a DB bookkeeping row — by itself
   // that doesn't run the agent. The github-panel fires this event after a
   // successful link so we can send a [system-note] user message, which

@@ -19,5 +19,7 @@ export async function GET() {
   return NextResponse.json({
     tier: limits.tier,
     canUseCustomDomain: limits.customDomain,
+    managedDomains: limits.managedDomains,
+    maxManagedDomains: limits.maxManagedDomains,
   });
 }

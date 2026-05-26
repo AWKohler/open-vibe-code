@@ -61,6 +61,8 @@ import {
 import { FileSearch } from "@/components/persistent-workspace/file-search";
 import { GoogleOAuthModal } from "@/components/workspace/google-oauth-modal";
 import { SandboxGitHubPanel } from "./github-panel";
+import { SandboxPublishPanel } from "./publish-panel";
+import { Globe } from "lucide-react";
 
 type WorkspaceView = "preview" | "code" | "database";
 type SandboxStatus = "idle" | "booting" | "ready" | "error";
@@ -127,6 +129,18 @@ export function SandboxedWebWorkspace({
     convexSiteUrl: string | null;
   } | null>(null);
 
+  // ── Publish / Cloudflare Pages state ─────────────────────────────────
+  const [cloudflareProjectName, setCloudflareProjectName] = useState<string | null>(null);
+  const [cloudflareDeploymentUrl, setCloudflareDeploymentUrl] = useState<string | null>(null);
+  const [managedDomainId, setManagedDomainId] = useState<string | null>(null);
+  const [managedDomainHostname, setManagedDomainHostname] = useState<string | null>(null);
+  const [customDomain, setCustomDomain] = useState<string | null>(null);
+  const [customDomainStatus, setCustomDomainStatus] = useState<"pending" | "active" | "error" | null>(null);
+  const [canUseCustomDomain, setCanUseCustomDomain] = useState(false);
+  const [managedDomainsEnabled, setManagedDomainsEnabled] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const publishBtnRef = useRef<HTMLButtonElement | null>(null);
+
   // Fall back to Preview if Database tab is selected but no backend
   useEffect(() => {
     if (!hasBackend && currentView === "database") {
@@ -148,9 +162,25 @@ export function SandboxedWebWorkspace({
         if (typeof proj?.githubRepoOwner === "string") setGithubRepoOwner(proj.githubRepoOwner);
         if (typeof proj?.githubRepoName === "string") setGithubRepoName(proj.githubRepoName);
         if (typeof proj?.githubDefaultBranch === "string") setGithubDefaultBranch(proj.githubDefaultBranch);
+        if (proj?.cloudflareProjectName) setCloudflareProjectName(proj.cloudflareProjectName);
+        if (proj?.cloudflareDeploymentUrl) setCloudflareDeploymentUrl(proj.cloudflareDeploymentUrl);
+        if (proj?.managedDomainId) setManagedDomainId(proj.managedDomainId);
+        if (proj?.managedDomainHostname) setManagedDomainHostname(proj.managedDomainHostname);
+        if (proj?.customDomain) setCustomDomain(proj.customDomain);
+        if (proj?.customDomainStatus) setCustomDomainStatus(proj.customDomainStatus);
       } catch (e) {
         console.warn("Failed to load project metadata", e);
       }
+    })();
+    // Plan flags — separate endpoint, parallel.
+    (async () => {
+      try {
+        const r = await fetch('/api/user/plan');
+        if (!r.ok) return;
+        const plan = await r.json() as { canUseCustomDomain?: boolean; managedDomains?: boolean };
+        setCanUseCustomDomain(Boolean(plan.canUseCustomDomain));
+        setManagedDomainsEnabled(Boolean(plan.managedDomains));
+      } catch {/* ignore */}
     })();
   }, [initialBackendType, projectId]);
 
@@ -721,6 +751,21 @@ export function SandboxedWebWorkspace({
             </span>
           </Button>
 
+          <button
+            ref={publishBtnRef}
+            onClick={() => setPublishOpen((v) => !v)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition",
+              cloudflareProjectName
+                ? "text-emerald-400 hover:text-emerald-300 hover:bg-emerald-400/10"
+                : "text-muted hover:text-fg hover:bg-soft",
+            )}
+            title={cloudflareProjectName ? "Manage deployment" : "Publish to Cloudflare Pages"}
+          >
+            <Globe size={15} />
+            <span>{cloudflareProjectName ? "Published" : "Publish"}</span>
+          </button>
+
           {currentView === "code" && (
             <Button
               variant="ghost"
@@ -934,6 +979,37 @@ export function SandboxedWebWorkspace({
           </div>
         </div>
       </div>
+
+      <SandboxPublishPanel
+        projectId={projectId}
+        isOpen={publishOpen}
+        onClose={() => setPublishOpen(false)}
+        anchorRef={publishBtnRef}
+        cloudflareProjectName={cloudflareProjectName}
+        cloudflareDeploymentUrl={cloudflareDeploymentUrl}
+        onPublished={(name, url) => {
+          setCloudflareProjectName(name || cloudflareProjectName);
+          setCloudflareDeploymentUrl(url);
+        }}
+        onUnpublished={() => {
+          setCloudflareProjectName(null);
+          setCloudflareDeploymentUrl(null);
+        }}
+        canUseCustomDomain={canUseCustomDomain}
+        managedDomainsEnabled={managedDomainsEnabled}
+        managedDomainId={managedDomainId}
+        managedDomainHostname={managedDomainHostname}
+        onManagedDomainChanged={(id, host) => {
+          setManagedDomainId(id);
+          setManagedDomainHostname(host);
+        }}
+        customDomain={customDomain}
+        customDomainStatus={customDomainStatus}
+        onCustomDomainChanged={(d, s) => {
+          setCustomDomain(d);
+          setCustomDomainStatus(s);
+        }}
+      />
     </div>
   );
 }

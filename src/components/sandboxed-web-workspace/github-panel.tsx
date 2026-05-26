@@ -245,6 +245,19 @@ export function SandboxGitHubPanel({
             ? "Pushed your initial commit to GitHub."
             : "Linked. Click 'Save to GitHub' to push your local files.",
         });
+        // Nudge the agent to ask the user how they want commits handled.
+        // AgentPanel listens for this and sends a [system-note] message,
+        // which both renders as a chip and triggers an agent turn (the
+        // link-route DB insert alone doesn't kick off a turn).
+        window.dispatchEvent(
+          new CustomEvent("github-linked", {
+            detail: {
+              projectId,
+              owner: repo.owner,
+              name: repo.name,
+            },
+          }),
+        );
       } catch (e) {
         toast({ title: "Link failed", description: e instanceof Error ? e.message : String(e) });
       } finally {

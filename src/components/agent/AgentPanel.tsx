@@ -374,6 +374,34 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
     return () => window.removeEventListener('github-conflict-delegate', handler);
   }, [projectId]);
 
+  // Linking a GitHub repo only inserts a DB bookkeeping row — by itself
+  // that doesn't run the agent. The github-panel fires this event after a
+  // successful link so we can send a [system-note] user message, which
+  // both renders as a chip and triggers a real agent turn so it can call
+  // askQuestion → setGitAutonomy.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { projectId: string; owner: string; name: string }
+        | undefined;
+      if (!detail || detail.projectId !== projectId) return;
+      const text = [
+        `[system-note] The user just linked the GitHub repo \`${detail.owner}/${detail.name}\` to this project.`,
+        "",
+        "Your first task: call the askQuestion tool to ask the user how they want git commits handled. Provide three options:",
+        " (a) autonomous — you commit and push on your own after meaningful changes;",
+        " (b) manual — you never run git; the user pushes from the panel;",
+        " (c) ask-each-time — you confirm with askQuestion before every commit.",
+        "",
+        "Then call setGitAutonomy with the value they picked ('autonomous', 'manual', or 'ask-each-time').",
+        "Do not perform any other work until autonomy is set.",
+      ].join("\n");
+      sendMessageRef.current({ text });
+    };
+    window.addEventListener('github-linked', handler);
+    return () => window.removeEventListener('github-linked', handler);
+  }, [projectId]);
+
   // --- Provider access for ModelSelector ---
   // Anthropic models need a path that actually runs them. OAuth-only is real
   // access only when the project is a sandbox (Claude Code path); on a

@@ -13,9 +13,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
 import { getDb } from "@/db";
-import { chatMessages, chatSessions, projects } from "@/db/schema";
+import { projects } from "@/db/schema";
 import { getUserCredentials } from "@/lib/user-credentials";
 import {
   cloneRepoIntoSandbox,
@@ -211,46 +210,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .where(eq(projects.id, id))
       .returning();
 
-    // Insert a bookkeeping message into the chat so the agent's next turn
-    // knows GitHub was just linked and asks the user how they want commits
-    // handled. The message is tagged `meta.systemNote: true` so the
-    // AgentPanel renders it as a subtle chip rather than a normal user
-    // bubble. Errors here are non-fatal — link succeeded, agent simply
-    // won't auto-ask.
-    try {
-      const [session] = await db
-        .select()
-        .from(chatSessions)
-        .where(eq(chatSessions.projectId, id))
-        .limit(1);
-      const sessionId = session?.id
-        ?? (await db.insert(chatSessions).values({ projectId: id }).returning())[0].id;
-      const segmentId = updated?.currentSegmentId ?? null;
-      const messageText = [
-        `[system-note] The user just linked the GitHub repo \`${body.owner}/${body.name}\` to this project.`,
-        "",
-        "Your first task: use the askQuestion tool to ask the user how they want git commits handled. Provide three options:",
-        " (a) autonomous — you commit and push on your own after meaningful changes;",
-        " (b) manual — you never run git; the user pushes from the panel;",
-        " (c) ask-each-time — you confirm with askQuestion before every commit.",
-        "",
-        "Then call setGitAutonomy with the value they picked ('autonomous', 'manual', or 'ask-each-time').",
-        "Do not perform any other work until autonomy is set.",
-      ].join("\n");
-
-      await db.insert(chatMessages).values({
-        sessionId,
-        messageId: `system-github-linked-${randomUUID()}`,
-        role: "user",
-        content: {
-          parts: [{ type: "text", text: messageText }],
-          meta: { systemNote: true, kind: "github-linked" },
-        },
-        segmentId,
-      });
-    } catch (e) {
-      console.warn("[github/sandbox/link] Failed to insert bookkeeping message:", e);
-    }
+    // The agent's autonomy question is triggered client-side after this
+    // route returns: github-panel dispatches a `github-linked` event,
+    // AgentPanel sends a [system-note] user message which both persists
+    // and kicks off an agent turn. A DB-only insert here doesn't run the
+    // agent, so it lived as a chip with no follow-up.
 
     return NextResponse.json({
       ok: true,

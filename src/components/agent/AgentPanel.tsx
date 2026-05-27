@@ -939,8 +939,30 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
         }) : a));
       }
     },
-    // v6: auto-resubmit when tool calls are complete (replaces maxSteps)
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    // v6: auto-resubmit when tool calls are complete (replaces maxSteps).
+    //
+    // Wrap the default helper so we DON'T auto-resubmit when the only thing
+    // the last assistant turn did was call `endTurn` — that's our explicit
+    // "stop here" marker, not a real tool roundtrip. Without this guard the
+    // synthetic endTurn we emit at the end of every Claude Code turn (and
+    // the real one the Botflow agent calls when it's done) would trip the
+    // helper into firing a second POST, which the user sees as a duplicate
+    // assistant bubble.
+    sendAutomaticallyWhen: ({ messages }) => {
+      if (!lastAssistantMessageIsCompleteWithToolCalls({ messages })) return false;
+      const last = messages[messages.length - 1];
+      if (!last || last.role !== 'assistant') return false;
+      const toolNames: string[] = [];
+      for (const part of last.parts ?? []) {
+        if (isToolUIPart(part)) toolNames.push(getToolName(part));
+      }
+      // If every tool in this turn is endTurn, the model (or our synthetic
+      // marker) has signalled the conversation is done. Don't resubmit.
+      if (toolNames.length > 0 && toolNames.every((n) => n === 'endTurn')) {
+        return false;
+      }
+      return true;
+    },
   });
 
   // Note: the previous explicit "switch backend" flow (modal + POST to

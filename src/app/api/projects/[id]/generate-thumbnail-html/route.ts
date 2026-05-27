@@ -71,9 +71,11 @@ export async function POST(
       deviceScaleFactor: 1,
     });
 
-    // 6. Set HTML content
+    // 6. Set HTML content. puppeteer-core types only accept 'load' /
+    // 'domcontentloaded' for setContent; 'networkidle0' is goto-only and
+    // wouldn't fire meaningfully for inline HTML anyway.
     await page.setContent(htmlContent, {
-      waitUntil: 'networkidle0',
+      waitUntil: 'load',
       timeout: 10000,
     });
 

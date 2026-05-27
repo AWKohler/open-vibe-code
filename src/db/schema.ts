@@ -61,6 +61,27 @@ export const projects = pgTable('projects', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
   // Soft delete — null means active. Set for Pro/Max users on delete; Free = immediate hard delete.
   deletedAt: timestamp('deleted_at'),
+  // ─── Reaper / lifecycle fields ────────────────────────────────────────────
+  // Which template seeds this project's sandbox if it ever needs to be recreated
+  // empty after a true 404 from Vercel. 'swift' | 'viteConvex' | 'vite' | null.
+  // Null means "don't auto-reseed" (preserves prior behavior for legacy rows).
+  sandboxTemplate: text('sandbox_template'),
+  // Last time anything ran a command against this project's Vercel sandbox.
+  // Drives the reaper's "authoring idle" clock. Distinct from lastOpened, which
+  // tracks UI session opens (cheaper to update).
+  lastSandboxActivityAt: timestamp('last_sandbox_activity_at'),
+  // Set when the project's owner is on the free tier (after a paid → free
+  // downgrade, or at project creation if owner was free). Reaper's idle clock
+  // = max(lastSandboxActivityAt, becameReapableAt). Cleared on upgrade.
+  becameReapableAt: timestamp('became_reapable_at'),
+  // Reap state machine. See src/lib/reaper/policy.ts.
+  // 'active' | 'warned_90d' | 'warned_104d' | 'archived' | 'deleted'
+  reapStage: text('reap_stage').notNull().default('active'),
+  lastReapWarningSentAt: timestamp('last_reap_warning_sent_at'),
+  // Liveness signal for managed-Convex projects: function-call count over the
+  // last 30 days, refreshed by the reaper before deciding to act.
+  convexCallsLast30d: bigint('convex_calls_last_30d', { mode: 'number' }),
+  convexCallsCheckedAt: timestamp('convex_calls_checked_at'),
 });
 
 export type Project = typeof projects.$inferSelect;

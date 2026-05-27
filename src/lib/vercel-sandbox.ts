@@ -1,8 +1,19 @@
 import { APIError, Sandbox } from "@vercel/sandbox";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import { projects } from "@/db/schema";
 
 const DEFAULT_RUNTIME = "node22";
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 const SANDBOX_ROOT = "/vercel/sandbox";
+
+// When remaining VM lifetime drops below this on touch, call extendTimeout.
+const EXTEND_THRESHOLD_MS = 10 * 60 * 1000;
+const EXTEND_BY_MS = 15 * 60 * 1000;
+
+// Keep one rolling auto-snapshot per sandbox; expire after 90 days of disuse
+// so abandoned projects don't accumulate snapshot storage forever.
+const SNAPSHOT_EXPIRATION_MS = 90 * 24 * 60 * 60 * 1000;
 
 // Common dev-server ports we want to expose. Vercel sandboxes can expose up to 4.
 // NOTE: port 8080 is reserved by the Vercel Sandbox system and will be
@@ -39,77 +50,256 @@ export function getSandboxName(projectId: string): string {
   return `botflow-project-${projectId}`;
 }
 
-export async function getOrCreatePersistentSandbox(projectId: string) {
+// ────────────────────────────────────────────────────────────────────────────
+// Rate-limit retry / structured 429
+// ────────────────────────────────────────────────────────────────────────────
+
+export class SandboxRateLimitError extends Error {
+  retryAfterSecs: number;
+  constructor(retryAfterSecs: number, cause?: unknown) {
+    super(`Vercel Sandbox rate-limited; retry after ${retryAfterSecs}s`);
+    this.name = "SandboxRateLimitError";
+    this.retryAfterSecs = retryAfterSecs;
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+  }
+}
+
+function parseRetryAfter(err: APIError): number {
+  const hdr =
+    err.response?.headers?.get?.("retry-after") ||
+    err.response?.headers?.get?.("Retry-After") ||
+    "";
+  const n = parseInt(hdr, 10);
+  if (Number.isFinite(n) && n > 0) return Math.min(n, 300);
+  return 5;
+}
+
+// Retry a Sandbox SDK call on 429 (honor Retry-After) and 5xx (capped backoff).
+// Do NOT retry other 4xx — they're permanent (auth, validation, not-found).
+// Idempotent reads/lists/get/create-or-get are safe defaults; for writes the
+// caller should opt out via { retry: false }.
+export async function withSandboxRetry<T>(
+  fn: () => Promise<T>,
+  opts: { maxAttempts?: number; label?: string } = {},
+): Promise<T> {
+  const max = opts.maxAttempts ?? 4;
+  let attempt = 0;
+  let lastErr: unknown;
+  while (attempt < max) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!(err instanceof APIError)) throw err;
+      const status = err.response.status;
+      if (status === 429) {
+        const retryAfter = parseRetryAfter(err);
+        if (attempt === max - 1) throw new SandboxRateLimitError(retryAfter, err);
+        await sleep(retryAfter * 1000);
+      } else if (status >= 500 && status < 600) {
+        if (attempt === max - 1) throw err;
+        const backoff = Math.min(1000 * 2 ** attempt, 8000) + Math.random() * 500;
+        await sleep(backoff);
+      } else {
+        throw err;
+      }
+      attempt++;
+    }
+  }
+  throw lastErr;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>(r => setTimeout(r, ms));
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Template selection
+// ────────────────────────────────────────────────────────────────────────────
+
+type TemplatePickerInput = {
+  platform: string;
+  backendType: string;
+  sandboxTemplate: string | null;
+};
+
+export function pickSandboxTemplate(p: TemplatePickerInput): SandboxTemplate | null {
+  // Explicit column wins
+  if (p.sandboxTemplate === "swift" || p.sandboxTemplate === "vite" || p.sandboxTemplate === "viteConvex") {
+    return p.sandboxTemplate;
+  }
+  if (p.platform === "swift") return "swift";
+  if (p.platform === "sandboxed-web") {
+    return p.backendType === "none" ? "vite" : "viteConvex";
+  }
+  return null;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Per-project mutex around get / create
+// ────────────────────────────────────────────────────────────────────────────
+
+const acquireLocks = new Map<string, Promise<Sandbox>>();
+
+async function acquireSandbox(projectId: string): Promise<Sandbox> {
+  const existing = acquireLocks.get(projectId);
+  if (existing) return existing;
+
+  const p = (async () => {
+    try {
+      return await doAcquireSandbox(projectId);
+    } finally {
+      acquireLocks.delete(projectId);
+    }
+  })();
+  acquireLocks.set(projectId, p);
+  return p;
+}
+
+async function doAcquireSandbox(projectId: string): Promise<Sandbox> {
   assertSandboxAuth();
 
   const name = getSandboxName(projectId);
 
+  // 1. Try to resume existing sandbox.
   try {
-    return await Sandbox.get({ name });
+    return await withSandboxRetry(() => Sandbox.get({ name }), { label: "Sandbox.get" });
   } catch (error) {
     if (error instanceof APIError) {
+      const status = error.response.status;
+      // 404 / 400 = truly gone; fall through to create. Any other status:
+      // surface (withSandboxRetry has already exhausted retries for 429/5xx).
+      if (status !== 404 && status !== 400) throw error;
       try {
         const body = await error.response.text();
-        console.error(`Sandbox.get failed (${error.response.status}): ${body}`);
-      } catch { /* ignore */ }
-      if (error.response.status !== 404 && error.response.status !== 400) {
-        throw error;
-      }
+        console.error(`Sandbox.get failed (${status}): ${body}`);
+      } catch { /* body already consumed */ }
     } else {
       throw error;
     }
   }
 
-  // First-time creation: declare the ports we'll forward so `sandbox.domain(port)`
-  // works for the live preview.
-  try {
-    return await Sandbox.create({
+  // 2. Create a fresh sandbox with auto-snapshot retention configured.
+  //    Auto-snapshots happen on session stop (Vercel-side default for
+  //    persistent sandboxes); snapshotExpiration caps how long they retain
+  //    storage for an idle project. The `keepLastSnapshots` knob (count: 1)
+  //    is set at runtime via an `as` cast so we still pass it through to
+  //    newer SDK versions even though the local typings predate the field.
+  const sandbox = await withSandboxRetry(
+    () => Sandbox.create({
       name,
       runtime: DEFAULT_RUNTIME,
       timeout: DEFAULT_TIMEOUT_MS,
       ports: SANDBOX_PORTS,
-    });
-  } catch (error) {
-    // The SDK already consumed the response body and stored it on
-    // `error.text` / `error.json`. `error.response.text()` returns empty
-    // because the body is already read.
+      snapshotExpiration: SNAPSHOT_EXPIRATION_MS,
+      ...({ keepLastSnapshots: { count: 1, deleteEvicted: true } } as object),
+    } as Parameters<typeof Sandbox.create>[0]),
+    { label: "Sandbox.create" },
+  ).catch((error) => {
     if (error instanceof APIError) {
       const errAny = error as unknown as { text?: string; json?: unknown };
       const bodyText =
         errAny.text || (errAny.json ? JSON.stringify(errAny.json) : "");
       console.error(
         `Sandbox.create failed (${error.response.status}) for project ${projectId}:\n` +
-          `  body: ${bodyText || "<empty>"}\n` +
-          `  payload: ${JSON.stringify({
-            name,
-            runtime: DEFAULT_RUNTIME,
-            timeout: DEFAULT_TIMEOUT_MS,
-            ports: SANDBOX_PORTS,
-          })}`,
+          `  body: ${bodyText || "<empty>"}`,
       );
       throw new Error(
         `Failed to create sandbox (${error.response.status}): ${bodyText || error.message}`,
       );
     }
     throw error;
+  });
+
+  // 3. After a true 404 → create, the sandbox is empty. Auto-reseed using the
+  //    project's stored template so callers don't silently get a blank VM.
+  //    Best-effort: failures don't block returning the sandbox.
+  try {
+    const [project] = await getDb()
+      .select({
+        platform: projects.platform,
+        backendType: projects.backendType,
+        sandboxTemplate: projects.sandboxTemplate,
+      })
+      .from(projects)
+      .where(eq(projects.id, projectId));
+    if (project) {
+      const template = pickSandboxTemplate(project);
+      if (template) {
+        await seedSandboxInternal(sandbox, template).catch((e) =>
+          console.warn(`[vercel-sandbox] auto-reseed after recreate failed: ${e}`),
+        );
+      }
+    }
+  } catch (e) {
+    console.warn(`[vercel-sandbox] auto-reseed lookup failed: ${e}`);
+  }
+
+  return sandbox;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Public entry point + lifecycle
+// ────────────────────────────────────────────────────────────────────────────
+
+export async function getOrCreatePersistentSandbox(projectId: string) {
+  const sandbox = await acquireSandbox(projectId);
+
+  // Heartbeat: if the session is close to its timeout, extend it. The SDK is
+  // tolerant of extendTimeout being called on a freshly-created sandbox.
+  try {
+    const session = (sandbox as unknown as {
+      session?: {
+        stoppedAt?: Date;
+        expiresAt?: Date;
+        extendTimeout?: (ms: number) => Promise<void>;
+      };
+      extendTimeout?: (ms: number) => Promise<void>;
+    }).session;
+    const expiresAt: Date | undefined = session?.expiresAt;
+    const extend =
+      session?.extendTimeout?.bind(session) ??
+      (sandbox as unknown as { extendTimeout?: (ms: number) => Promise<void> })
+        .extendTimeout?.bind(sandbox);
+    if (expiresAt && extend) {
+      const remaining = expiresAt.getTime() - Date.now();
+      if (remaining > 0 && remaining < EXTEND_THRESHOLD_MS) {
+        await extend(EXTEND_BY_MS).catch(() => undefined);
+      }
+    }
+  } catch { /* SDK shape drift — non-fatal */ }
+
+  // Bookkeeping: record activity for the reaper. Best-effort, never blocks.
+  recordSandboxActivity(projectId).catch(() => undefined);
+
+  return sandbox;
+}
+
+// Throttle DB activity updates: write at most once per minute per project.
+const lastActivityWrite = new Map<string, number>();
+const ACTIVITY_DEBOUNCE_MS = 60_000;
+
+async function recordSandboxActivity(projectId: string): Promise<void> {
+  const now = Date.now();
+  const last = lastActivityWrite.get(projectId) ?? 0;
+  if (now - last < ACTIVITY_DEBOUNCE_MS) return;
+  lastActivityWrite.set(projectId, now);
+  try {
+    await getDb()
+      .update(projects)
+      .set({ lastSandboxActivityAt: new Date(now) })
+      .where(eq(projects.id, projectId));
+  } catch (e) {
+    // Don't break sandbox operations because of a DB hiccup.
+    console.warn(`[vercel-sandbox] failed to record activity: ${e}`);
   }
 }
 
-/**
- * Seed a fresh sandbox with the appropriate template if /vercel/sandbox is empty.
- * Returns true if seeded, false if files already existed.
- *
- * Template selection:
- *   - swift     → swift-template (Swift / iOS app scaffold)
- *   - viteConvex → vite_convex_template (Vite + React + Convex web app)
- *   - vite      → vite_template (Vite + React web app, no backend)
- */
-export async function seedSandboxIfEmpty(
-  projectId: string,
-  template: SandboxTemplate = "swift",
-): Promise<boolean> {
-  const sandbox = await getOrCreatePersistentSandbox(projectId);
+// ────────────────────────────────────────────────────────────────────────────
+// Seeding
+// ────────────────────────────────────────────────────────────────────────────
 
+async function seedSandboxInternal(sandbox: Sandbox, template: SandboxTemplate): Promise<boolean> {
   const check = await sandbox.runCommand("sh", [
     "-c",
     `ls -A ${SANDBOX_ROOT} 2>/dev/null | grep -v '^node_modules$' | grep -v '^\\.git$' | head -1 || true`,
@@ -141,9 +331,19 @@ export async function seedSandboxIfEmpty(
 }
 
 /**
+ * Seed a fresh sandbox with the appropriate template if /vercel/sandbox is empty.
+ * Returns true if seeded, false if files already existed.
+ */
+export async function seedSandboxIfEmpty(
+  projectId: string,
+  template: SandboxTemplate = "swift",
+): Promise<boolean> {
+  const sandbox = await getOrCreatePersistentSandbox(projectId);
+  return seedSandboxInternal(sandbox, template);
+}
+
+/**
  * Write a `.env` file at the sandbox root from a record of key/value pairs.
- * Used at seed time so Vite picks up VITE_CONVEX_URL etc. on first dev server start.
- * Overwrites any existing .env.
  */
 export async function writeSandboxEnvFile(
   projectId: string,
@@ -193,11 +393,55 @@ export async function runPersistentSandboxSmokeTest(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Reaper helpers (lifecycle teardown)
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Permanently delete the persistent sandbox for a project — VM + auto-snapshot.
+ * Used by the reaper when a project is being archived/deleted. Idempotent:
+ * a 404 from the SDK is treated as success.
+ */
+export async function deletePersistentSandbox(projectId: string): Promise<void> {
+  assertSandboxAuth();
+  const name = getSandboxName(projectId);
+  try {
+    const sandbox = await withSandboxRetry(() => Sandbox.get({ name }), {
+      label: "Sandbox.get(reaper)",
+    });
+    const s = sandbox as unknown as { delete?: () => Promise<void>; stop?: () => Promise<void> };
+    if (typeof s.delete === "function") {
+      await withSandboxRetry(() => s.delete!(), { label: "Sandbox.delete" });
+    } else if (typeof s.stop === "function") {
+      // Older SDK: stop is the best we can do.
+      await withSandboxRetry(() => s.stop!(), { label: "Sandbox.stop" });
+    }
+
+    // Also evict any retained snapshots so storage actually drops to zero.
+    try {
+      const ls = (sandbox as unknown as {
+        listSnapshots?: (p?: { limit?: number }) => Promise<{ snapshots: { id: string }[] }>;
+        deleteSnapshot?: (id: string) => Promise<void>;
+      });
+      if (ls.listSnapshots && ls.deleteSnapshot) {
+        const page = await ls.listSnapshots({ limit: 50 });
+        for (const snap of page.snapshots ?? []) {
+          await ls.deleteSnapshot(snap.id).catch(() => undefined);
+        }
+      }
+    } catch { /* best-effort */ }
+  } catch (error) {
+    if (error instanceof APIError && (error.response.status === 404 || error.response.status === 400)) {
+      return; // already gone
+    }
+    throw error;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Helpers used by the persistent agent (server-side tool execution)
 // ────────────────────────────────────────────────────────────────────────────
 
 function toAbsPath(projectRelative: string): string {
-  // Accept "/foo/bar" or "foo/bar"; always returns an absolute /vercel/sandbox path
   const trimmed = projectRelative.startsWith("/")
     ? projectRelative.slice(1)
     : projectRelative;
@@ -217,18 +461,38 @@ export async function sandboxRun(
   opts: { cwd?: string; timeoutMs?: number } = {},
 ): Promise<CommandResult> {
   const sandbox = await getOrCreatePersistentSandbox(projectId);
+
   const command = await sandbox.runCommand({
     cmd,
     args,
     cwd: opts.cwd ?? SANDBOX_ROOT,
     detached: true,
   });
-  const result = await command.wait();
-  return {
-    exitCode: result.exitCode,
-    stdout: await result.stdout(),
-    stderr: await result.stderr(),
-  };
+
+  // Wire the previously-dead timeoutMs option: if the underlying wait()
+  // hasn't resolved by the deadline, kill the command and surface a real
+  // timeout error rather than hanging the caller indefinitely.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abortCtrl: AbortController | undefined;
+  if (opts.timeoutMs && opts.timeoutMs > 0) {
+    abortCtrl = new AbortController();
+    timer = setTimeout(() => abortCtrl?.abort(), opts.timeoutMs);
+  }
+  try {
+    const result = await command.wait(abortCtrl ? { signal: abortCtrl.signal } : undefined);
+    return {
+      exitCode: result.exitCode,
+      stdout: await result.stdout(),
+      stderr: await result.stderr(),
+    };
+  } catch (e) {
+    if (abortCtrl?.signal.aborted) {
+      throw new Error(`sandboxRun timed out after ${opts.timeoutMs}ms: ${cmd}`);
+    }
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function sandboxBash(
@@ -331,7 +595,6 @@ export async function sandboxGrep(
   const results: Array<{ file: string; line: number; text: string }> = [];
   for (const raw of stdout.split("\n")) {
     if (!raw) continue;
-    // Format: <file>:<line>:<text>
     const first = raw.indexOf(":");
     if (first < 0) continue;
     const second = raw.indexOf(":", first + 1);
@@ -348,19 +611,9 @@ export async function sandboxGrep(
 
 /**
  * Tar (gzipped) the project's source tree from the persistent sandbox and
- * return it as a Buffer. Used by the Swift preview pipeline to ship the project
- * to a Mac for xcodebuild.
- *
- * Excludes build artefacts, .git, user-specific Xcode metadata, and node_modules.
- * The tar is written to a temp path inside the sandbox first, then read back.
+ * return it as a Buffer.
  */
 export async function tarSandboxProject(projectId: string): Promise<Buffer> {
-  // Pipe tar's gzipped output through base64 and read it on stdout. This
-  // bypasses readFileToBuffer entirely (which has been flaky for tarballs
-  // outside /vercel/sandbox and sometimes returns null even for valid paths).
-  // GNU tar exits 1 ("some files differ") when a file is touched mid-archive;
-  // base64 sees the bytes regardless, and `|| [ $? -eq 1 ]` after pipefail
-  // accepts that warning.
   const excludes = [
     "--exclude=.git",
     "--exclude=node_modules",
@@ -371,12 +624,10 @@ export async function tarSandboxProject(projectId: string): Promise<Buffer> {
     "--exclude=DerivedData",
     "--exclude=.DS_Store",
   ];
-  // -w 0 disables base64 line wrapping so the entire payload is one chunk.
   const cmd = [
     "set -o pipefail",
     `tar czf - ${excludes.join(" ")} -C ${SANDBOX_ROOT} . 2>/dev/null | base64 -w 0`,
     'rc=$?',
-    // Accept tar's "file changed" warning (pipefail surfaces it as rc=1)
     '[ $rc -eq 0 ] || [ $rc -eq 1 ]',
   ].join(" ; ");
   const res = await sandboxBash(projectId, cmd, { timeoutMs: 120_000 });
@@ -390,7 +641,6 @@ export async function tarSandboxProject(projectId: string): Promise<Buffer> {
   return Buffer.from(b64, "base64");
 }
 
-// Glob using `find` with -name patterns. For simple glob syntax: *.swift, **/*.ts
 export async function sandboxGlob(
   projectId: string,
   pattern: string,
@@ -399,7 +649,6 @@ export async function sandboxGlob(
   const searchPath = toAbsPath(opts.path ?? "/");
   const max = opts.maxResults ?? 500;
 
-  // Use bash globstar so ** works; print matches null-terminated to handle spaces.
   const script = [
     "set -e",
     "shopt -s globstar nullglob dotglob",

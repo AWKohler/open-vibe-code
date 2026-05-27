@@ -68,6 +68,14 @@ export async function POST(request: NextRequest) {
     const db = getDb();
     const resolvedPlatform = normalizeProjectPlatform(platform);
     const resolvedBackendType = normalizeBackendType(backendType);
+    // Stamp the sandbox template up-front so the reaper / auto-reseed paths
+    // know how to repopulate /vercel/sandbox after a true 404.
+    const sandboxTemplate: 'swift' | 'vite' | 'viteConvex' | null =
+      resolvedPlatform === 'swift'
+        ? 'swift'
+        : resolvedPlatform === 'sandboxed-web'
+          ? (resolvedBackendType === 'none' ? 'vite' : 'viteConvex')
+          : null;
     const [newProject] = await db
       .insert(projects)
       .values({
@@ -75,6 +83,7 @@ export async function POST(request: NextRequest) {
         userId,
         platform: resolvedPlatform,
         backendType: resolvedBackendType,
+        sandboxTemplate,
         model:
           model === 'gpt-5.4'
             ? 'gpt-5.4'

@@ -59,6 +59,8 @@
     "puppeteer-core": "^24.34.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "resend": "^6.12.4",
+    "svix": "^1.94.0",
     "tailwind-merge": "^3.4.0",
     "three": "^0.182.0",
     "uploadthing": "^7.7.4",

@@ -5,7 +5,16 @@ const isProtectedRoute = createRouteMatcher([
   '/api/(.*)'
 ]);
 
+// Server-to-server endpoints authenticate themselves (svix signature for
+// Clerk webhooks, shared bearer for Vercel cron); they MUST bypass Clerk's
+// user-auth gate or the verification step never runs.
+const isPublicApi = createRouteMatcher([
+  '/api/webhooks/(.*)',
+  '/api/cron/(.*)',
+]);
+
 export default clerkMiddleware((auth, req) => {
+  if (isPublicApi(req)) return;
   if (isProtectedRoute(req)) auth.protect();
 });
 

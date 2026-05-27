@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "10";
+export const BRIDGE_SCRIPT_VERSION = "11";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -265,7 +265,7 @@ function buildCustomTools(customTools) {
     tools.push(
       tool(
         "git_push",
-        "Push the current branch to GitHub. Returns code=\"non-fast-forward\" when the remote has diverged — call git_pull first in that case. Use force=true only after the user explicitly approves overwriting remote.",
+        "Push the current branch to GitHub. Returns code=\\\"non-fast-forward\\\" when the remote has diverged — call git_pull first in that case. Use force=true only after the user explicitly approves overwriting remote.",
         { force: z.boolean().optional() },
         makeHostToolHandler("git_push"),
       ),

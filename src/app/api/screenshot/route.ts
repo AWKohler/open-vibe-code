@@ -6,7 +6,10 @@ import { getDailyScreenshots, incrementDailyScreenshots } from '@/lib/usage';
 import { limitReachedResponse } from '@/lib/plan-response';
 import puppeteer from 'puppeteer-core';
 import fs from 'fs';
-import { createCanvas } from 'canvas';
+// `canvas` (native binding) is only used by the local-dev placeholder
+// branch below. Importing it at module scope fails Next.js page-data
+// collection on Vercel because the native `.node` file isn't bundled.
+// Lazy-require it at the call site instead.
 
 export const maxDuration = 30; // 30 seconds timeout
 
@@ -172,7 +175,9 @@ export async function POST(request: NextRequest) {
       const chromePath = await findLocalChrome();
       if (!chromePath) {
         console.warn('⚠️ Chrome/Chromium not found. Creating placeholder image.');
-        // Create a simple placeholder image for development
+        // Create a simple placeholder image for development. Lazy-require
+        // so the build doesn't try to resolve canvas's native binding.
+        const { createCanvas } = await import('canvas');
         const canvasEl = createCanvas(1280, 720);
         const ctx = canvasEl.getContext('2d');
 

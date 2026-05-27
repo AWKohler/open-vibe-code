@@ -30,6 +30,7 @@ import { resolveModelId, MODEL_CONFIGS, isAnthropicModel } from "@/lib/agent/mod
 import { isSandboxPlatform } from "@/lib/project-platform";
 
 import { isClaudeCodeFlagEnabled } from "@/lib/agent/claude-code/feature-flag";
+import { STRIPE_CONNECT_ENABLED } from "@/lib/feature-flags";
 import { deriveAgentBackend } from "@/lib/agent/derive-backend";
 import {
   ensureClaudeInstalled,
@@ -264,6 +265,9 @@ export async function POST(req: Request) {
     );
     if (hasBackend) {
       customTools.push("convex_deploy");
+      if (STRIPE_CONNECT_ENABLED) {
+        customTools.push("initialize_stripe_payments");
+      }
     }
     // Git tools — only when a repo is linked. Gating must match the project
     // state at turn-start; the host route also re-checks at execution time.

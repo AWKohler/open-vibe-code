@@ -82,7 +82,22 @@ export const projects = pgTable('projects', {
   // last 30 days, refreshed by the reaper before deciding to act.
   convexCallsLast30d: bigint('convex_calls_last_30d', { mode: 'number' }),
   convexCallsCheckedAt: timestamp('convex_calls_checked_at'),
-});
+  // ─── Stripe Connect (Express) ─────────────────────────────────────────────
+  // See drizzle/0017_add_stripe_integration.sql + src/lib/stripe.ts.
+  // Each project is one Express connected account per mode. Test account is
+  // created silently on initializeStripePayments; live account is created
+  // lazily on first Live-toggle and runs through Stripe-hosted KYC.
+  stripeTestAccountId: text('stripe_test_account_id'),
+  stripeLiveAccountId: text('stripe_live_account_id'),
+  stripePaymentMode: text('stripe_payment_mode').notNull().default('test'), // 'test' | 'live'
+  stripeEnabled: boolean('stripe_enabled').notNull().default(false),
+  // Per-project HMAC used when the platform forwards normalized webhook
+  // events into the project's Convex HTTP endpoint. Generated at init.
+  stripeWebhookSecret: text('stripe_webhook_secret'),
+}, (t) => ({
+  stripeTestAccountIdIdx: index('projects_stripe_test_account_id_idx').on(t.stripeTestAccountId),
+  stripeLiveAccountIdIdx: index('projects_stripe_live_account_id_idx').on(t.stripeLiveAccountId),
+}));
 
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -397,3 +412,30 @@ export const domainDnsRecords = pgTable('domain_dns_records', {
 
 export type DomainDnsRecord = typeof domainDnsRecords.$inferSelect;
 export type NewDomainDnsRecord = typeof domainDnsRecords.$inferInsert;
+
+// ─── Stripe Connect ──────────────────────────────────────────────────────────
+
+// One row per Botflow user; drives prefill when creating their 2nd+ live
+// Express account so Stripe recognizes the identity and skips re-verification.
+// See drizzle/0017_add_stripe_integration.sql.
+export const userStripeIdentity = pgTable('user_stripe_identity', {
+  userId: text('user_id').primaryKey(),
+  defaultEmail: text('default_email'),
+  defaultCountry: text('default_country'),
+  legalEntityType: text('legal_entity_type'), // 'individual' | 'company' | null
+  lastLiveAccountId: text('last_live_account_id'),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type UserStripeIdentity = typeof userStripeIdentity.$inferSelect;
+export type NewUserStripeIdentity = typeof userStripeIdentity.$inferInsert;
+
+// Dedupe table for inbound Stripe webhook events. SETNX on event.id makes the
+// handler side-effect-once across Stripe's 3-day retry window.
+export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
+  eventId: text('event_id').primaryKey(),
+  receivedAt: timestamp('received_at').defaultNow().notNull(),
+});
+
+export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
+export type NewStripeWebhookEvent = typeof stripeWebhookEvents.$inferInsert;

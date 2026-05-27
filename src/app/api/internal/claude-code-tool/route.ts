@@ -264,6 +264,88 @@ export async function POST(req: Request) {
       });
     }
 
+    case "initialize_stripe_payments": {
+      // Mirrors POST /api/projects/[id]/stripe/initialize. The bridge can't
+      // call that route (no Clerk session), so we run the same logic here
+      // under the resolved tool-token binding.
+      const { STRIPE_CONNECT_ENABLED } = await import("@/lib/feature-flags");
+      if (!STRIPE_CONNECT_ENABLED) {
+        return NextResponse.json({
+          ok: false,
+          content: "Stripe Connect is not enabled on this deployment.",
+        });
+      }
+      if (project.backendType === "none") {
+        return NextResponse.json({
+          ok: false,
+          status: "backend-blocked",
+          content:
+            "This project has no backend. Stripe requires a Convex backend to receive webhook events and store billing state.",
+        });
+      }
+
+      const { canUseStripeConnect } = await import("@/lib/tier");
+      const gate = await canUseStripeConnect(binding.userId);
+      if (!gate.allowed) {
+        return NextResponse.json({
+          ok: false,
+          status: "tier-blocked",
+          content: gate.reason,
+          tier: gate.tier,
+        });
+      }
+
+      if (project.stripeEnabled && project.stripeTestAccountId) {
+        return NextResponse.json({
+          ok: true,
+          status: "already-enabled",
+          content: `Stripe is already set up for this project. Test account: ${project.stripeTestAccountId}. Mode: ${project.stripePaymentMode}.`,
+          mode: project.stripePaymentMode,
+          testAccountId: project.stripeTestAccountId,
+          liveAccountId: project.stripeLiveAccountId,
+        });
+      }
+
+      try {
+        const { getStripe } = await import("@/lib/stripe");
+        const stripe = getStripe("test");
+        const account = await stripe.accounts.create({
+          type: "express",
+          metadata: {
+            botflow_project_id: binding.projectId,
+            botflow_user_id: binding.userId,
+            botflow_mode: "test",
+          },
+        });
+        const webhookSecret = `bfws_${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
+        await db
+          .update(projects)
+          .set({
+            stripeTestAccountId: account.id,
+            stripeEnabled: true,
+            stripePaymentMode: "test",
+            stripeWebhookSecret: webhookSecret,
+            updatedAt: new Date(),
+          })
+          .where(eq(projects.id, binding.projectId));
+
+        return NextResponse.json({
+          ok: true,
+          status: "enabled",
+          mode: "test",
+          testAccountId: account.id,
+          content: `Stripe Express test account provisioned. Account id: ${account.id}. The Stripe tab is now available in the workspace. You can now write checkout buttons that call the project's Stripe action — do not write card-tokenization code.`,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error("[claude-code-tool/initialize_stripe_payments] threw:", err);
+        return NextResponse.json({
+          ok: false,
+          content: `initializeStripePayments failed: ${message}`,
+        });
+      }
+    }
+
     case "setup_auth": {
       if (project.backendType === "none") {
         return NextResponse.json({

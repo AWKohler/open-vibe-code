@@ -173,3 +173,25 @@ const TIER_RANK: Record<Tier, number> = { free: 0, pro: 1, max: 2 };
 export function tierMeetsRequirement(userTier: Tier, required: Tier): boolean {
   return TIER_RANK[userTier] >= TIER_RANK[required];
 }
+
+// ─── Stripe Connect ───────────────────────────────────────────────────────────
+
+/**
+ * Whether the given user is allowed to use Stripe Connect on their projects.
+ * Pro/Max only. Returns a user-facing message on the deny path so callers can
+ * surface it directly in chat / modals without templating their own copy.
+ */
+export async function canUseStripeConnect(
+  userId: string
+): Promise<{ allowed: boolean; tier: Tier; reason?: string }> {
+  const tier = await getUserTier(userId);
+  if (tierMeetsRequirement(tier, 'pro')) {
+    return { allowed: true, tier };
+  }
+  return {
+    allowed: false,
+    tier,
+    reason:
+      'Stripe payments are a Pro/Max feature. Upgrade your plan to accept payments through your project.',
+  };
+}

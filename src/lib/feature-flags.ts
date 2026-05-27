@@ -17,3 +17,11 @@ export const ANTHROPIC_OAUTH_ENABLED =
  *  consumed by the official Claude Code client, not by us. */
 export const CLAUDE_CODE_ENABLED =
   process.env.NEXT_PUBLIC_CLAUDE_CODE_ENABLED === 'true';
+
+/** When true: the Stripe Connect integration is exposed — the
+ *  `initializeStripePayments` AI tool is registered, the Stripe tab can
+ *  appear in workspaces, and the proxy endpoints accept requests. When
+ *  false: all of those are hidden / refuse. Default off until the slice
+ *  is verified end-to-end on botflow.io. */
+export const STRIPE_CONNECT_ENABLED =
+  process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED === 'true';

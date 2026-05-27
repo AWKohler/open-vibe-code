@@ -28,6 +28,7 @@ import { refreshAuthSiteUrl } from "@/lib/convex-auth-setup";
 import { getDb } from "@/db";
 import { projects, oauthProviderRequests } from "@/db/schema";
 import { getUserCredentials } from "@/lib/user-credentials";
+import { STRIPE_CONNECT_ENABLED } from "@/lib/feature-flags";
 import {
   commitAll,
   getCurrentBranch,
@@ -756,5 +757,41 @@ REQUIRED NEXT STEPS:
         };
       },
     }),
+    ...(STRIPE_CONNECT_ENABLED
+      ? {
+          initializeStripePayments: tool({
+            description:
+              "Set up Stripe payments for this project. Call this when the user asks to add checkout, subscriptions, billing, a paywall, or any other payment flow.\n\n" +
+              "What this does:\n" +
+              "  • Silently provisions a Stripe Express **test** account for this project (no popup, no KYC — test accounts are server-side creations).\n" +
+              "  • Flips the workspace so a 'Stripe' tab becomes available where the user can see transactions and switch between Test and Live mode.\n" +
+              "  • Returns the test account id so you can reference it in subsequent tool calls.\n\n" +
+              "Requirements:\n" +
+              "  • Pro or Max plan (this tool returns a tier-blocked status for Free users — relay that message to the user).\n" +
+              "  • The project must have a backend (Convex). On a No-Backend project this returns backend-blocked.\n\n" +
+              "Idempotency: safe to call multiple times. If Stripe is already set up on this project, returns status='already-enabled' immediately.",
+            inputSchema: z.object({}),
+            async execute() {
+              const url = `${appBaseUrl}/api/projects/${projectId}/stripe/initialize`;
+              const res = await fetch(url, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(authHeaders ?? {}),
+                },
+              });
+              const text = await res.text();
+              try {
+                return JSON.parse(text);
+              } catch {
+                return {
+                  ok: false,
+                  error: `stripe/initialize returned non-JSON (HTTP ${res.status}): ${text.slice(0, 500)}`,
+                };
+              }
+            },
+          }),
+        }
+      : {}),
   } as const;
 }

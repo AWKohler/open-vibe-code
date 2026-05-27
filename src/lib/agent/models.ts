@@ -67,7 +67,7 @@ export const MODEL_CONFIGS: Record<ModelId, ModelConfig> = {
     id: "claude-sonnet-4-6",
     provider: "anthropic",
     apiModelId: "claude-sonnet-4-6",
-    displayName: "Claude Sonnet 4",
+    displayName: "Claude Sonnet 4.6",
     maxContextTokens: 200_000,
     warnThreshold: 0.7,
     criticalThreshold: 0.9,

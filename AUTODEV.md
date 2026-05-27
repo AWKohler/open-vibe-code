@@ -58,12 +58,28 @@ When you change behavior, **check both backends** unless the change is path-spec
 
 - Vercel typically takes **2–4 minutes** from `git push` to a new deployment URL serving the new chunks.
 - The most painful trap: you push a fix, immediately reload the page, click the button, and the toast still says the *old* text — because the client JS chunk hasn't rolled yet. You then assume the fix didn't work and start re-investigating. **Don't.** Wait for the new deploy first.
-- Cheap freshness check after a push:
+- **Right freshness check (use this):** poll the GitHub commit status for the SHA you just pushed:
   ```bash
-  curl -s https://botflow.io/ | grep -oE 'dpl_[A-Za-z0-9]+' | head -1
+  curl -s -H "Authorization: token $TOKEN" \
+    "https://api.github.com/repos/AWKohler/open-vibe-code/commits/$SHA/status" \
+    | python3 -c 'import sys,json; print(json.load(sys.stdin).get("state"))'
   ```
-  Compare to the deployment ID from before your push. When it changes, the new deploy is live.
-- For waits, prefer `Monitor` with an `until` loop polling that check every ~15s. That gives you one notification when the new deploy lands.
+  Returns `pending` → `success` or `failure`. **Always check this** — Vercel keeps serving the last green build when subsequent builds fail, so the live deploy ID will *not* change and you'll wait forever thinking it's "still deploying."
+- **Wrong freshness check (the trap):** comparing `dpl_…` from the live homepage HTML across pushes. Silent build failures keep that ID frozen at the last green deploy; you'll burn cycles wondering why your fix isn't there.
+- **When the build fails**, pull logs immediately:
+  ```bash
+  # Get the deployment URL from the GitHub status
+  DPL=$(curl -s -H "Authorization: token $TOKEN" \
+    "https://api.github.com/repos/AWKohler/open-vibe-code/commits/$SHA/status" \
+    | python3 -c 'import sys,json
+  for s in json.load(sys.stdin).get("statuses",[]):
+    if s.get("context")=="Vercel":
+      import re; m=re.search(r"/([^/]+)$", s.get("target_url",""))
+      if m: print("dpl_"+m.group(1)); break')
+  npx -y vercel@latest inspect "$DPL" --logs --scope bot-flow | tail -50
+  ```
+  Vercel CLI auths to the user's local credentials; scope is `bot-flow`. Build failures may have *nothing to do with your change* — pre-existing breakage on `main` from other commits can block your push. Fix the blocker, then your fix ships too.
+- For waits, prefer `Monitor` with a polling loop on the commit-status endpoint (see above). One notification on success or failure.
 - After a deploy lands, **hard-refresh the workspace tab** (navigate to the same URL again) to bust the client cache of stale React/JS chunks.
 
 ---

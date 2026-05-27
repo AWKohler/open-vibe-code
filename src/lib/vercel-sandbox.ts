@@ -64,7 +64,7 @@ export class SandboxRateLimitError extends Error {
   }
 }
 
-function parseRetryAfter(err: APIError): number {
+function parseRetryAfter(err: APIError<unknown>): number {
   const hdr =
     err.response?.headers?.get?.("retry-after") ||
     err.response?.headers?.get?.("Retry-After") ||

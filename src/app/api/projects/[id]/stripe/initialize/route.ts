@@ -20,7 +20,7 @@ import { randomBytes } from 'node:crypto';
 import { getDb } from '@/db';
 import { projects } from '@/db/schema';
 import { canUseStripeConnect } from '@/lib/tier';
-import { getStripe } from '@/lib/stripe';
+import { getStripe, isStripeConfigured } from '@/lib/stripe';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -87,21 +87,36 @@ export async function POST(
     });
   }
 
-  const stripe = getStripe('test');
+  if (!isStripeConfigured('test')) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          'Stripe test keys are not configured on this deployment. Set STRIPE_SECRET_KEY_TEST in the Vercel project env and redeploy.',
+      },
+      { status: 500 },
+    );
+  }
 
-  // Create the Express connected account. We do NOT pass `capabilities` here —
-  // Stripe enables a sensible default capability set for Express at creation,
-  // and the test account can immediately accept Checkout Sessions with test
-  // cards. Live accounts (separate endpoint, future slice) will request
-  // capabilities explicitly when KYC kicks in.
-  const account = await stripe.accounts.create({
-    type: 'express',
-    metadata: {
-      botflow_project_id: projectId,
-      botflow_user_id: userId,
-      botflow_mode: 'test',
-    },
-  });
+  let account: Awaited<ReturnType<ReturnType<typeof getStripe>['accounts']['create']>>;
+  try {
+    const stripe = getStripe('test');
+    account = await stripe.accounts.create({
+      type: 'express',
+      metadata: {
+        botflow_project_id: projectId,
+        botflow_user_id: userId,
+        botflow_mode: 'test',
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[stripe/initialize] accounts.create threw:', err);
+    return NextResponse.json(
+      { ok: false, error: `Stripe account creation failed: ${message}` },
+      { status: 500 },
+    );
+  }
 
   // Per-project HMAC for signing webhook deliveries we'll later forward into
   // the project's Convex HTTP endpoint. Generated now so a future slice can

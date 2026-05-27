@@ -95,6 +95,11 @@ interface State {
   writer: UIMessageStreamWriter;
   /** True after we've emitted the first `start` chunk. */
   started: boolean;
+  /** True once a `finish` chunk has been emitted (via end_turn / error / end()).
+   *  Used to suppress duplicate finishes — a second `finish` in the stream
+   *  causes AI SDK's useChat to split the assistant turn into multiple
+   *  bubbles, which is exactly the "three greetings to one hello" bug. */
+  finished: boolean;
   /** Set of text content-block ids we've already opened. */
   openTextIds: Set<string>;
   /** Set of tool-call ids we've already opened. */
@@ -112,11 +117,19 @@ export function createTranslator(writer: UIMessageStreamWriter): {
   const state: State = {
     writer,
     started: false,
+    finished: false,
     openTextIds: new Set(),
     openToolIds: new Set(),
     toolNamesById: new Map(),
     toolInputsById: new Map(),
   };
+
+  function emitFinish(reason: "stop" | "error") {
+    if (state.finished) return;
+    state.finished = true;
+    emit({ type: "finish-step" });
+    emit({ type: "finish", finishReason: reason });
+  }
 
   function ensureStarted() {
     if (state.started) return;
@@ -284,13 +297,11 @@ export function createTranslator(writer: UIMessageStreamWriter): {
           toolCallId: "claude-code-end-turn",
           output: "Done.",
         });
-        emit({ type: "finish-step" });
-        emit({ type: "finish", finishReason: "stop" });
+        emitFinish("stop");
         break;
       case "error":
         emit({ type: "error", errorText: event.error });
-        emit({ type: "finish-step" });
-        emit({ type: "finish", finishReason: "error" });
+        emitFinish("error");
         break;
       case "ready":
         break;
@@ -306,8 +317,10 @@ export function createTranslator(writer: UIMessageStreamWriter): {
     state.openTextIds.clear();
     state.openToolIds.clear();
     if (state.started) {
-      try { emit({ type: "finish-step" }); } catch { /* ignore */ }
-      try { emit({ type: "finish", finishReason: "stop" }); } catch { /* ignore */ }
+      // Backstop finish — no-ops if end_turn / error already emitted one.
+      // A duplicate `finish` chunk causes useChat to split the turn into
+      // multiple bubbles, so we MUST guard against double-emitting it.
+      try { emitFinish("stop"); } catch { /* ignore */ }
     }
   }
 

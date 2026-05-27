@@ -50,8 +50,9 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
       text: input.text,
       replyTo: input.replyTo || REPLY_TO_DEFAULT,
     });
-    if (resp.error) {
-      return { ok: false, error: typeof resp.error === "string" ? resp.error : JSON.stringify(resp.error) };
+    const respError = (resp as { error?: unknown }).error;
+    if (respError) {
+      return { ok: false, error: typeof respError === "string" ? respError : JSON.stringify(respError) };
     }
     return { ok: true, id: resp.data?.id };
   } catch (err) {

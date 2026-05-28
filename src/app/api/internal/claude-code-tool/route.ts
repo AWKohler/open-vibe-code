@@ -329,14 +329,28 @@ export async function POST(req: Request) {
           })
           .where(eq(projects.id, binding.projectId));
 
+        // Scaffold in the background — file drop + Convex env set can be
+        // slow for cold sandboxes/new projects. Don't block the tool call.
+        const { after } = await import("next/server");
         const { scaffoldStripeIntoProject } = await import("@/lib/stripe-scaffold");
-        const scaffold = await scaffoldStripeIntoProject(binding.projectId, {
-          mode,
-          webhookSecret,
-          proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
-        }).catch((err) => {
-          console.error("[claude-code-tool/stripe scaffold] threw:", err);
-          return { filesWritten: [], envSet: false, envError: "scaffold threw" };
+        after(async () => {
+          try {
+            const result = await scaffoldStripeIntoProject(binding.projectId, {
+              mode,
+              webhookSecret,
+              proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
+            });
+            console.log(
+              "[claude-code-tool/stripe] background scaffold complete",
+              binding.projectId,
+              "files=", result.filesWritten,
+              "envSet=", result.envSet,
+              result.envError ? `envError=${result.envError}` : "",
+              result.filesError ? `filesError=${result.filesError}` : "",
+            );
+          } catch (err) {
+            console.error("[claude-code-tool/stripe] background scaffold threw:", err);
+          }
         });
 
         return NextResponse.json({
@@ -344,9 +358,8 @@ export async function POST(req: Request) {
           status: "already-connected",
           mode,
           accountId: existingAccountId,
-          filesWritten: scaffold.filesWritten,
-          envSet: scaffold.envSet,
-          content: `Stripe is already linked for this user. This project is enabled to use account ${existingAccountId} in ${mode} mode. Scaffolded files: ${scaffold.filesWritten.join(", ") || "(none — already present)"}. Run convex_deploy then write checkout UI that imports from convex/platformStripe.ts.`,
+          scaffoldDeferred: true,
+          content: `Stripe is already linked for this user. This project is enabled to use account ${existingAccountId} in ${mode} mode. Stripe helper files (convex/platformStripe.ts, convex/stripeWebhook.ts, convex/billing.ts) are scaffolding into the sandbox in the background — wait ~5 seconds before calling convex_deploy. Then write checkout UI that imports from convex/platformStripe.ts.`,
         });
       }
 
@@ -393,23 +406,32 @@ export async function POST(req: Request) {
             updatedAt: new Date(),
           })
           .where(eq(projects.id, binding.projectId));
+        const { after } = await import("next/server");
         const { scaffoldStripeIntoProject } = await import("@/lib/stripe-scaffold");
-        const scaffold = await scaffoldStripeIntoProject(binding.projectId, {
-          mode,
-          webhookSecret,
-          proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
-        }).catch((err) => {
-          console.error("[claude-code-tool/stripe scaffold] threw:", err);
-          return { filesWritten: [], envSet: false, envError: "scaffold threw" };
+        after(async () => {
+          try {
+            const result = await scaffoldStripeIntoProject(binding.projectId, {
+              mode,
+              webhookSecret,
+              proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
+            });
+            console.log(
+              "[claude-code-tool/stripe] background scaffold complete",
+              binding.projectId,
+              "files=", result.filesWritten,
+              "envSet=", result.envSet,
+            );
+          } catch (err) {
+            console.error("[claude-code-tool/stripe] background scaffold threw:", err);
+          }
         });
         return NextResponse.json({
           ok: true,
           status: "connected",
           mode,
           accountId,
-          filesWritten: scaffold.filesWritten,
-          envSet: scaffold.envSet,
-          content: `User completed Stripe OAuth. Account ${accountId} is now linked. Scaffolded files: ${scaffold.filesWritten.join(", ") || "(none)"}. Run convex_deploy then write checkout UI.`,
+          scaffoldDeferred: true,
+          content: `User completed Stripe OAuth. Account ${accountId} linked. Stripe helper files scaffolding in background — wait ~5 seconds before calling convex_deploy.`,
         });
       }
 

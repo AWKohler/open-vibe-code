@@ -253,6 +253,14 @@ export async function dropStripeFilesIntoSandbox(projectId: string): Promise<str
   return written;
 }
 
+/** Promise.race-with-timeout, never throws — rejects-to-error are caught. */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms)),
+  ]);
+}
+
 /**
  * Set the Convex env vars the scaffolded files read. Idempotent. Mirrors
  * setEnvVarsViaDeployKey in convex-auth-setup.ts.
@@ -305,16 +313,28 @@ export async function scaffoldStripeIntoProject(
   envError?: string;
   filesError?: string;
 }> {
+  // Per-operation timeouts: a cold Vercel Sandbox can take 30s+ to provision,
+  // and we don't want to block the agent's tool call that long. If file drop
+  // times out we return early with filesError noted — the agent can retry
+  // (idempotent) or proceed and let `convex_deploy` fail naturally.
   let filesWritten: string[] = [];
   let filesError: string | undefined;
   try {
-    filesWritten = await dropStripeFilesIntoSandbox(projectId);
+    filesWritten = await withTimeout(
+      dropStripeFilesIntoSandbox(projectId),
+      15_000,
+      'dropStripeFilesIntoSandbox',
+    );
   } catch (err) {
     filesError = err instanceof Error ? err.message : String(err);
     console.error('[stripe-scaffold] file drop failed:', err);
   }
 
-  const envResult = await setStripeConvexEnv(projectId, opts).catch((err) => ({
+  const envResult = await withTimeout(
+    setStripeConvexEnv(projectId, opts),
+    10_000,
+    'setStripeConvexEnv',
+  ).catch((err) => ({
     ok: false as const,
     error: err instanceof Error ? err.message : String(err),
   }));

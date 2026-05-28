@@ -16,6 +16,7 @@
  * The request blocks for up to 5 minutes while polling the request row.
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { and, eq } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
@@ -53,22 +54,38 @@ async function flipProjectEnabled(projectId: string, stripeWebhookSecret: string
   return webhookSecret;
 }
 
-async function applyScaffolding(opts: {
+/**
+ * Fire the scaffolding step after the response is sent. The file drop + env
+ * write can take a few seconds for a cold sandbox; we don't want the agent's
+ * tool call blocked on it. `after()` runs after Vercel flushes the response.
+ */
+function scheduleScaffolding(opts: {
   projectId: string;
   mode: 'test' | 'live';
   webhookSecret: string;
   proxyBase: string;
 }) {
-  try {
-    return await scaffoldStripeIntoProject(opts.projectId, {
-      mode: opts.mode,
-      webhookSecret: opts.webhookSecret,
-      proxyBase: opts.proxyBase,
-    });
-  } catch (err) {
-    console.error('[stripe/initialize] scaffolding threw:', err);
-    return { filesWritten: [], envSet: false, envError: 'scaffolding threw' };
-  }
+  after(async () => {
+    try {
+      const result = await scaffoldStripeIntoProject(opts.projectId, {
+        mode: opts.mode,
+        webhookSecret: opts.webhookSecret,
+        proxyBase: opts.proxyBase,
+      });
+      console.log(
+        '[stripe/initialize] background scaffold complete',
+        opts.projectId,
+        'files=',
+        result.filesWritten,
+        'envSet=',
+        result.envSet,
+        result.envError ? `envError=${result.envError}` : '',
+        result.filesError ? `filesError=${result.filesError}` : '',
+      );
+    } catch (err) {
+      console.error('[stripe/initialize] background scaffold threw:', err);
+    }
+  });
 }
 
 export async function POST(
@@ -142,7 +159,7 @@ export async function POST(
     identity && mode === 'live' ? identity.liveAccountId : identity?.testAccountId;
   if (existingAccountId) {
     const webhookSecret = await flipProjectEnabled(projectId, project.stripeWebhookSecret);
-    const scaffold = await applyScaffolding({
+    scheduleScaffolding({
       projectId,
       mode,
       webhookSecret,
@@ -153,11 +170,9 @@ export async function POST(
       status: 'already-connected',
       mode,
       accountId: existingAccountId,
-      filesWritten: scaffold.filesWritten,
-      envSet: scaffold.envSet,
-      ...(scaffold.envError ? { envError: scaffold.envError } : {}),
+      scaffoldDeferred: true,
       message:
-        'The user has previously linked their Stripe account. This project is now enabled and the Stripe helper files (convex/platformStripe.ts, convex/stripeWebhook.ts, convex/billing.ts) have been scaffolded.',
+        'The user has previously linked their Stripe account. This project is enabled. Stripe helper files are being scaffolded into /convex/ in the background — wait ~5 seconds before calling convex_deploy. Files: platformStripe.ts (read-only), stripeWebhook.ts (read-only), billing.ts (edit me to handle subscription/payment events).',
     });
   }
 
@@ -190,7 +205,7 @@ export async function POST(
     const accountId =
       linked && mode === 'live' ? linked.liveAccountId : linked?.testAccountId;
     const webhookSecret = await flipProjectEnabled(projectId, project.stripeWebhookSecret);
-    const scaffold = await applyScaffolding({
+    scheduleScaffolding({
       projectId,
       mode,
       webhookSecret,
@@ -201,11 +216,9 @@ export async function POST(
       status: 'connected',
       mode,
       accountId,
-      filesWritten: scaffold.filesWritten,
-      envSet: scaffold.envSet,
-      ...(scaffold.envError ? { envError: scaffold.envError } : {}),
+      scaffoldDeferred: true,
       message:
-        'User completed Stripe OAuth. The project is enabled. Stripe helper files have been scaffolded into convex/. Run convexDeploy to push them and then write checkout UI that imports from convex/platformStripe.ts.',
+        'User completed Stripe OAuth. Project enabled. Stripe helper files are scaffolding into /convex/ in the background — wait ~5 seconds before calling convex_deploy. Then write a checkout button that imports from convex/platformStripe.ts.',
     });
   }
 

@@ -625,6 +625,43 @@ export function SandboxedWebWorkspace({
     return () => window.removeEventListener("agent-user-stopped", handleAgentStopped);
   }, [projectId]);
 
+  // ── Stripe-enabled poller ────────────────────────────────────────────
+  // The agent's initializeStripePayments tool flips projects.stripe_enabled
+  // server-side. On the OAuth path the user lands on this workspace with
+  // ?stripe_connect=success and the effect below catches it — but on the
+  // 'already-connected' path (user previously linked Stripe) there's no
+  // navigation, just a tool result. Poll the project endpoint every 4s
+  // while stripe is off so the tab appears without a manual refresh.
+  // Once enabled, the poller stops (effect dep guards it).
+  useEffect(() => {
+    if (stripeEnabled || sandboxStatus !== "ready") return;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}`, {
+          cache: "no-store",
+        });
+        if (!res.ok || cancelled) return;
+        const proj = await res.json();
+        if (cancelled) return;
+        if (proj?.stripeEnabled === true) {
+          setStripeEnabled(true);
+          if (proj.stripePaymentMode === "live" || proj.stripePaymentMode === "test") {
+            setStripePaymentMode(proj.stripePaymentMode);
+          }
+        }
+      } catch {
+        /* network blip — retry on next tick */
+      }
+    };
+    void poll();
+    const timer = setInterval(poll, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [stripeEnabled, sandboxStatus, projectId]);
+
   // ── Stripe OAuth success — react to ?stripe_connect=success ──────────
   // The OAuth callback redirects here after the user authorizes. Reload
   // project state so stripeEnabled flips and the Stripe tab appears.

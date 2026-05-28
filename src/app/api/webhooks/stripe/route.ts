@@ -370,6 +370,11 @@ export async function POST(req: NextRequest) {
     }),
   );
 
-  return NextResponse.json({ ok: true, deliveries: deliveries.length, type: canonical.type });
+  return NextResponse.json({
+    ok: true,
+    type: canonical.type,
+    deliveries: deliveries.length,
+    failed: deliveries.filter((d) => !d.ok).length,
+  });
 }
 

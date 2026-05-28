@@ -21,22 +21,21 @@ const nextConfig: NextConfig = {
     return config;
   },
   headers: async () => {
-    // WebContainer requires cross-origin isolation (SharedArrayBuffer) — apply to
-    // routes that boot WebContainer: /workspace/* (owner) and /p/* (public view).
+    // COEP/COOP isolation was needed for the legacy WebContainer platform
+    // (SharedArrayBuffer). The Sandboxed Web platform doesn't use it — the
+    // preview is rendered by a remote Vercel Sandbox in an iframe — so
+    // /workspace/ no longer needs it. Worse, COEP 'credentialless' strips
+    // cookies from cross-origin iframes (including Stripe's embedded
+    // Connect components), which breaks the data-layer channel.
+    //
+    // /p/ (public preview view) keeps the headers in case a legacy
+    // WebContainer-based project is still published there. Drop those too
+    // once we've confirmed no live /p/ traffic exercises WebContainer.
     const coepHeaders = [
-      {
-        key: 'Cross-Origin-Embedder-Policy',
-        // 'credentialless' enables SharedArrayBuffer (required by WebContainer) while
-        // allowing cross-origin resources that don't set CORP headers (Clerk, CDN fonts, etc.)
-        value: 'credentialless',
-      },
-      {
-        key: 'Cross-Origin-Opener-Policy',
-        value: 'same-origin',
-      },
+      { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
+      { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
     ];
     return [
-      { source: '/workspace/(.*)', headers: coepHeaders },
       { source: '/p/(.*)', headers: coepHeaders },
     ];
   },

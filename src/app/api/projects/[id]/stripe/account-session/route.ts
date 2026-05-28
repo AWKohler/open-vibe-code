@@ -86,34 +86,37 @@ export async function POST(
 
   const stripe = getStripe(mode);
   try {
-    // Cast components to a broad type — the Stripe SDK's `Components` type
-    // doesn't include `payment_method_settings` yet, but the API does (and
-    // accepts it). Drop the cast once we bump the SDK to a version that
-    // ships the typed key.
-    const components = {
-      // Render the connected account's payments/transactions ledger.
-      payments: {
-        enabled: true,
-        features: {
-          refund_management: true,
-          dispute_management: true,
-          capture_payments: true,
-        },
-      },
-      // Account management (business details, public info, statement descriptor).
-      account_management: { enabled: true, features: { external_account_collection: true } },
-      // Embedded onboarding (Stripe-hosted KYC inside our UI).
-      account_onboarding: { enabled: true },
-      // Balances + payouts.
-      balances: { enabled: true, features: { instant_payouts: true, standard_payouts: true, edit_payout_schedule: true } },
-      // Notification banner (shows compliance reminders inline).
-      notification_banner: { enabled: true },
-      // Local payment method toggles (Klarna, ACH, etc.). Untyped but supported by API.
-      payment_method_settings: { enabled: true },
-    } as unknown as import('stripe').Stripe.AccountSessionCreateParams.Components;
     const session = await stripe.accountSessions.create({
       account: accountId,
-      components,
+      components: {
+        // Connected account's payments/transactions ledger + dispute UX.
+        payments: {
+          enabled: true,
+          features: {
+            refund_management: true,
+            dispute_management: true,
+            capture_payments: true,
+          },
+        },
+        // Account management (business details, public info, statement descriptor + bank).
+        account_management: {
+          enabled: true,
+          features: { external_account_collection: true },
+        },
+        // Embedded onboarding (Stripe-hosted KYC inside our UI).
+        account_onboarding: { enabled: true },
+        // Balances + payouts.
+        balances: {
+          enabled: true,
+          features: {
+            instant_payouts: true,
+            standard_payouts: true,
+            edit_payout_schedule: true,
+          },
+        },
+        // Inline compliance reminder banner shared across views.
+        notification_banner: { enabled: true },
+      },
     });
 
     return NextResponse.json({

@@ -29,6 +29,7 @@ import {
   mintStripeAuthorizeUrl,
   pollConnectRequest,
 } from '@/lib/stripe-connect';
+import { scaffoldStripeIntoProject } from '@/lib/stripe-scaffold';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -49,6 +50,25 @@ async function flipProjectEnabled(projectId: string, stripeWebhookSecret: string
       updatedAt: new Date(),
     })
     .where(eq(projects.id, projectId));
+  return webhookSecret;
+}
+
+async function applyScaffolding(opts: {
+  projectId: string;
+  mode: 'test' | 'live';
+  webhookSecret: string;
+  proxyBase: string;
+}) {
+  try {
+    return await scaffoldStripeIntoProject(opts.projectId, {
+      mode: opts.mode,
+      webhookSecret: opts.webhookSecret,
+      proxyBase: opts.proxyBase,
+    });
+  } catch (err) {
+    console.error('[stripe/initialize] scaffolding threw:', err);
+    return { filesWritten: [], envSet: false, envError: 'scaffolding threw' };
+  }
 }
 
 export async function POST(
@@ -121,14 +141,23 @@ export async function POST(
   const existingAccountId =
     identity && mode === 'live' ? identity.liveAccountId : identity?.testAccountId;
   if (existingAccountId) {
-    await flipProjectEnabled(projectId, project.stripeWebhookSecret);
+    const webhookSecret = await flipProjectEnabled(projectId, project.stripeWebhookSecret);
+    const scaffold = await applyScaffolding({
+      projectId,
+      mode,
+      webhookSecret,
+      proxyBase: new URL(req.url).origin,
+    });
     return NextResponse.json({
       ok: true,
       status: 'already-connected',
       mode,
       accountId: existingAccountId,
+      filesWritten: scaffold.filesWritten,
+      envSet: scaffold.envSet,
+      ...(scaffold.envError ? { envError: scaffold.envError } : {}),
       message:
-        'The user has previously linked their Stripe account. This project is now enabled to use it.',
+        'The user has previously linked their Stripe account. This project is now enabled and the Stripe helper files (convex/platformStripe.ts, convex/stripeWebhook.ts, convex/billing.ts) have been scaffolded.',
     });
   }
 
@@ -160,15 +189,23 @@ export async function POST(
       .limit(1);
     const accountId =
       linked && mode === 'live' ? linked.liveAccountId : linked?.testAccountId;
-    // Flip project flag (and seed webhook secret if not already).
-    await flipProjectEnabled(projectId, project.stripeWebhookSecret);
+    const webhookSecret = await flipProjectEnabled(projectId, project.stripeWebhookSecret);
+    const scaffold = await applyScaffolding({
+      projectId,
+      mode,
+      webhookSecret,
+      proxyBase: new URL(req.url).origin,
+    });
     return NextResponse.json({
       ok: true,
       status: 'connected',
       mode,
       accountId,
+      filesWritten: scaffold.filesWritten,
+      envSet: scaffold.envSet,
+      ...(scaffold.envError ? { envError: scaffold.envError } : {}),
       message:
-        'User completed Stripe OAuth. The project is enabled and the Stripe tab is now available in the workspace.',
+        'User completed Stripe OAuth. The project is enabled. Stripe helper files have been scaffolded into convex/. Run convexDeploy to push them and then write checkout UI that imports from convex/platformStripe.ts.',
     });
   }
 

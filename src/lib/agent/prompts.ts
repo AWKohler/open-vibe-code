@@ -385,6 +385,27 @@ const WEB_PROMPT_OUTRO: string[] = [
   "- For multi-file actions, list+read in parallel, then write changes in parallel.",
 ];
 
+// Stripe payments boundaries. Always included when the project has a Convex
+// backend (Stripe requires one). The rules are identical whether Stripe is
+// already set up on the project or not — the agent's initializeStripePayments
+// tool will refuse on No-Backend or Free-tier projects with a clear status,
+// and these guidelines are what they should follow when Stripe IS in use.
+const WEB_PROMPT_STRIPE: string[] = [
+  "",
+  "## Stripe payments",
+  "When the user asks for checkout, subscriptions, billing, a paywall, a tip jar, or any other money-handling flow:",
+  "1. Call `initializeStripePayments` first. If it returns `status='already-connected'` or `status='connected'`, three files are now in `/convex/`: `platformStripe.ts`, `stripeWebhook.ts`, and `billing.ts`. Run `convexDeploy` to push them.",
+  "2. For the checkout UI: a React button that calls `useAction(api.platformStripe.createCheckoutSession)` with `{ priceId, successUrl, cancelUrl }`, then `window.location.assign(result.url)`. That's the whole checkout pattern — Stripe Checkout handles the rest on Stripe's domain.",
+  "3. For the \"Open Stripe Dashboard\" link: `useAction(api.platformStripe.createDashboardLoginLink)`, open the returned `url` in a new tab.",
+  "4. Reaction logic (when a user's subscription activates, when a payment fails, etc.) goes in `convex/billing.ts` — that's the editable file. Switch on `event.type` inside `applyStripeEvent`.",
+  "",
+  "**Hard rules — these will be enforced by tool guards:**",
+  "- Do NOT install `stripe`, `@stripe/stripe-js`, `@stripe/react-stripe-js`, `@stripe/connect-js`, or `@stripe/react-connect-js`. There is no in-app card UI — card entry happens on Stripe Checkout's hosted page.",
+  "- Do NOT write `<CardElement>`, `<PaymentElement>`, `<Elements>`, or any other component that collects card numbers/CVCs/bank details. If you find yourself reaching for one of these, stop — you want `createCheckoutSession` + redirect instead.",
+  "- Do NOT edit `convex/platformStripe.ts` or `convex/stripeWebhook.ts`. They are auto-generated and re-written each time Stripe is initialized; your edits will be lost. If you need new Stripe API capabilities (refunds, invoices, etc.), tell the user — a new platform proxy endpoint is needed, not a local change.",
+  "- The agent's existing webhook/event vocabulary is normalized (e.g. `subscription.activated`, `subscription.canceled`, `payment.succeeded`, `payment.failed`) — handle those event types in `billing.ts`, not raw Stripe event names.",
+];
+
 // Counterpart to WEB_PROMPT_CONVEX for projects that have no backend at all.
 // Replaces the Convex section with a short note so the model doesn't try to
 // use `convexDeploy`, write to a `/convex` folder, or import from `convex/react`.
@@ -1366,7 +1387,7 @@ const SANDBOXED_WEB_PROMPT_OUTRO_NO_BACKEND: string[] = SANDBOXED_WEB_PROMPT_OUT
 
 export function buildSandboxedWebSystemPrompt({ hasBackend }: { hasBackend: boolean }): string {
   const parts = hasBackend
-    ? [...SANDBOXED_WEB_PROMPT_INTRO, ...WEB_PROMPT_CONVEX, ...SANDBOXED_WEB_PROMPT_OUTRO]
+    ? [...SANDBOXED_WEB_PROMPT_INTRO, ...WEB_PROMPT_CONVEX, ...WEB_PROMPT_STRIPE, ...SANDBOXED_WEB_PROMPT_OUTRO]
     : [...SANDBOXED_WEB_PROMPT_INTRO, ...SANDBOXED_WEB_PROMPT_NO_BACKEND_NOTE, ...SANDBOXED_WEB_PROMPT_OUTRO_NO_BACKEND];
   return parts.join("\n") + END_TURN_INSTRUCTION;
 }

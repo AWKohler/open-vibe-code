@@ -319,21 +319,34 @@ export async function POST(req: Request) {
         `bfws_${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
 
       if (existingAccountId) {
+        const webhookSecret = project.stripeWebhookSecret ?? seedWebhookSecret();
         await db
           .update(projects)
           .set({
             stripeEnabled: true,
-            stripeWebhookSecret: project.stripeWebhookSecret ?? seedWebhookSecret(),
+            stripeWebhookSecret: webhookSecret,
             updatedAt: new Date(),
           })
           .where(eq(projects.id, binding.projectId));
+
+        const { scaffoldStripeIntoProject } = await import("@/lib/stripe-scaffold");
+        const scaffold = await scaffoldStripeIntoProject(binding.projectId, {
+          mode,
+          webhookSecret,
+          proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
+        }).catch((err) => {
+          console.error("[claude-code-tool/stripe scaffold] threw:", err);
+          return { filesWritten: [], envSet: false, envError: "scaffold threw" };
+        });
 
         return NextResponse.json({
           ok: true,
           status: "already-connected",
           mode,
           accountId: existingAccountId,
-          content: `Stripe is already linked for this user. This project is now enabled to use account ${existingAccountId} in ${mode} mode. Proceed to write Stripe-related code that calls the scaffolded local helpers.`,
+          filesWritten: scaffold.filesWritten,
+          envSet: scaffold.envSet,
+          content: `Stripe is already linked for this user. This project is enabled to use account ${existingAccountId} in ${mode} mode. Scaffolded files: ${scaffold.filesWritten.join(", ") || "(none — already present)"}. Run convex_deploy then write checkout UI that imports from convex/platformStripe.ts.`,
         });
       }
 
@@ -371,20 +384,32 @@ export async function POST(req: Request) {
           .limit(1);
         const accountId =
           linked && mode === "live" ? linked.liveAccountId : linked?.testAccountId;
+        const webhookSecret = project.stripeWebhookSecret ?? seedWebhookSecret();
         await db
           .update(projects)
           .set({
             stripeEnabled: true,
-            stripeWebhookSecret: project.stripeWebhookSecret ?? seedWebhookSecret(),
+            stripeWebhookSecret: webhookSecret,
             updatedAt: new Date(),
           })
           .where(eq(projects.id, binding.projectId));
+        const { scaffoldStripeIntoProject } = await import("@/lib/stripe-scaffold");
+        const scaffold = await scaffoldStripeIntoProject(binding.projectId, {
+          mode,
+          webhookSecret,
+          proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
+        }).catch((err) => {
+          console.error("[claude-code-tool/stripe scaffold] threw:", err);
+          return { filesWritten: [], envSet: false, envError: "scaffold threw" };
+        });
         return NextResponse.json({
           ok: true,
           status: "connected",
           mode,
           accountId,
-          content: `User completed Stripe OAuth. Account ${accountId} is now linked and this project is enabled. Proceed to write Stripe-related code.`,
+          filesWritten: scaffold.filesWritten,
+          envSet: scaffold.envSet,
+          content: `User completed Stripe OAuth. Account ${accountId} is now linked. Scaffolded files: ${scaffold.filesWritten.join(", ") || "(none)"}. Run convex_deploy then write checkout UI.`,
         });
       }
 

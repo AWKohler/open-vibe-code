@@ -98,6 +98,21 @@ export function buildClaudeCodeAppendPrompt(input: BuildAppendPromptInput): stri
     if (hasConvexEnv) {
       sections.push("", "`VITE_CONVEX_URL` is already set in `/vercel/sandbox/.env`.");
     }
+
+    sections.push(
+      "",
+      "## Stripe payments",
+      "When the user asks for checkout, subscriptions, billing, a paywall, or any money-handling flow:",
+      "1. Call the `initialize_stripe_payments` MCP tool first. On `status='already-connected'` or `'connected'`, three files appear in `/convex/`: `platformStripe.ts`, `stripeWebhook.ts`, `billing.ts`. Run `convex_deploy` to push them.",
+      "2. Checkout UI: a React button that calls `useAction(api.platformStripe.createCheckoutSession)` with `{ priceId, successUrl, cancelUrl }`, then `window.location.assign(result.url)`. That's the entire pattern — Stripe Checkout handles the rest on Stripe's hosted page.",
+      "3. \"Open Stripe Dashboard\" link: `useAction(api.platformStripe.createDashboardLoginLink)`, open `result.url` in a new tab.",
+      "4. Subscription/payment reaction logic goes in `convex/billing.ts` — switch on `event.type` inside `applyStripeEvent`.",
+      "",
+      "**Enforced by tool guards (Bash/Write will refuse):**",
+      "- No installs of `stripe`, `@stripe/stripe-js`, `@stripe/react-stripe-js`, `@stripe/connect-js`, or `@stripe/react-connect-js`. Card entry only ever happens on Stripe Checkout's hosted page.",
+      "- No `<CardElement>`, `<PaymentElement>`, `<Elements>`, or any other component that collects card numbers/CVCs/bank details. If you reach for one, you want `createCheckoutSession` + redirect instead.",
+      "- `convex/platformStripe.ts` and `convex/stripeWebhook.ts` are auto-generated and read-only; your edits would be overwritten. Edit `convex/billing.ts` for state-reaction logic.",
+    );
   } else {
     sections.push(
       "",

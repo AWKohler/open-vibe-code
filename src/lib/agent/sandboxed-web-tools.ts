@@ -67,6 +67,55 @@ function isConvexInstallCommand(command: string): boolean {
   return /\b(?:npm|pnpm|yarn|bun)\s+(?:add|install|i)\b[^&|;]*\b(?:convex(?:@|\s|$)|@convex-dev\/)/i.test(command);
 }
 
+// ─── Stripe guard helpers ────────────────────────────────────────────────
+//
+// Once Stripe is set up on a project, the agent works through the scaffolded
+// convex/platformStripe.ts helpers. It must NOT install client-side Stripe
+// libraries (we never want raw card UIs in this codebase — Stripe Checkout
+// handles all card entry on Stripe's domain) and must NOT overwrite the
+// generated platformStripe.ts / stripeWebhook.ts files (we re-scaffold those
+// authoritatively; user edits would be clobbered).
+
+const STRIPE_INSTALL_BLOCK_REASON =
+  "Installing client-side Stripe packages (`stripe`, `@stripe/stripe-js`, `@stripe/react-stripe-js`, `@stripe/connect-js`, `@stripe/react-connect-js`) is not allowed. " +
+  "Card entry must happen on Stripe's domain via Stripe Checkout. " +
+  "The scaffolded `convex/platformStripe.ts` already provides the only API surface you need (createCheckoutSession, createDashboardLoginLink).";
+
+const STRIPE_READONLY_BLOCK_REASON =
+  "This file is generated and managed by Botflow. Don't edit it — your changes will be overwritten the next time Stripe is re-initialized. " +
+  "Write your Stripe-event-reaction logic in `convex/billing.ts` instead. " +
+  "If you need new Stripe API surface (e.g. invoice listing, refund creation), ask the user — that needs a new platform proxy endpoint, not an edit to this file.";
+
+const STRIPE_CARD_UI_BLOCK_REASON =
+  "Botflow does not allow custom card-tokenization UI. Direct users to Stripe Checkout (call `createCheckoutSession` from `convex/platformStripe.ts`, then `window.location.assign(url)`). " +
+  "Card numbers, CVCs, and bank details must only ever be entered on Stripe's hosted pages — never in your app's UI.";
+
+function isStripeInstallCommand(command: string): boolean {
+  return /\b(?:npm|pnpm|yarn|bun)\s+(?:add|install|i)\b[^&|;]*\b(?:stripe(?:@|\s|$|"|')|@stripe\/)/i.test(command);
+}
+
+function isStripeReadOnlyPath(p: string | undefined | null): boolean {
+  if (!p) return false;
+  const normalized = p.startsWith("/") ? p : `/${p}`;
+  return (
+    normalized === "/convex/platformStripe.ts" ||
+    normalized === "/convex/stripeWebhook.ts"
+  );
+}
+
+function containsStripeCardUi(content: string): boolean {
+  // Stripe Elements imports + JSX tags that signal in-app card entry.
+  return (
+    /@stripe\/(react-)?stripe-js/.test(content) ||
+    /<\s*CardElement\b/.test(content) ||
+    /<\s*PaymentElement\b/.test(content) ||
+    /<\s*CardNumberElement\b/.test(content) ||
+    /<\s*CardExpiryElement\b/.test(content) ||
+    /<\s*CardCvcElement\b/.test(content) ||
+    /<\s*Elements\b[^>]*stripe=/.test(content)
+  );
+}
+
 /**
  * Build the workspace-control tool group. Same six tools regardless of backend
  * type — they operate on the dev server inside the sandbox and the browser
@@ -547,8 +596,41 @@ export function getSandboxedWebTools(params: {
     } as const;
   }
 
+  // hasBackend path — Convex is wired up. Apply Stripe guards on write/bash
+  // so the agent can't overwrite the scaffolded helpers or pull in card-UI
+  // libraries. We always apply these (cheap) regardless of whether Stripe
+  // has been initialized yet — the agent has no business doing those things
+  // even pre-Stripe (and if they do, the error message is the correct nudge).
+  const stripeGuardedWrite = tool({
+    description: baseTools.write.description,
+    inputSchema: baseTools.write.inputSchema,
+    async execute(input, ctx) {
+      const { path, content } = input as { path: string; content?: string };
+      if (isStripeReadOnlyPath(path)) {
+        return JSON.stringify({ ok: false, error: STRIPE_READONLY_BLOCK_REASON, path });
+      }
+      if (typeof content === "string" && containsStripeCardUi(content)) {
+        return JSON.stringify({ ok: false, error: STRIPE_CARD_UI_BLOCK_REASON, path });
+      }
+      return baseTools.write.execute!(input, ctx);
+    },
+  });
+  const stripeGuardedBash = tool({
+    description: baseTools.bash.description,
+    inputSchema: baseTools.bash.inputSchema,
+    async execute(input, ctx) {
+      const { command } = input as { command: string };
+      if (isStripeInstallCommand(command)) {
+        return JSON.stringify({ ok: false, error: STRIPE_INSTALL_BLOCK_REASON, command });
+      }
+      return baseTools.bash.execute!(input, ctx);
+    },
+  });
+
   return {
     ...baseTools,
+    write: stripeGuardedWrite,
+    bash: stripeGuardedBash,
     ...workspaceTools,
     ...gitTools,
     setupAuth: tool({

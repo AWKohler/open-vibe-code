@@ -82,7 +82,10 @@ export async function GET(req: NextRequest) {
 
   const state = randomBytes(32).toString('hex');
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + 15 * 60_000);
+  // 1h TTL. The user clicks through Stripe in well under a minute, but the
+  // first-ever OAuth flow can involve dashboard config tweaks (redirect URI,
+  // platform profile review prompts) that burn time before they get back.
+  const expiresAt = new Date(now.getTime() + 60 * 60_000);
   await db.insert(stripeOauthStates).values({
     state,
     userId,

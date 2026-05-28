@@ -843,6 +843,31 @@ REQUIRED NEXT STEPS:
         };
       },
     }),
+    getConvexLogs: tool({
+      description:
+        "Read recent function-execution logs from this project's Convex deployment — query/mutation/action completions, their console.log output, execution time, and any thrown errors. " +
+        "Use this to debug WHY a Convex function failed: when a useQuery/useMutation/useAction call errors in the preview, or after a deploy when something isn't behaving, call this to see the real server-side error (Convex hides thrown error details from the browser client). " +
+        "Set onlyErrors=true to filter to just failed calls. Returns the most recent `limit` entries (default 50).",
+      inputSchema: z.object({
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Max entries to return (most recent). Default 50, max 200."),
+        onlyErrors: z
+          .boolean()
+          .optional()
+          .describe("When true, only return calls that threw an error."),
+      }),
+      async execute(args) {
+        const { getConvexLogs } = await import("@/lib/convex-admin");
+        return getConvexLogs(projectId, {
+          ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+          ...(typeof args.onlyErrors === "boolean" ? { onlyErrors: args.onlyErrors } : {}),
+        });
+      },
+    }),
     ...(STRIPE_CONNECT_ENABLED
       ? {
           initializeStripePayments: tool({

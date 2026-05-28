@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "15";
+export const BRIDGE_SCRIPT_VERSION = "16";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -129,6 +129,22 @@ function buildCustomTools(customTools) {
         {},
         makeHostToolHandler("convex_deploy"),
         { annotations: { destructiveHint: true } },
+      ),
+    );
+  }
+
+  if (customTools.includes("get_convex_logs")) {
+    tools.push(
+      tool(
+        "get_convex_logs",
+        "Read recent function-execution logs from this project's Convex deployment — query/mutation/action completions, their console.log output, execution time, and thrown errors. " +
+        "Use this to debug WHY a Convex function failed: Convex hides thrown error details from the browser client, but they appear here. " +
+        "Set onlyErrors=true to filter to just failed calls. Returns the most recent entries (default 50, max 200).",
+        {
+          limit: z.number().int().positive().optional(),
+          onlyErrors: z.boolean().optional(),
+        },
+        makeHostToolHandler("get_convex_logs"),
       ),
     );
   }

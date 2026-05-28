@@ -115,7 +115,7 @@ export function buildClaudeCodeAppendPrompt(input: BuildAppendPromptInput): stri
       "- `convex/platformStripe.ts` and `convex/stripeWebhook.ts` are auto-generated and read-only; your edits would be overwritten. Edit `convex/billing.ts` for state-reaction logic.",
       "",
       "**Convex error catalog — recognize and fix without flailing:**",
-      "- `Server Error` / `Called by client` with no detail → an action/mutation threw; Convex hides the message from the client. Fix: return `{ ok: false, error }` and read it on the client instead of throwing (the scaffolded `platformStripe.ts` already does this).",
+      "- `Server Error` / `Called by client` with no detail → an action/mutation threw; Convex hides the message from the client. Call `get_convex_logs` (onlyErrors: true) to read the REAL server-side error. Fix: return `{ ok: false, error }` and read it on the client instead of throwing (the scaffolded `platformStripe.ts` already does this).",
       "- `Can't use fetch() in queries and mutations` → move the network call into an `action` (`\"use node\";` at top) and call it with `useAction`, not `useMutation`.",
       "- `No such price: 'price_...'` → invented/wrong price id. Get a real one from `get_stripe_products` / `create_stripe_product`, or omit priceId for the Demo Product.",
       "- Convex calls hang / `xhr poll error` → the function isn't deployed. Run `convex_deploy` after editing `/convex/`.",

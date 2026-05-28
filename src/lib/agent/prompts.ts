@@ -407,7 +407,7 @@ const WEB_PROMPT_STRIPE: string[] = [
   "- The webhook/event vocabulary is normalized (e.g. `subscription.activated`, `subscription.canceled`, `payment.succeeded`, `payment.failed`) — handle those event types in `billing.ts`, not raw Stripe event names.",
   "",
   "**Convex error catalog — recognize these and fix without flailing:**",
-  "- `Server Error` / `Uncaught Error: ... Called by client` with no detail → an action or mutation threw. Convex hides thrown messages from the client. Fix: return a result object `{ ok: false, error }` and read `result.error` on the client instead of throwing. The scaffolded `platformStripe.ts` actions already do this — mirror that pattern in your own actions.",
+  "- `Server Error` / `Uncaught Error: ... Called by client` with no detail → an action or mutation threw. Convex hides thrown messages from the client. To see the REAL error, call `getConvexLogs` (with `onlyErrors: true`). Fix: return a result object `{ ok: false, error }` and read `result.error` on the client instead of throwing. The scaffolded `platformStripe.ts` actions already do this — mirror that pattern in your own actions.",
   "- `Can't use fetch() in queries and mutations` → you put a network call in a `query`/`mutation`. Move it into an `action` (top of file: `\"use node\";`) and call it from React with `useAction`, not `useMutation`.",
   "- `No such price: 'price_...'` → the price id doesn't exist on the connected account (often an invented/hardcoded id). Get a real one from `getStripeProducts` / `createStripeProduct`, or omit priceId to use the Demo Product.",
   "- `xhr poll error` / Convex calls hang → the function isn't deployed. Run `convexDeploy` after editing anything under `/convex/`.",

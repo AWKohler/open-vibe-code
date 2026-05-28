@@ -256,6 +256,24 @@ export async function POST(req: Request) {
       });
     }
 
+    case "get_convex_logs": {
+      const { getConvexLogs } = await import("@/lib/convex-admin");
+      const limit =
+        typeof body.input?.limit === "number" ? body.input.limit : undefined;
+      const onlyErrors =
+        typeof body.input?.onlyErrors === "boolean" ? body.input.onlyErrors : undefined;
+      const result = await getConvexLogs(binding.projectId, {
+        ...(limit !== undefined ? { limit } : {}),
+        ...(onlyErrors !== undefined ? { onlyErrors } : {}),
+      });
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.ok
+          ? JSON.stringify({ entries: result.entries, truncated: result.truncated })
+          : (result.error ?? "Failed to read Convex logs"),
+      });
+    }
+
     case "refreshPreview": {
       const result = await requestSandboxPreviewRefresh(binding.projectId);
       return NextResponse.json({

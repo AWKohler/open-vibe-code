@@ -131,7 +131,11 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
           publishableKey: initial.publishableKey!,
           fetchClientSecret,
           appearance: {
-            overlays: "dialog",
+            // Inline navigation keeps the Stripe auth gate (Standard accounts
+            // get one) and overflow content visible inside the component
+            // rather than floating it as a dialog, which can fail to anchor
+            // when the underlying component is 0-height.
+            overlays: "drawer",
             variables: { colorPrimary: "#635BFF" },
           },
         });
@@ -222,19 +226,25 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
         )}
         {!loading && !error && connectInstance && (
           <ConnectComponentsProvider connectInstance={connectInstance}>
+            {/* Stripe components are display:block and grow to fit their
+                content height. Wrap each in a div with a generous min-height
+                + bg-white so the iframe has a visible canvas before its
+                internal content (or auth gate) reports back. */}
             <div className="px-4 pt-3">
               <ConnectNotificationBanner />
             </div>
             <div className="px-4 py-3">
-              {view === "payments" && <ConnectPayments />}
-              {view === "balances" && <ConnectBalances />}
-              {view === "payouts" && <ConnectPayouts />}
-              {view === "account" && <ConnectAccountManagement />}
-              {view === "onboarding" && (
-                <ConnectAccountOnboarding
-                  onExit={() => setView("account")}
-                />
-              )}
+              <div className="bg-white rounded-lg min-h-[500px] overflow-hidden">
+                {view === "payments" && <ConnectPayments />}
+                {view === "balances" && <ConnectBalances />}
+                {view === "payouts" && <ConnectPayouts />}
+                {view === "account" && <ConnectAccountManagement />}
+                {view === "onboarding" && (
+                  <ConnectAccountOnboarding
+                    onExit={() => setView("account")}
+                  />
+                )}
+              </div>
             </div>
           </ConnectComponentsProvider>
         )}

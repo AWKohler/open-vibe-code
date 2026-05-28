@@ -1,21 +1,23 @@
 /**
  * POST /api/projects/[id]/stripe/dashboard-link
  *
- * Generates a one-time login link into the connected account's Stripe
- * Dashboard. Standard Connect supports stripe.accounts.createLoginLink
- * (Express/Custom do not — that's the embedded-components dashboard path).
+ * Returns a URL into the connected account's Stripe Dashboard. Botflow uses
+ * Standard Connect, so the account holder has their OWN dashboard at
+ * dashboard.stripe.com — `stripe.accounts.createLoginLink` is Express-only
+ * and would 400 here. We construct the canonical deep-link URL instead:
+ *   test: https://dashboard.stripe.com/test/{acct_id}
+ *   live: https://dashboard.stripe.com/{acct_id}
+ * If the user is signed into Stripe in the browser, they land directly on
+ * that account's view. Otherwise Stripe prompts for sign-in first.
  *
  * Auth: X-Botflow-Project-Secret matches projects.stripe_webhook_secret.
- *
- * Returns: { url } — a short-lived URL the caller should open in a new tab.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { authProjectSecret } from '@/lib/stripe-proxy-auth';
-import { getStripe } from '@/lib/stripe';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30;
+export const maxDuration = 10;
 
 export async function POST(
   req: NextRequest,
@@ -35,16 +37,7 @@ export async function POST(
   });
   if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
 
-  const stripe = getStripe(auth.mode);
-  try {
-    const link = await stripe.accounts.createLoginLink(auth.accountId);
-    return NextResponse.json({ url: link.url });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[stripe/dashboard-link] threw:', err);
-    return NextResponse.json(
-      { ok: false, error: `Stripe login link failed: ${message}` },
-      { status: 502 },
-    );
-  }
+  const segment = auth.mode === 'live' ? '' : '/test';
+  const url = `https://dashboard.stripe.com${segment}/${auth.accountId}`;
+  return NextResponse.json({ url, mode: auth.mode });
 }

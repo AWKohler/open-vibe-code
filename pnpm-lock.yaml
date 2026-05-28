@@ -62,6 +62,12 @@ importers:
       '@sparticuz/chromium':
         specifier: ^143.0.0
         version: 143.0.4
+      '@stripe/connect-js':
+        specifier: ^3.4.5
+        version: 3.4.5
+      '@stripe/react-connect-js':
+        specifier: ^3.4.3
+        version: 3.4.3(@stripe/connect-js@3.4.5)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       '@types/three':
         specifier: ^0.182.0
         version: 0.182.0
@@ -1263,6 +1269,16 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@stripe/connect-js@3.4.5':
+    resolution: {integrity: sha512-2GZYc1pO2gYtq5rooZei483oSqeNROTD4XwnKXK8GXILvrLVJjMUCLDXi8Rmu8ojL5DWMnEOtXdnZxs8xxZecQ==}
+
+  '@stripe/react-connect-js@3.4.3':
+    resolution: {integrity: sha512-UNckvWpmVdkUQ4lhPmwAKpB8QD1LNnDz7SDz0qQabdTfk5sLhhOYnN/SRQGhAe57Z6PLuyidaIUzjvDSw2/pYA==}
+    peerDependencies:
+      '@stripe/connect-js': '>=3.4.5'
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
 
   '@swc/helpers@0.5.15':
     resolution: {integrity: sha512-JQ5TuMi45Owi4/BIMAJBoSQoOJu12oOk/gADqlcUL9JEdHB8vyjUSsxqeNXnmXHjYKMi2WcYtezGEEhqUI/E2g==}
@@ -4685,6 +4701,14 @@ snapshots:
   '@standard-schema/spec@1.0.0-beta.4': {}
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@stripe/connect-js@3.4.5': {}
+
+  '@stripe/react-connect-js@3.4.3(@stripe/connect-js@3.4.5)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)':
+    dependencies:
+      '@stripe/connect-js': 3.4.5
+      react: 19.1.0
+      react-dom: 19.1.0(react@19.1.0)
 
   '@swc/helpers@0.5.15':
     dependencies:

@@ -61,11 +61,12 @@ import {
 import { FileSearch } from "@/components/persistent-workspace/file-search";
 import { GoogleOAuthModal } from "@/components/workspace/google-oauth-modal";
 import { StripeConnectModal } from "@/components/workspace/stripe-connect-modal";
+import { StripeTab, StripeModeToggle } from "@/components/sandboxed-web-workspace/stripe-tab";
 import { SandboxGitHubPanel } from "./github-panel";
 import { SandboxPublishPanel } from "./publish-panel";
 import { Globe } from "lucide-react";
 
-type WorkspaceView = "preview" | "code" | "database";
+type WorkspaceView = "preview" | "code" | "database" | "stripe";
 type SandboxStatus = "idle" | "booting" | "ready" | "error";
 type FileEntry = { type: "file" | "folder" };
 
@@ -135,6 +136,10 @@ export function SandboxedWebWorkspace({
     mode: "test" | "live";
     authorizeUrl: string;
   } | null>(null);
+  /** Project's Stripe state — populated from /api/projects/[id]. */
+  const [stripeEnabled, setStripeEnabled] = useState(false);
+  const [stripePaymentMode, setStripePaymentMode] = useState<"test" | "live">("test");
+  const [stripeModeToggling, setStripeModeToggling] = useState(false);
 
   // ── Publish / Cloudflare Pages state ─────────────────────────────────
   const [cloudflareProjectName, setCloudflareProjectName] = useState<string | null>(null);
@@ -175,6 +180,10 @@ export function SandboxedWebWorkspace({
         if (proj?.managedDomainHostname) setManagedDomainHostname(proj.managedDomainHostname);
         if (proj?.customDomain) setCustomDomain(proj.customDomain);
         if (proj?.customDomainStatus) setCustomDomainStatus(proj.customDomainStatus);
+        if (proj?.stripeEnabled === true) setStripeEnabled(true);
+        if (proj?.stripePaymentMode === "live" || proj?.stripePaymentMode === "test") {
+          setStripePaymentMode(proj.stripePaymentMode);
+        }
       } catch (e) {
         console.warn("Failed to load project metadata", e);
       }
@@ -616,6 +625,26 @@ export function SandboxedWebWorkspace({
     return () => window.removeEventListener("agent-user-stopped", handleAgentStopped);
   }, [projectId]);
 
+  // ── Stripe OAuth success — react to ?stripe_connect=success ──────────
+  // The OAuth callback redirects here after the user authorizes. Reload
+  // project state so stripeEnabled flips and the Stripe tab appears.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const status = url.searchParams.get("stripe_connect");
+    if (status !== "success") return;
+    const mode = url.searchParams.get("mode");
+    if (mode === "live" || mode === "test") setStripePaymentMode(mode);
+    setStripeEnabled(true);
+    setCurrentView("stripe");
+    // Clear the param so a refresh doesn't keep re-flipping the tab.
+    url.searchParams.delete("stripe_connect");
+    url.searchParams.delete("mode");
+    url.searchParams.delete("accountId");
+    window.history.replaceState({}, "", url.toString());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Stripe Connect request polling ───────────────────────────────────
   // Mirrors the Google OAuth poll above. The agent's initializeStripePayments
   // tool creates a pending row; we render the Connect modal when one exists.
@@ -783,11 +812,45 @@ export function SandboxedWebWorkspace({
                 ...(hasBackend
                   ? [{ value: "database" as const, text: "Database" }]
                   : []),
+                ...(stripeEnabled
+                  ? [{ value: "stripe" as const, text: "Stripe" }]
+                  : []),
               ] as TabOption<WorkspaceView>[]
             }
             selected={currentView}
             onSelect={setCurrentView}
           />
+
+          {currentView === "stripe" && (
+            <StripeModeToggle
+              projectId={projectId}
+              mode={stripePaymentMode}
+              busy={stripeModeToggling}
+              onToggle={async (next) => {
+                if (next === stripePaymentMode || stripeModeToggling) return;
+                setStripeModeToggling(true);
+                try {
+                  const res = await fetch(`/api/projects/${projectId}/stripe/mode`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ mode: next }),
+                  });
+                  const data = await res.json() as { ok: boolean; status?: string; authorizeUrl?: string; mode?: string; error?: string };
+                  if (data.ok && (data.mode === "test" || data.mode === "live")) {
+                    setStripePaymentMode(data.mode);
+                    toast({ title: `Switched to ${data.mode} mode` });
+                  } else if (data.status === "needs-connect" && data.authorizeUrl) {
+                    toast({ title: `Connect Stripe in ${next} mode`, description: "Opening Stripe authorization…" });
+                    window.open(data.authorizeUrl, "_blank");
+                  } else {
+                    toast({ title: "Mode switch failed", description: data.error ?? "Unknown error" });
+                  }
+                } finally {
+                  setStripeModeToggling(false);
+                }
+              }}
+            />
+          )}
 
           <Button
             variant="ghost"
@@ -1020,6 +1083,37 @@ export function SandboxedWebWorkspace({
               <div className="w-full h-full rounded-xl border border-border overflow-hidden">
                 <ConvexDashboard projectId={projectId} />
               </div>
+            </div>
+          )}
+
+          {/* Stripe view */}
+          {currentView === "stripe" && stripeEnabled && (
+            <div className="absolute inset-0 pr-2.5 pb-2.5">
+              <StripeTab
+                projectId={projectId}
+                mode={stripePaymentMode}
+                onOpenFullDashboard={async () => {
+                  try {
+                    const secretRes = await fetch(`/api/projects/${projectId}`);
+                    const proj = await secretRes.json();
+                    const secret = proj?.stripeWebhookSecret as string | undefined;
+                    if (!secret) {
+                      toast({ title: "Couldn't open dashboard", description: "Project secret missing." });
+                      return;
+                    }
+                    const res = await fetch(`/api/projects/${projectId}/stripe/dashboard-link`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", "X-Botflow-Project-Secret": secret },
+                      body: "{}",
+                    });
+                    const data = await res.json() as { url?: string; error?: string };
+                    if (data.url) window.open(data.url, "_blank");
+                    else toast({ title: "Couldn't open dashboard", description: data.error ?? "Unknown error" });
+                  } catch (err) {
+                    toast({ title: "Couldn't open dashboard", description: err instanceof Error ? err.message : String(err) });
+                  }
+                }}
+              />
             </div>
           )}
 

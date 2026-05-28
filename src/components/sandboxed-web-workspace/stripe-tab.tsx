@@ -1,0 +1,244 @@
+"use client";
+
+/**
+ * StripeTab — workspace tab that renders Stripe's embedded Connect components
+ * for the project's connected account. Loads Connect.js with a
+ * fetchClientSecret callback pointing at our /account-session endpoint and
+ * mounts the components Stripe Standard supports (payments, payouts,
+ * balances, account management, onboarding).
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ConnectComponentsProvider,
+  ConnectAccountManagement,
+  ConnectAccountOnboarding,
+  ConnectBalances,
+  ConnectNotificationBanner,
+  ConnectPayments,
+  ConnectPayouts,
+} from "@stripe/react-connect-js";
+import { loadConnectAndInitialize, type StripeConnectInstance } from "@stripe/connect-js";
+import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { cn } from "@/lib/utils";
+
+interface StripeModeToggleProps {
+  projectId: string;
+  mode: "test" | "live";
+  busy: boolean;
+  onToggle: (next: "test" | "live") => void | Promise<void>;
+}
+
+/** Pill switch shown in the workspace toolbar when the Stripe tab is active. */
+export function StripeModeToggle({ mode, busy, onToggle }: StripeModeToggleProps) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1 rounded-full border border-border bg-elevated/60 p-0.5",
+        busy && "opacity-60 pointer-events-none",
+      )}
+      role="group"
+      aria-label="Stripe payment mode"
+    >
+      {(["test", "live"] as const).map((m) => (
+        <button
+          key={m}
+          onClick={() => onToggle(m)}
+          aria-pressed={mode === m}
+          className={cn(
+            "text-[11px] font-medium px-3 py-1 rounded-full transition-colors",
+            mode === m
+              ? m === "live"
+                ? "bg-red-500/20 text-red-300"
+                : "bg-amber-500/20 text-amber-300"
+              : "text-muted hover:text-fg",
+          )}
+        >
+          {m === "test" ? "Test mode" : "Live mode"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type StripeSubView =
+  | "payments"
+  | "balances"
+  | "payouts"
+  | "account"
+  | "onboarding";
+
+interface StripeTabProps {
+  projectId: string;
+  /** Cache-busts the connect instance when the user flips test/live. */
+  mode: "test" | "live";
+  /** Click handler for "Open Full Stripe Dashboard ↗". */
+  onOpenFullDashboard?: () => void;
+}
+
+interface AccountSessionResponse {
+  ok: boolean;
+  clientSecret?: string;
+  publishableKey?: string;
+  mode?: string;
+  accountId?: string;
+  error?: string;
+}
+
+async function fetchAccountSession(projectId: string): Promise<AccountSessionResponse> {
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/stripe/account-session`,
+    { method: "POST", cache: "no-store" },
+  );
+  const data = (await res.json()) as AccountSessionResponse;
+  if (!res.ok || !data.clientSecret || !data.publishableKey) {
+    throw new Error(data.error ?? `account-session HTTP ${res.status}`);
+  }
+  return data;
+}
+
+export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabProps) {
+  const [view, setView] = useState<StripeSubView>("payments");
+  const [connectInstance, setConnectInstance] = useState<StripeConnectInstance | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [retryTick, setRetryTick] = useState(0);
+
+  // Pin projectId in a ref so the SDK's fetchClientSecret callback always
+  // hits the right URL even if the tab is re-keyed mid-flight.
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
+
+  const fetchClientSecret = useCallback(async (): Promise<string> => {
+    const data = await fetchAccountSession(projectIdRef.current);
+    return data.clientSecret!;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setConnectInstance(null);
+
+    (async () => {
+      try {
+        // Initial pre-fetch lands the publishable key + account id. The SDK
+        // will call fetchClientSecret again on its own as needed (~1h TTL).
+        const initial = await fetchAccountSession(projectIdRef.current);
+        if (cancelled) return;
+        setAccountId(initial.accountId ?? null);
+        const instance = loadConnectAndInitialize({
+          publishableKey: initial.publishableKey!,
+          fetchClientSecret,
+          appearance: {
+            overlays: "dialog",
+            variables: { colorPrimary: "#635BFF" },
+          },
+        });
+        if (!cancelled) {
+          setConnectInstance(instance);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, mode, fetchClientSecret, retryTick]);
+
+  const subViews: Array<{ id: StripeSubView; label: string }> = useMemo(
+    () => [
+      { id: "payments", label: "Payments" },
+      { id: "balances", label: "Balances" },
+      { id: "payouts", label: "Payouts" },
+      { id: "account", label: "Account" },
+      { id: "onboarding", label: "Onboarding" },
+    ],
+    [],
+  );
+
+  return (
+    <div className="flex flex-col h-full bg-bolt-bg">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+        <div className="flex items-center gap-2">
+          {subViews.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => setView(v.id)}
+              className={cn(
+                "text-xs font-medium px-3 py-1.5 rounded-md transition-colors",
+                view === v.id
+                  ? "bg-elevated text-fg"
+                  : "text-muted hover:text-fg hover:bg-elevated/50",
+              )}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          {accountId && (
+            <span className="text-[10px] text-muted font-mono">
+              {accountId.slice(0, 14)}…
+            </span>
+          )}
+          {onOpenFullDashboard && (
+            <button
+              onClick={onOpenFullDashboard}
+              className="flex items-center gap-1 text-xs font-medium text-fg hover:text-accent transition-colors"
+              title="Open the full Stripe Dashboard in a new tab"
+            >
+              Open Full Stripe Dashboard
+              <ExternalLink size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        {loading && (
+          <div className="flex items-center justify-center h-full text-muted gap-2">
+            <Loader2 size={16} className="animate-spin" />
+            <span className="text-sm">Loading Stripe components…</span>
+          </div>
+        )}
+        {error && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6">
+            <p className="text-sm text-red-400 max-w-md">{error}</p>
+            <button
+              onClick={() => setRetryTick((t) => t + 1)}
+              className="flex items-center gap-2 text-sm font-medium bg-elevated px-3 py-1.5 rounded-md hover:bg-elevated/70 transition-colors"
+            >
+              <RefreshCw size={14} />
+              Retry
+            </button>
+          </div>
+        )}
+        {!loading && !error && connectInstance && (
+          <ConnectComponentsProvider connectInstance={connectInstance}>
+            <div className="px-4 pt-3">
+              <ConnectNotificationBanner />
+            </div>
+            <div className="px-4 py-3">
+              {view === "payments" && <ConnectPayments />}
+              {view === "balances" && <ConnectBalances />}
+              {view === "payouts" && <ConnectPayouts />}
+              {view === "account" && <ConnectAccountManagement />}
+              {view === "onboarding" && (
+                <ConnectAccountOnboarding
+                  onExit={() => setView("account")}
+                />
+              )}
+            </div>
+          </ConnectComponentsProvider>
+        )}
+      </div>
+    </div>
+  );
+}

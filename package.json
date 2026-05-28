@@ -31,6 +31,8 @@
     "@sanity/client": "^7.22.0",
     "@sanity/image-url": "^2.1.1",
     "@sparticuz/chromium": "^143.0.0",
+    "@stripe/connect-js": "^3.4.5",
+    "@stripe/react-connect-js": "^3.4.3",
     "@types/three": "^0.182.0",
     "@types/uuid": "^10.0.0",
     "@uploadthing/react": "^7.3.3",

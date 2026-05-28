@@ -91,7 +91,11 @@ const STRIPE_CARD_UI_BLOCK_REASON =
   "Card numbers, CVCs, and bank details must only ever be entered on Stripe's hosted pages — never in your app's UI.";
 
 function isStripeInstallCommand(command: string): boolean {
-  return /\b(?:npm|pnpm|yarn|bun)\s+(?:add|install|i)\b[^&|;]*\b(?:stripe(?:@|\s|$|"|')|@stripe\/)/i.test(command);
+  // \b only matches against word chars, so `\b@stripe/` fails when the
+  // preceding char is also a non-word (a space). Use \bstripe…  for the bare
+  // package name (word boundary works) and require a leading space or token
+  // before @stripe/… for scoped packages.
+  return /\b(?:npm|pnpm|yarn|bun)\s+(?:add|install|i)\b[^&|;]*(?:\bstripe(?:@|\s|$|"|')|(?:^|\s)@stripe\/)/i.test(command);
 }
 
 function isStripeReadOnlyPath(p: string | undefined | null): boolean {

@@ -1,18 +1,19 @@
 /**
  * POST /api/projects/[id]/stripe/initialize
  *
- * Standard Connect via OAuth. There are three outcomes:
+ * Agent-triggered modal-driven Stripe Connect setup. Mirrors the
+ * setupOAuthProvider tool pattern in src/lib/agent/sandboxed-web-tools.ts.
  *
- *   1. The user already has a Stripe account linked for the current mode.
- *      Flip projects.stripe_enabled = true and return already-connected.
+ * Outcomes (returned to the agent):
+ *   • already-connected — the user previously linked Stripe; this project is
+ *     now flipped on without any user action. The agent proceeds.
+ *   • connected         — modal opened, user clicked Connect with Stripe,
+ *     OAuth completed, DB updated. The agent proceeds.
+ *   • dismissed         — user clicked X. The agent should NOT retry.
+ *   • timeout           — 5 min elapsed with no action. Treat like dismiss.
+ *   • backend-blocked / tier-blocked / misconfigured — preflight failures.
  *
- *   2. The user has not yet linked their Stripe account. Return
- *      needs-connect + an authorizeUrl so the UI / modal can launch OAuth.
- *
- *   3. The project doesn't qualify (no backend, tier-blocked, flag off).
- *
- * No Stripe API call is made here — the heavy lift happens in
- * /api/stripe/oauth/callback after the user authorizes.
+ * The request blocks for up to 5 minutes while polling the request row.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
@@ -22,10 +23,33 @@ import { getDb } from '@/db';
 import { projects, userStripeIdentity } from '@/db/schema';
 import { canUseStripeConnect } from '@/lib/tier';
 import { isConnectOAuthConfigured } from '@/lib/stripe';
+import {
+  cancelPendingConnectRequests,
+  createConnectRequest,
+  mintStripeAuthorizeUrl,
+  pollConnectRequest,
+} from '@/lib/stripe-connect';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
-export const maxDuration = 30;
+// Stripe OAuth + user clicks easily fit within 5 minutes. Cap matches
+// setupOAuthProvider for parity.
+export const maxDuration = 300;
+
+const POLL_DEADLINE_MS = 5 * 60 * 1000;
+
+async function flipProjectEnabled(projectId: string, stripeWebhookSecret: string | null) {
+  const db = getDb();
+  const webhookSecret = stripeWebhookSecret ?? `bfws_${randomBytes(32).toString('hex')}`;
+  await db
+    .update(projects)
+    .set({
+      stripeEnabled: true,
+      stripeWebhookSecret: webhookSecret,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, projectId));
+}
 
 export async function POST(
   req: NextRequest,
@@ -62,7 +86,7 @@ export async function POST(
         ok: false,
         status: 'backend-blocked',
         error:
-          'This project has no backend. Stripe requires a backend (Convex) to receive webhook events and store billing state.',
+          'This project has no backend. Stripe requires a Convex backend to receive webhook events and store billing state.',
       },
       { status: 400 },
     );
@@ -77,7 +101,6 @@ export async function POST(
   }
 
   const mode = project.stripePaymentMode === 'live' ? 'live' : 'test';
-
   if (!isConnectOAuthConfigured(mode)) {
     return NextResponse.json(
       {
@@ -89,52 +112,79 @@ export async function POST(
     );
   }
 
-  // Does the caller already have a Stripe account linked for this mode?
+  // Already linked → flip project flag, done.
   const [identity] = await db
     .select()
     .from(userStripeIdentity)
     .where(eq(userStripeIdentity.userId, userId))
     .limit(1);
-
   const existingAccountId =
     identity && mode === 'live' ? identity.liveAccountId : identity?.testAccountId;
-
   if (existingAccountId) {
-    // Reuse: just opt this project in. We also generate the per-project
-    // webhook HMAC if it hasn't been set yet.
-    const webhookSecret =
-      project.stripeWebhookSecret ?? `bfws_${randomBytes(32).toString('hex')}`;
-    await db
-      .update(projects)
-      .set({
-        stripeEnabled: true,
-        stripeWebhookSecret: webhookSecret,
-        updatedAt: new Date(),
-      })
-      .where(eq(projects.id, projectId));
-
+    await flipProjectEnabled(projectId, project.stripeWebhookSecret);
     return NextResponse.json({
       ok: true,
       status: 'already-connected',
       mode,
       accountId: existingAccountId,
       message:
-        'Your Stripe account is already linked. This project is now enabled to use it.',
+        'The user has previously linked their Stripe account. This project is now enabled to use it.',
     });
   }
 
-  // Not yet linked. Hand back an authorize URL the UI can launch.
-  const origin = new URL(req.url).origin;
-  const authorizeUrl = `${origin}/api/stripe/oauth/start?projectId=${encodeURIComponent(
+  // Not linked → open the modal + poll.
+  await cancelPendingConnectRequests(projectId);
+  const { state, authorizeUrl } = await mintStripeAuthorizeUrl({
+    userId,
     projectId,
-  )}&mode=${mode}`;
+    mode,
+    appOrigin: new URL(req.url).origin,
+  });
+  const { id: requestId } = await createConnectRequest({
+    userId,
+    projectId,
+    mode,
+    state,
+    authorizeUrl,
+  });
+
+  const deadlineMs = Date.now() + POLL_DEADLINE_MS;
+  const result = await pollConnectRequest({ requestId, projectId, deadlineMs });
+
+  if (result === 'completed') {
+    // Re-read identity (callback wrote the acct id).
+    const [linked] = await db
+      .select()
+      .from(userStripeIdentity)
+      .where(eq(userStripeIdentity.userId, userId))
+      .limit(1);
+    const accountId =
+      linked && mode === 'live' ? linked.liveAccountId : linked?.testAccountId;
+    // Flip project flag (and seed webhook secret if not already).
+    await flipProjectEnabled(projectId, project.stripeWebhookSecret);
+    return NextResponse.json({
+      ok: true,
+      status: 'connected',
+      mode,
+      accountId,
+      message:
+        'User completed Stripe OAuth. The project is enabled and the Stripe tab is now available in the workspace.',
+    });
+  }
+
+  if (result === 'dismissed' || result === 'gone') {
+    return NextResponse.json({
+      ok: false,
+      status: 'dismissed',
+      message:
+        'User declined to connect Stripe. The modal was dismissed and no account was linked. Do not retry automatically. Continue with the rest of the implementation and tell the user they can set up Stripe later from the workspace.',
+    });
+  }
 
   return NextResponse.json({
-    ok: true,
-    status: 'needs-connect',
-    mode,
-    authorizeUrl,
+    ok: false,
+    status: 'timeout',
     message:
-      'The user has not yet connected their Stripe account. They need to click "Connect with Stripe" and authorize through Stripe\'s site.',
+      'Timed out waiting for the user to complete Stripe OAuth (5 minutes elapsed). The modal is no longer visible. Treat like a dismiss — do not retry.',
   });
 }

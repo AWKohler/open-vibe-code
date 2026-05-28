@@ -60,6 +60,7 @@ import {
 } from "@/lib/project-platform";
 import { FileSearch } from "@/components/persistent-workspace/file-search";
 import { GoogleOAuthModal } from "@/components/workspace/google-oauth-modal";
+import { StripeConnectModal } from "@/components/workspace/stripe-connect-modal";
 import { SandboxGitHubPanel } from "./github-panel";
 import { SandboxPublishPanel } from "./publish-panel";
 import { Globe } from "lucide-react";
@@ -127,6 +128,12 @@ export function SandboxedWebWorkspace({
     id: string;
     provider: string;
     convexSiteUrl: string | null;
+  } | null>(null);
+  /** Pending Stripe Connect request surfaced by initializeStripePayments. */
+  const [pendingStripeRequest, setPendingStripeRequest] = useState<{
+    id: string;
+    mode: "test" | "live";
+    authorizeUrl: string;
   } | null>(null);
 
   // ── Publish / Cloudflare Pages state ─────────────────────────────────
@@ -595,11 +602,59 @@ export function SandboxedWebWorkspace({
         }
         return null;
       });
+      setPendingStripeRequest((current) => {
+        if (current) {
+          fetch(`/api/projects/${projectId}/stripe/connect-request`, {
+            method: "DELETE",
+          }).catch(() => {});
+        }
+        return null;
+      });
     };
 
     window.addEventListener("agent-user-stopped", handleAgentStopped);
     return () => window.removeEventListener("agent-user-stopped", handleAgentStopped);
   }, [projectId]);
+
+  // ── Stripe Connect request polling ───────────────────────────────────
+  // Mirrors the Google OAuth poll above. The agent's initializeStripePayments
+  // tool creates a pending row; we render the Connect modal when one exists.
+  // Stops polling once the request resolves (server flips status), at which
+  // point the response shape returns pending=null and we clear the modal.
+  useEffect(() => {
+    if (!hasBackend || sandboxStatus !== "ready") return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/stripe/connect-request`,
+          { cache: "no-store" },
+        );
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as {
+          ok: boolean;
+          pending: {
+            id: string;
+            mode: "test" | "live";
+            authorizeUrl: string;
+          } | null;
+        };
+        if (!cancelled && data.ok) {
+          setPendingStripeRequest(data.pending);
+        }
+      } catch {
+        /* network blip — retry next tick */
+      }
+    };
+
+    void poll();
+    const timer = setInterval(poll, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [projectId, hasBackend, sandboxStatus]);
 
   // ── Dev server ───────────────────────────────────────────────────────
   const handleStartDevServer = useCallback(async () => {
@@ -679,6 +734,16 @@ export function SandboxedWebWorkspace({
           convexSiteUrl={pendingOAuthRequest.convexSiteUrl}
           projectId={projectId}
           onClose={() => setPendingOAuthRequest(null)}
+        />
+      )}
+      {/* Stripe Connect modal — shown when agent calls initializeStripePayments */}
+      {pendingStripeRequest && (
+        <StripeConnectModal
+          requestId={pendingStripeRequest.id}
+          projectId={projectId}
+          mode={pendingStripeRequest.mode}
+          authorizeUrl={pendingStripeRequest.authorizeUrl}
+          onClose={() => setPendingStripeRequest(null)}
         />
       )}
       {/* Agent sidebar. Hold the initial prompt until the sandbox is ready —

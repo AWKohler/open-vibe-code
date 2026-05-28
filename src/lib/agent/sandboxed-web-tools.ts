@@ -762,13 +762,16 @@ REQUIRED NEXT STEPS:
           initializeStripePayments: tool({
             description:
               "Set up Stripe payments for this project. Call this when the user asks to add checkout, subscriptions, billing, a paywall, or any other payment flow.\n\n" +
-              "Botflow uses Stripe **Standard** Connect. The user links their own Stripe account (or creates one) once — and that same account is reused across every Botflow project they build. Each project tags its Checkout Sessions and Products with the project id so the user can separate revenue per app in their Stripe Dashboard.\n\n" +
-              "Possible return statuses:\n" +
-              "  • 'already-connected' — the user has previously linked their Stripe account on Botflow. This project is now enabled to use it; no further action needed. The Stripe tab is available in the workspace.\n" +
-              "  • 'needs-connect' — the user has not yet linked Stripe. The response includes an authorizeUrl. **Do not** redirect the user yourself; tell them in chat that they need to connect Stripe and point at the 'Connect with Stripe' button that the workspace surfaces. They'll authorize on Stripe's site (~30s), then the workspace will refresh into the enabled state.\n" +
-              "  • 'tier-blocked' — user is on Free. Relay the message verbatim.\n" +
-              "  • 'backend-blocked' — project has no backend; Stripe needs Convex.\n\n" +
-              "Idempotent: safe to re-call. Once 'already-connected' returns, you can proceed to write Stripe-related code.",
+              "Botflow uses Stripe **Standard** Connect. The user links their own Stripe account once — and that same account is reused across every Botflow project they build. Each project tags its Checkout Sessions and Products with the project id so the user can separate revenue per app in their Stripe Dashboard.\n\n" +
+              "FLOW:\n" +
+              "  1. If the user has already linked their Stripe account on a previous project, this returns immediately with status='already-connected'. Proceed to write Stripe code.\n" +
+              "  2. Otherwise this tool opens a modal in the workspace asking the user to 'Connect with Stripe', and BLOCKS up to 5 minutes waiting for them to complete the OAuth flow.\n" +
+              "  3. On success: returns status='connected'. Proceed to write Stripe code.\n" +
+              "  4. On dismiss: returns status='dismissed'. Do NOT retry automatically — continue with the rest of the implementation and tell the user they can connect Stripe later from the workspace.\n" +
+              "  5. On timeout: returns status='timeout'. Treat like dismiss.\n\n" +
+              "GATES:\n" +
+              "  • Pro/Max only — returns status='tier-blocked' for Free users; relay the message verbatim.\n" +
+              "  • Convex backend required — returns status='backend-blocked' on No-Backend projects.",
             inputSchema: z.object({}),
             async execute() {
               const url = `${appBaseUrl}/api/projects/${projectId}/stripe/initialize`;

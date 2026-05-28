@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "13";
+export const BRIDGE_SCRIPT_VERSION = "14";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -138,8 +138,10 @@ function buildCustomTools(customTools) {
       tool(
         "initialize_stripe_payments",
         "Set up Stripe payments for this project. Call when the user asks to add checkout, subscriptions, billing, a paywall, or any payment flow. " +
-        "Uses Stripe Standard Connect — the user links their own Stripe account once and reuses it across all their Botflow projects. " +
-        "Returns one of: status='already-connected' (account ready, proceed to write code), 'needs-connect' (user must click Connect with Stripe in the workspace before you can proceed; do NOT loop), 'tier-blocked' (Free user; relay message), 'backend-blocked' (no Convex backend). Idempotent.",
+        "Stripe Standard Connect — the user links their own Stripe account once and reuses it across every Botflow project. " +
+        "If they've already linked it: returns status='already-connected' immediately. " +
+        "Otherwise: opens a modal in the workspace and BLOCKS up to 5 minutes while the user clicks Connect with Stripe and authorizes. " +
+        "Returns status='connected' on success, 'dismissed' on cancel (do NOT retry — continue and tell the user they can connect later), 'timeout' (treat like dismiss), 'tier-blocked' (Free; relay message), 'backend-blocked' (no Convex backend).",
         {},
         makeHostToolHandler("initialize_stripe_payments"),
       ),

@@ -454,6 +454,27 @@ export const stripeOauthStates = pgTable('stripe_oauth_states', {
 export type StripeOauthState = typeof stripeOauthStates.$inferSelect;
 export type NewStripeOauthState = typeof stripeOauthStates.$inferInsert;
 
+// Agent-triggered Stripe Connect modal requests. Mirrors oauthProviderRequests
+// shape: agent creates pending row + polls; workspace UI polls + renders modal;
+// OAuth callback flips status to 'completed' once Stripe redirects back.
+export const stripeConnectRequests = pgTable('stripe_connect_requests', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull(),
+  mode: text('mode').notNull(), // 'test' | 'live'
+  state: text('state').notNull(),
+  authorizeUrl: text('authorize_url').notNull(),
+  status: text('status').notNull().default('pending'), // 'pending' | 'completed' | 'dismissed'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (t) => ({
+  projectIdIdx: index('stripe_connect_requests_project_id_idx').on(t.projectId),
+  stateIdx: index('stripe_connect_requests_state_idx').on(t.state),
+}));
+
+export type StripeConnectRequest = typeof stripeConnectRequests.$inferSelect;
+export type NewStripeConnectRequest = typeof stripeConnectRequests.$inferInsert;
+
 export type UserStripeIdentity = typeof userStripeIdentity.$inferSelect;
 export type NewUserStripeIdentity = typeof userStripeIdentity.$inferInsert;
 

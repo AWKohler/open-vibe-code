@@ -14,6 +14,7 @@ import { and, eq, isNull, gt } from 'drizzle-orm';
 import { getDb } from '@/db';
 import {
   projects,
+  stripeConnectRequests,
   stripeOauthStates,
   userStripeIdentity,
 } from '@/db/schema';
@@ -155,6 +156,20 @@ export async function GET(req: NextRequest) {
     .update(stripeOauthStates)
     .set({ consumedAt: now })
     .where(eq(stripeOauthStates.state, state));
+
+  // If this OAuth was launched from an agent-tool modal request, flip the
+  // request row to completed so the tool's polling loop resolves. No-op when
+  // OAuth was kicked off directly (e.g. from a settings page) without an
+  // associated request.
+  await db
+    .update(stripeConnectRequests)
+    .set({ status: 'completed', updatedAt: now })
+    .where(
+      and(
+        eq(stripeConnectRequests.state, state),
+        eq(stripeConnectRequests.status, 'pending'),
+      ),
+    );
 
   return workspaceRedirect(url.origin, stateRow.projectId, {
     stripe_connect: 'success',

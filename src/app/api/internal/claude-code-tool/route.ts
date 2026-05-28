@@ -265,12 +265,8 @@ export async function POST(req: Request) {
     }
 
     case "initialize_stripe_payments": {
-      // Mirrors POST /api/projects/[id]/stripe/initialize for the Claude-Code
-      // bridge (which can't call the cookie-authenticated route directly).
-      // Standard Connect via OAuth: returns either already-connected (the
-      // user has previously linked Stripe and we just flipped this project's
-      // flag) or needs-connect (the user must click "Connect with Stripe" in
-      // the workspace).
+      // Modal-driven Stripe Connect via OAuth (Standard). Mirrors
+      // POST /api/projects/[id]/stripe/initialize.
       const { STRIPE_CONNECT_ENABLED } = await import("@/lib/feature-flags");
       if (!STRIPE_CONNECT_ENABLED) {
         return NextResponse.json({
@@ -319,14 +315,15 @@ export async function POST(req: Request) {
       const existingAccountId =
         identity && mode === "live" ? identity.liveAccountId : identity?.testAccountId;
 
+      const seedWebhookSecret = () =>
+        `bfws_${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
+
       if (existingAccountId) {
-        const webhookSecret =
-          project.stripeWebhookSecret ?? `bfws_${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
         await db
           .update(projects)
           .set({
             stripeEnabled: true,
-            stripeWebhookSecret: webhookSecret,
+            stripeWebhookSecret: project.stripeWebhookSecret ?? seedWebhookSecret(),
             updatedAt: new Date(),
           })
           .where(eq(projects.id, binding.projectId));
@@ -340,20 +337,71 @@ export async function POST(req: Request) {
         });
       }
 
-      // Build the authorize URL the user will visit. We don't drive the
-      // redirect from here — the agent tells the user in chat to click the
-      // workspace's "Connect with Stripe" button (which targets this URL).
-      const appBaseUrl = process.env.APP_BASE_URL || "https://botflow.io";
-      const authorizeUrl = `${appBaseUrl}/api/stripe/oauth/start?projectId=${encodeURIComponent(
-        binding.projectId,
-      )}&mode=${mode}`;
-      return NextResponse.json({
-        ok: true,
-        status: "needs-connect",
+      // Open the modal: cancel stale, mint state + URL, create pending request.
+      const {
+        cancelPendingConnectRequests,
+        createConnectRequest,
+        mintStripeAuthorizeUrl,
+        pollConnectRequest,
+      } = await import("@/lib/stripe-connect");
+      await cancelPendingConnectRequests(binding.projectId);
+      const appOrigin = process.env.APP_BASE_URL || "https://botflow.io";
+      const { state, authorizeUrl } = await mintStripeAuthorizeUrl({
+        userId: binding.userId,
+        projectId: binding.projectId,
         mode,
+        appOrigin,
+      });
+      const { id: requestId } = await createConnectRequest({
+        userId: binding.userId,
+        projectId: binding.projectId,
+        mode,
+        state,
         authorizeUrl,
+      });
+
+      const deadlineMs = Date.now() + 5 * 60 * 1000;
+      const result = await pollConnectRequest({ requestId, projectId: binding.projectId, deadlineMs });
+
+      if (result === "completed") {
+        const [linked] = await db
+          .select()
+          .from(userStripeIdentity)
+          .where(eq(userStripeIdentity.userId, binding.userId))
+          .limit(1);
+        const accountId =
+          linked && mode === "live" ? linked.liveAccountId : linked?.testAccountId;
+        await db
+          .update(projects)
+          .set({
+            stripeEnabled: true,
+            stripeWebhookSecret: project.stripeWebhookSecret ?? seedWebhookSecret(),
+            updatedAt: new Date(),
+          })
+          .where(eq(projects.id, binding.projectId));
+        return NextResponse.json({
+          ok: true,
+          status: "connected",
+          mode,
+          accountId,
+          content: `User completed Stripe OAuth. Account ${accountId} is now linked and this project is enabled. Proceed to write Stripe-related code.`,
+        });
+      }
+
+      if (result === "dismissed" || result === "gone") {
+        return NextResponse.json({
+          ok: false,
+          status: "dismissed",
+          content:
+            "User declined to connect Stripe. The modal was dismissed and no account was linked. Do not retry automatically. Continue with the rest of the implementation and tell the user they can set up Stripe later from the workspace.",
+        });
+      }
+
+      return NextResponse.json({
+        ok: false,
+        status: "timeout",
         content:
-          "The user has not yet linked their Stripe account on Botflow. Tell them in chat that they need to click 'Connect with Stripe' in the workspace (it'll appear because of this tool call) and authorize through Stripe's site. Don't loop — wait for them.",
+          "Timed out waiting for the user to complete Stripe OAuth (5 minutes elapsed). Treat like a dismiss — do not retry.",
       });
     }
 

@@ -12,15 +12,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { and, eq } from 'drizzle-orm';
-import { randomBytes } from 'node:crypto';
 import { getDb } from '@/db';
-import { projects, stripeOauthStates } from '@/db/schema';
+import { projects } from '@/db/schema';
 import { canUseStripeConnect } from '@/lib/tier';
 import {
-  getConnectClientId,
   isConnectOAuthConfigured,
   type StripeMode,
 } from '@/lib/stripe';
+import { mintStripeAuthorizeUrl } from '@/lib/stripe-connect';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -80,33 +79,12 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const state = randomBytes(32).toString('hex');
-  const now = new Date();
-  // 1h TTL. The user clicks through Stripe in well under a minute, but the
-  // first-ever OAuth flow can involve dashboard config tweaks (redirect URI,
-  // platform profile review prompts) that burn time before they get back.
-  const expiresAt = new Date(now.getTime() + 60 * 60_000);
-  await db.insert(stripeOauthStates).values({
-    state,
+  const { state, authorizeUrl } = await mintStripeAuthorizeUrl({
     userId,
     projectId,
     mode,
-    createdAt: now,
-    expiresAt,
+    appOrigin: url.origin,
   });
-
-  const clientId = getConnectClientId(mode);
-  const redirectUri = `${url.origin}/api/stripe/oauth/callback`;
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: clientId,
-    scope: 'read_write',
-    redirect_uri: redirectUri,
-    state,
-    // 'stripe_user[email]' would be a nice prefill but we don't reliably know
-    // the user's preferred Stripe email here. Skip — Stripe lets them type it.
-  });
-  const authorizeUrl = `https://connect.stripe.com/oauth/authorize?${params.toString()}`;
 
   return NextResponse.json({ ok: true, authorizeUrl, state, mode });
 }

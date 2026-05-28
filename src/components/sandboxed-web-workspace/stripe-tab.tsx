@@ -103,7 +103,9 @@ function themeVariables(): Record<string, string> {
     colorWarning: "#e0a44a",
     fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
     borderRadius: "8px",
-    spacingUnit: "4px",
+    // 5px gives ~25% more padding everywhere inside the components without
+    // disrupting their relative proportions. 4 was tight.
+    spacingUnit: "5px",
     fontSizeBase: "14px",
     buttonPrimaryColorBackground: v("--sand-accent", "#d8826a"),
     buttonPrimaryColorText: v("--sand-accent-contrast", "#1b1713"),
@@ -191,8 +193,8 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
 
   return (
     <div className="flex flex-col h-full bg-bolt-bg">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border">
+        <div className="flex items-center gap-1.5">
           {subViews.map((v) => (
             <button
               key={v.id}
@@ -248,15 +250,12 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
         )}
         {!loading && !error && connectInstance && (
           <ConnectComponentsProvider connectInstance={connectInstance}>
-            {/* Stripe components are display:block and grow to fit their
-                content height. Wrap each in a div with a generous min-height
-                + bg-white so the iframe has a visible canvas before its
-                internal content (or auth gate) reports back. */}
-            <div className="px-4 pt-3">
+            {/* Stripe components render their own bordered cards; we just
+                provide the outer page padding + vertical rhythm between
+                the notification banner row and the active sub-view. */}
+            <div className="px-6 py-5 space-y-5">
               <ConnectNotificationBanner />
-            </div>
-            <div className="px-4 py-3">
-              <div className="rounded-lg border border-border min-h-[500px] overflow-hidden">
+              <div className="min-h-[500px]">
                 {view === "payments" && <ConnectPayments />}
                 {view === "balances" && <ConnectBalances />}
                 {view === "payouts" && <ConnectPayouts />}

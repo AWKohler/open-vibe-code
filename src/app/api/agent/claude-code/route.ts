@@ -264,7 +264,13 @@ export async function POST(req: Request) {
       "ask_question",
     );
     if (hasBackend) {
-      customTools.push("convex_deploy", "get_convex_logs");
+      customTools.push(
+        "convex_deploy",
+        "get_convex_logs",
+        "list_convex_tables",
+        "read_convex_table",
+        "write_convex_data",
+      );
       if (STRIPE_CONNECT_ENABLED) {
         customTools.push(
           "initialize_stripe_payments",

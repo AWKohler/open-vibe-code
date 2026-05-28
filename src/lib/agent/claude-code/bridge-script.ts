@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "16";
+export const BRIDGE_SCRIPT_VERSION = "17";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -145,6 +145,60 @@ function buildCustomTools(customTools) {
           onlyErrors: z.boolean().optional(),
         },
         makeHostToolHandler("get_convex_logs"),
+      ),
+    );
+  }
+
+  if (customTools.includes("list_convex_tables")) {
+    tools.push(
+      tool(
+        "list_convex_tables",
+        "List the user tables in this project's Convex deployment. " +
+        "Use it to discover what data the app stores before reading or editing. Convex has no SQL — inspect data with read_convex_table. " +
+        "Returns { ok, tables }.",
+        {},
+        makeHostToolHandler("list_convex_tables"),
+      ),
+    );
+  }
+
+  if (customTools.includes("read_convex_table")) {
+    tools.push(
+      tool(
+        "read_convex_table",
+        "Read a page of documents from one Convex table (newest first by default). " +
+        "Use it to inspect real data, verify a mutation worked, or gather the _id values you need before editing. " +
+        "Returns { ok, documents, continueCursor, isDone }; pass continueCursor back as cursor to page further. Each document includes its _id.",
+        {
+          table: z.string(),
+          limit: z.number().int().positive().optional(),
+          order: z.enum(["asc", "desc"]).optional(),
+          cursor: z.string().optional(),
+        },
+        makeHostToolHandler("read_convex_table"),
+      ),
+    );
+  }
+
+  if (customTools.includes("write_convex_data")) {
+    tools.push(
+      tool(
+        "write_convex_data",
+        "Directly edit data in this project's Convex database — insert, patch, replace, or delete documents — without writing or deploying a Convex function. The streamlined path for one-off data fixes, seeding, or corrections. " +
+        "CONFIRMATION REQUIRED: always call first WITHOUT confirmed to get a preview (status='needs-confirmation', no write happens). Show the user what will change, ask approval with the AskUserQuestion/ask tool, then call again with the SAME args plus confirmed:true. " +
+        "Operations: insert (table + documents, no _id); patch (table + ids + fields, merges fields, no keys starting with _); replace (id + document, full overwrite); delete (table + ids, permanent). Get _id values from read_convex_table first.",
+        {
+          operation: z.enum(["insert", "patch", "replace", "delete"]),
+          table: z.string().optional(),
+          documents: z.array(z.record(z.string(), z.any())).optional(),
+          ids: z.array(z.string()).optional(),
+          fields: z.record(z.string(), z.any()).optional(),
+          id: z.string().optional(),
+          document: z.record(z.string(), z.any()).optional(),
+          confirmed: z.boolean().optional(),
+        },
+        makeHostToolHandler("write_convex_data"),
+        { annotations: { destructiveHint: true } },
       ),
     );
   }

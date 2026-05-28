@@ -274,6 +274,74 @@ export async function POST(req: Request) {
       });
     }
 
+    case "list_convex_tables": {
+      const { listConvexTables } = await import("@/lib/convex-admin");
+      const result = await listConvexTables(binding.projectId);
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.ok
+          ? JSON.stringify({ tables: result.tables })
+          : result.error,
+      });
+    }
+
+    case "read_convex_table": {
+      const { readConvexTable } = await import("@/lib/convex-admin");
+      const table = typeof body.input?.table === "string" ? body.input.table : undefined;
+      if (!table) {
+        return NextResponse.json({ ok: false, content: "read_convex_table requires `table`." });
+      }
+      const limit = typeof body.input?.limit === "number" ? body.input.limit : undefined;
+      const order =
+        body.input?.order === "asc" || body.input?.order === "desc" ? body.input.order : undefined;
+      const cursor = typeof body.input?.cursor === "string" ? body.input.cursor : undefined;
+      const result = await readConvexTable(binding.projectId, {
+        table,
+        ...(limit !== undefined ? { limit } : {}),
+        ...(order !== undefined ? { order } : {}),
+        ...(cursor !== undefined ? { cursor } : {}),
+      });
+      return NextResponse.json({
+        ok: result.ok,
+        content: result.ok
+          ? JSON.stringify({
+              documents: result.documents,
+              continueCursor: result.continueCursor,
+              isDone: result.isDone,
+            })
+          : result.error,
+      });
+    }
+
+    case "write_convex_data": {
+      const { writeConvexData } = await import("@/lib/convex-admin");
+      const i = body.input ?? {};
+      const result = await writeConvexData(binding.projectId, {
+        operation: i.operation as "insert" | "patch" | "replace" | "delete",
+        ...(typeof i.table === "string" ? { table: i.table } : {}),
+        ...(Array.isArray(i.documents) ? { documents: i.documents } : {}),
+        ...(Array.isArray(i.ids) ? { ids: i.ids as string[] } : {}),
+        ...(i.fields && typeof i.fields === "object"
+          ? { fields: i.fields as Record<string, unknown> }
+          : {}),
+        ...(typeof i.id === "string" ? { id: i.id } : {}),
+        ...(i.document && typeof i.document === "object"
+          ? { document: i.document as Record<string, unknown> }
+          : {}),
+        ...(typeof i.confirmed === "boolean" ? { confirmed: i.confirmed } : {}),
+      });
+      return NextResponse.json({
+        ok: result.ok,
+        content: JSON.stringify({
+          status: result.status,
+          ...(result.preview ? { preview: result.preview } : {}),
+          ...(result.instruction ? { instruction: result.instruction } : {}),
+          ...(result.error ? { error: result.error } : {}),
+          ...(result.result !== undefined ? { result: result.result } : {}),
+        }),
+      });
+    }
+
     case "refreshPreview": {
       const result = await requestSandboxPreviewRefresh(binding.projectId);
       return NextResponse.json({

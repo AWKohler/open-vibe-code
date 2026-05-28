@@ -213,3 +213,131 @@ export async function readConvexTable(
     isDone: v.isDone ?? true,
   };
 }
+
+// ───────────────── Tier 2: confirmation-gated direct writes ─────────────────
+//
+// These use Convex's built-in dashboard mutations (the same ones the Convex
+// web dashboard calls), so NO user code needs to be deployed to edit data.
+// Exact validator shapes were confirmed against a live deployment:
+//   _system/frontend/addDocument        { table: string, documents: any[] }
+//   _system/frontend/patchDocumentsFields { table: string, ids: string[], fields: any }
+//   _system/frontend/replaceDocument    { id: string, document: any }
+//   _system/frontend/deleteDocuments    { toDelete: { id: string, tableName: string }[] }
+//
+// Every write is GATED: callers must pass `confirmed: true`. Without it we
+// return a preview and DO NOT touch the database — the agent is expected to
+// show the preview and get explicit user approval (askQuestion) first.
+
+export type ConvexWriteOp = 'insert' | 'patch' | 'replace' | 'delete';
+
+export interface WriteConvexDataInput {
+  operation: ConvexWriteOp;
+  /** Target table. Required for insert / patch / delete (and used for display on replace). */
+  table?: string;
+  /** insert: documents to add. */
+  documents?: unknown[];
+  /** patch: ids of documents to patch. */
+  ids?: string[];
+  /** patch: fields to merge into each id (same fields applied to all). */
+  fields?: Record<string, unknown>;
+  /** replace: id of the single document to fully overwrite. */
+  id?: string;
+  /** replace: the full replacement document. */
+  document?: Record<string, unknown>;
+  /** Must be true to actually write; otherwise a preview is returned. */
+  confirmed?: boolean;
+}
+
+export interface WriteConvexDataResult {
+  ok: boolean;
+  /** 'needs-confirmation' (no write happened) | 'applied' | 'error' */
+  status?: 'needs-confirmation' | 'applied' | 'error';
+  error?: string;
+  /** Human-readable summary of what will / did happen. */
+  preview?: string;
+  /** When status==='needs-confirmation', what the agent must do next. */
+  instruction?: string;
+  /** Raw Convex mutation return value on success. */
+  result?: unknown;
+}
+
+/**
+ * Validate + (optionally) execute a direct data write against a project's
+ * Convex deployment. Confirmation-gated: returns a preview unless
+ * `input.confirmed === true`.
+ */
+export async function writeConvexData(
+  projectId: string,
+  input: WriteConvexDataInput,
+): Promise<WriteConvexDataResult> {
+  const { operation } = input;
+
+  // ── validate per-operation and build a human preview ──
+  let preview: string;
+  let path: string;
+  let args: Record<string, unknown>;
+
+  switch (operation) {
+    case 'insert': {
+      if (!input.table) return { ok: false, status: 'error', error: 'insert requires `table`.' };
+      if (!Array.isArray(input.documents) || input.documents.length === 0) {
+        return { ok: false, status: 'error', error: 'insert requires a non-empty `documents` array.' };
+      }
+      preview = `Insert ${input.documents.length} document(s) into table "${input.table}".`;
+      path = '_system/frontend/addDocument';
+      args = { table: input.table, documents: input.documents };
+      break;
+    }
+    case 'patch': {
+      if (!input.table) return { ok: false, status: 'error', error: 'patch requires `table`.' };
+      if (!Array.isArray(input.ids) || input.ids.length === 0) {
+        return { ok: false, status: 'error', error: 'patch requires a non-empty `ids` array.' };
+      }
+      if (!input.fields || typeof input.fields !== 'object' || Object.keys(input.fields).length === 0) {
+        return { ok: false, status: 'error', error: 'patch requires a non-empty `fields` object.' };
+      }
+      preview = `Patch field(s) [${Object.keys(input.fields).join(', ')}] on ${input.ids.length} document(s) in table "${input.table}". Other fields are left unchanged.`;
+      path = '_system/frontend/patchDocumentsFields';
+      args = { table: input.table, ids: input.ids, fields: input.fields };
+      break;
+    }
+    case 'replace': {
+      if (!input.id) return { ok: false, status: 'error', error: 'replace requires `id`.' };
+      if (!input.document || typeof input.document !== 'object') {
+        return { ok: false, status: 'error', error: 'replace requires a `document` object.' };
+      }
+      preview = `Replace (full overwrite) document ${input.id}${input.table ? ` in table "${input.table}"` : ''}. Fields not present in the new document will be removed.`;
+      path = '_system/frontend/replaceDocument';
+      args = { id: input.id, document: input.document };
+      break;
+    }
+    case 'delete': {
+      if (!input.table) return { ok: false, status: 'error', error: 'delete requires `table`.' };
+      if (!Array.isArray(input.ids) || input.ids.length === 0) {
+        return { ok: false, status: 'error', error: 'delete requires a non-empty `ids` array.' };
+      }
+      preview = `Permanently DELETE ${input.ids.length} document(s) from table "${input.table}". This cannot be undone.`;
+      path = '_system/frontend/deleteDocuments';
+      args = { toDelete: input.ids.map((id) => ({ id, tableName: input.table })) };
+      break;
+    }
+    default:
+      return { ok: false, status: 'error', error: `Unknown operation "${String(operation)}".` };
+  }
+
+  // ── confirmation gate: no write until confirmed:true ──
+  if (input.confirmed !== true) {
+    return {
+      ok: true,
+      status: 'needs-confirmation',
+      preview,
+      instruction:
+        'This write was NOT performed. Show the user exactly what will change (the preview above), ask for their explicit approval with askQuestion, and only if they approve, call this tool again with the identical arguments plus confirmed: true.',
+    };
+  }
+
+  // ── execute ──
+  const r = await runConvexFunction(projectId, { path, args, type: 'mutation' });
+  if (!r.ok) return { ok: false, status: 'error', error: r.error, preview };
+  return { ok: true, status: 'applied', preview, result: r.value };
+}

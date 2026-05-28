@@ -94,6 +94,15 @@ export function buildClaudeCodeAppendPrompt(input: BuildAppendPromptInput): stri
       "- All public functions require validators from `convex/values`",
       "- Tables must be defined in `schema.ts` before insert; indexes too",
       "- Queries are read-only; mutations can read+write transactionally; actions are for third-party API calls",
+      "",
+      "### Inspecting & editing data (no SQL — use these tools)",
+      "Convex has no query language you can type ad-hoc. To look at or fix real data, use these MCP tools (they resolve the deploy key server-side — never try to reach the DB from the sandbox):",
+      "- **`list_convex_tables`** — what tables exist.",
+      "- **`read_convex_table`** — page through a table's documents (newest first). Use it to verify a mutation worked, debug what's stored, or grab `_id` values before an edit.",
+      "- **`get_convex_logs`** — recent function executions + their errors/console output (see error catalog below).",
+      "- **`write_convex_data`** — insert / patch / replace / delete documents directly, for one-off fixes, seeding, or corrections, without writing or deploying a function.",
+      "",
+      "**`write_convex_data` is confirmation-gated.** Call it FIRST without `confirmed` — it returns `status='needs-confirmation'` and a preview, and does NOT touch the DB. Show the user exactly what will change, confirm with the question tool, then call again with the SAME args plus `confirmed: true`. Never set `confirmed: true` on the first call. Prefer writing a proper mutation for anything recurring; reserve `write_convex_data` for one-off data work.",
     );
     if (hasConvexEnv) {
       sections.push("", "`VITE_CONVEX_URL` is already set in `/vercel/sandbox/.env`.");

@@ -868,6 +868,106 @@ REQUIRED NEXT STEPS:
         });
       },
     }),
+    listConvexTables: tool({
+      description:
+        "List the user tables that currently exist in this project's Convex deployment. " +
+        "Use this to discover what data the app stores before reading or editing it. " +
+        "Returns { ok, tables: string[] }. Convex has no SQL — inspect data with readConvexTable, not queries you write.",
+      inputSchema: z.object({}),
+      async execute() {
+        const { listConvexTables } = await import("@/lib/convex-admin");
+        return listConvexTables(projectId);
+      },
+    }),
+    readConvexTable: tool({
+      description:
+        "Read a page of documents from one Convex table (most-recent first by default). " +
+        "Use this to inspect real data — to verify a mutation worked, debug what's stored, or gather the document _id values you'll need before editing. " +
+        "Returns { ok, documents, continueCursor, isDone }; pass continueCursor back as `cursor` to page further. " +
+        "Each document includes its `_id` (needed for writeConvexData patch/replace/delete).",
+      inputSchema: z.object({
+        table: z.string().describe("Table name (from listConvexTables)."),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe("Max documents to return. Default 20, max 200."),
+        order: z
+          .enum(["asc", "desc"])
+          .optional()
+          .describe("Sort by creation time. 'desc' (newest first) is the default."),
+        cursor: z
+          .string()
+          .optional()
+          .describe("continueCursor from a previous call, to fetch the next page."),
+      }),
+      async execute(args) {
+        const { readConvexTable } = await import("@/lib/convex-admin");
+        return readConvexTable(projectId, {
+          table: args.table,
+          ...(typeof args.limit === "number" ? { limit: args.limit } : {}),
+          ...(args.order ? { order: args.order } : {}),
+          ...(typeof args.cursor === "string" ? { cursor: args.cursor } : {}),
+        });
+      },
+    }),
+    writeConvexData: tool({
+      description:
+        "Directly edit data in this project's Convex database — insert, patch, replace, or delete documents — WITHOUT writing or deploying any Convex function. " +
+        "Convex has no SQL; this is the streamlined path for one-off data fixes, seeding, or corrections.\n\n" +
+        "CONFIRMATION IS REQUIRED. Always call first WITHOUT `confirmed` to get a preview. The tool returns status='needs-confirmation' and does NOT touch the database. " +
+        "Show the user exactly what will change, ask for approval with askQuestion, and only if they approve, call again with the SAME arguments plus confirmed: true.\n\n" +
+        "Operations:\n" +
+        "  • insert  — needs `table` + `documents` (array of objects). Do NOT include _id/_creationTime; Convex assigns them.\n" +
+        "  • patch   — needs `table` + `ids` + `fields`. Merges `fields` into each id; other fields untouched. Field names cannot start with '_'.\n" +
+        "  • replace — needs `id` + `document`. FULL overwrite of one doc; omitted fields are removed.\n" +
+        "  • delete  — needs `table` + `ids`. Permanent; cannot be undone.\n\n" +
+        "Get `ids`/`_id` values from readConvexTable first. Inserted documents must match the table's schema (see convex/schema.ts).",
+      inputSchema: z.object({
+        operation: z
+          .enum(["insert", "patch", "replace", "delete"])
+          .describe("Which data operation to perform."),
+        table: z
+          .string()
+          .optional()
+          .describe("Target table. Required for insert, patch, delete."),
+        documents: z
+          .array(z.record(z.string(), z.unknown()))
+          .optional()
+          .describe("insert: array of documents to add (no _id/_creationTime)."),
+        ids: z
+          .array(z.string())
+          .optional()
+          .describe("patch/delete: the document _id values to affect."),
+        fields: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("patch: fields to merge into each id (applied to all). No keys starting with '_'."),
+        id: z.string().optional().describe("replace: the single document _id to overwrite."),
+        document: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("replace: the full replacement document."),
+        confirmed: z
+          .boolean()
+          .optional()
+          .describe("Set true ONLY after the user approved the previewed change. Omit on the first call."),
+      }),
+      async execute(args) {
+        const { writeConvexData } = await import("@/lib/convex-admin");
+        return writeConvexData(projectId, {
+          operation: args.operation,
+          ...(typeof args.table === "string" ? { table: args.table } : {}),
+          ...(Array.isArray(args.documents) ? { documents: args.documents } : {}),
+          ...(Array.isArray(args.ids) ? { ids: args.ids } : {}),
+          ...(args.fields ? { fields: args.fields } : {}),
+          ...(typeof args.id === "string" ? { id: args.id } : {}),
+          ...(args.document ? { document: args.document } : {}),
+          ...(typeof args.confirmed === "boolean" ? { confirmed: args.confirmed } : {}),
+        });
+      },
+    }),
     ...(STRIPE_CONNECT_ENABLED
       ? {
           initializeStripePayments: tool({

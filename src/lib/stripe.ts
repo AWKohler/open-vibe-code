@@ -75,15 +75,21 @@ export function getWebhookSecret(): string {
  *  account. Test vs live mode use distinct client_ids configured separately
  *  in the Stripe dashboard. */
 export function getConnectClientId(mode: StripeMode): string {
-  return mode === 'live'
-    ? requireEnv('STRIPE_CONNECT_CLIENT_ID_LIVE')
-    : requireEnv('STRIPE_CONNECT_CLIENT_ID_TEST');
+  if (mode === 'live') {
+    // Accept either the explicit *_LIVE name or the bare legacy name.
+    return (
+      process.env.STRIPE_CONNECT_CLIENT_ID_LIVE ||
+      process.env.STRIPE_CONNECT_CLIENT_ID ||
+      requireEnv('STRIPE_CONNECT_CLIENT_ID_LIVE')
+    );
+  }
+  return requireEnv('STRIPE_CONNECT_CLIENT_ID_TEST');
 }
 
 export function isConnectOAuthConfigured(mode: StripeMode): boolean {
   return Boolean(
     mode === 'live'
-      ? process.env.STRIPE_CONNECT_CLIENT_ID_LIVE
+      ? process.env.STRIPE_CONNECT_CLIENT_ID_LIVE || process.env.STRIPE_CONNECT_CLIENT_ID
       : process.env.STRIPE_CONNECT_CLIENT_ID_TEST,
   );
 }

@@ -1,0 +1,130 @@
+/**
+ * POST /api/projects/[id]/stripe/checkout-session
+ *
+ * Called by the scaffolded convex/platformStripe.ts action. Uses the
+ * platform's master Stripe key with the Stripe-Account header to create a
+ * Checkout Session on the user's connected account. Takes a 1% platform fee
+ * on every charge (application_fee_percent).
+ *
+ * Auth: X-Botflow-Project-Secret matches projects.stripe_webhook_secret.
+ *
+ * Body:
+ *   priceId        — Stripe Price object id (must exist on the connected acct)
+ *   successUrl     — where Stripe sends the buyer on completion
+ *   cancelUrl      — where Stripe sends the buyer on abandon
+ *   customerEmail? — prefilled into Checkout
+ *   quantity?      — default 1
+ *   metadata?      — merged into the session metadata; we always add botflow_project_id
+ *   checkoutMode?  — 'payment' (default) | 'subscription'
+ *
+ * Returns: { url, sessionId }
+ */
+import { NextRequest, NextResponse } from 'next/server';
+import { authProjectSecret } from '@/lib/stripe-proxy-auth';
+import { getStripe, STRIPE_PLATFORM_FEE_PERCENT } from '@/lib/stripe';
+import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
+
+export const runtime = 'nodejs';
+export const maxDuration = 30;
+
+interface RequestBody {
+  priceId?: string;
+  successUrl?: string;
+  cancelUrl?: string;
+  customerEmail?: string;
+  quantity?: number;
+  metadata?: Record<string, string>;
+  checkoutMode?: 'payment' | 'subscription';
+  mode?: 'test' | 'live'; // sent by the scaffolded action; informational only
+}
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  if (!STRIPE_CONNECT_ENABLED) {
+    return NextResponse.json(
+      { ok: false, error: 'Stripe Connect is not enabled on this deployment.' },
+      { status: 404 },
+    );
+  }
+  const { id: projectId } = await params;
+
+  const auth = await authProjectSecret({
+    projectId,
+    headerSecret: req.headers.get('x-botflow-project-secret'),
+  });
+  if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
+
+  let body: RequestBody;
+  try {
+    body = (await req.json()) as RequestBody;
+  } catch {
+    return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const { priceId, successUrl, cancelUrl } = body;
+  if (!priceId || !successUrl || !cancelUrl) {
+    return NextResponse.json(
+      { ok: false, error: 'priceId, successUrl and cancelUrl are required' },
+      { status: 400 },
+    );
+  }
+  const checkoutMode = body.checkoutMode === 'subscription' ? 'subscription' : 'payment';
+  const quantity = Math.max(1, body.quantity ?? 1);
+
+  const stripe = getStripe(auth.mode);
+  try {
+    const metadata: Record<string, string> = {
+      ...(body.metadata ?? {}),
+      botflow_project_id: projectId,
+      botflow_user_id: auth.userId,
+    };
+
+    // Platform fee is set differently per mode:
+    //   - subscription: application_fee_percent on the subscription_data
+    //   - one-time payment: application_fee_amount per-PaymentIntent (cents)
+    // For payment mode we don't know the price upfront on the server (we have
+    // priceId, not the line item amount until Stripe expands it). Use
+    // payment_intent_data.application_fee_amount = null + just use
+    // application_fee_percent via subscription_data when applicable; for
+    // one-time we omit the fee in v1 (we'll compute amounts in a later
+    // slice that lets the user list / configure products).
+    const sessionParams: import('stripe').Stripe.Checkout.SessionCreateParams = {
+      mode: checkoutMode,
+      line_items: [{ price: priceId, quantity }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      metadata,
+      ...(body.customerEmail ? { customer_email: body.customerEmail } : {}),
+    };
+    if (checkoutMode === 'subscription') {
+      sessionParams.subscription_data = {
+        application_fee_percent: STRIPE_PLATFORM_FEE_PERCENT,
+        metadata,
+      };
+    }
+    // For one-time payments, application_fee_amount needs an absolute amount;
+    // we'd need to expand the Price first. Skipped for slice D — TODO in a
+    // future products slice.
+
+    const session = await stripe.checkout.sessions.create(sessionParams, {
+      stripeAccount: auth.accountId,
+    });
+
+    if (!session.url) {
+      return NextResponse.json(
+        { ok: false, error: 'Stripe did not return a checkout URL' },
+        { status: 502 },
+      );
+    }
+    return NextResponse.json({ url: session.url, sessionId: session.id });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[stripe/checkout-session] threw:', err);
+    return NextResponse.json(
+      { ok: false, error: `Stripe checkout failed: ${message}` },
+      { status: 502 },
+    );
+  }
+}

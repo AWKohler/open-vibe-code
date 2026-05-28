@@ -20,7 +20,62 @@ import { eq } from 'drizzle-orm';
 import { getDb } from '@/db';
 import { projects } from '@/db/schema';
 import { sandboxWriteFile } from '@/lib/vercel-sandbox';
-import type { StripeMode } from '@/lib/stripe';
+import { getStripe, type StripeMode } from '@/lib/stripe';
+
+/**
+ * Idempotently ensure a "Demo Product" with an active $10 one-time price exists
+ * on the connected account, so a freshly-scaffolded project has a working
+ * checkout out of the box (no need for the user to paste a price id). Tagged
+ * with metadata.botflow_demo_product so repeat calls reuse the same one.
+ *
+ * Never throws — returns the price id or null. The caller scaffolds with an
+ * empty demo price id on failure (checkout then requires an explicit priceId).
+ */
+export async function ensureDemoProductPrice(
+  accountId: string,
+  mode: StripeMode,
+): Promise<string | null> {
+  try {
+    const stripe = getStripe(mode);
+
+    // Look for an existing demo product (active) and reuse its active price.
+    const existing = await stripe.products.search(
+      { query: "metadata['botflow_demo_product']:'1' AND active:'true'", limit: 1 },
+      { stripeAccount: accountId },
+    );
+    const demoProduct = existing.data[0];
+    if (demoProduct) {
+      const prices = await stripe.prices.list(
+        { product: demoProduct.id, active: true, limit: 1 },
+        { stripeAccount: accountId },
+      );
+      if (prices.data[0]) return prices.data[0].id;
+      // Product exists but lost its price — mint a fresh one below using it.
+      const price = await stripe.prices.create(
+        { currency: 'usd', unit_amount: 1000, product: demoProduct.id },
+        { stripeAccount: accountId },
+      );
+      return price.id;
+    }
+
+    // None yet — create product + price in one call via inline product_data.
+    const price = await stripe.prices.create(
+      {
+        currency: 'usd',
+        unit_amount: 1000,
+        product_data: {
+          name: 'Demo Product',
+          metadata: { botflow_demo_product: '1' },
+        },
+      },
+      { stripeAccount: accountId },
+    );
+    return price.id;
+  } catch (err) {
+    console.error('[stripe-scaffold] ensureDemoProductPrice failed:', err);
+    return null;
+  }
+}
 
 // ───────────────────────── templates ──────────────────────────
 
@@ -43,21 +98,28 @@ const PROXY_BASE = process.env.BOTFLOW_STRIPE_PROXY_BASE ?? "https://botflow.io"
 const PROJECT_SECRET = process.env.BOTFLOW_STRIPE_WEBHOOK_SECRET;
 const MODE = (process.env.STRIPE_MODE ?? "test") as "test" | "live";
 
-function requireConfigured() {
-  if (!PROJECT_ID || !PROJECT_SECRET) {
-    throw new Error(
-      "Stripe is not initialized for this project. Ask the user to run 'set up Stripe' in chat.",
-    );
-  }
-}
+// A pre-created "Demo Product" price exists on the connected account out of
+// the box, so checkout works before you create your own products. Replace it
+// with a real price id (ask the agent to create one, or read it from the
+// Stripe tab). Empty string means none was provisioned.
+const DEMO_PRICE_ID = "__DEMO_PRICE_ID__";
+
+// IMPORTANT: these actions NEVER throw. Convex serializes thrown action errors
+// into an opaque "Server Error" on the client, which is impossible to debug.
+// Instead they return { ok: true, ... } or { ok: false, error } so your React
+// code can branch on result.ok and surface result.error to the user.
 
 /**
  * Create a Stripe Checkout Session for the configured connected account.
- * Returns { url } — redirect the user there with window.location.assign(url).
+ * Call from React with useAction (NOT useMutation — this uses fetch()).
+ *
+ * Returns { ok: true, url, sessionId } on success — redirect with
+ * window.location.assign(url). On failure returns { ok: false, error }.
+ * If you omit priceId, the pre-provisioned Demo Product price is used.
  */
 export const createCheckoutSession = action({
   args: {
-    priceId: v.string(),
+    priceId: v.optional(v.string()),
     successUrl: v.string(),
     cancelUrl: v.string(),
     customerEmail: v.optional(v.string()),
@@ -67,52 +129,96 @@ export const createCheckoutSession = action({
     checkoutMode: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
-    requireConfigured();
-    const res = await fetch(
-      \`\${PROXY_BASE}/api/projects/\${PROJECT_ID}/stripe/checkout-session\`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Botflow-Project-Secret": PROJECT_SECRET!,
-        },
-        body: JSON.stringify({ ...args, mode: MODE }),
-      },
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(\`Stripe checkout failed (\${res.status}): \${text}\`);
+    if (!PROJECT_ID || !PROJECT_SECRET) {
+      return {
+        ok: false as const,
+        error:
+          "Stripe is not initialized for this project. Ask the user to run 'set up Stripe' in chat.",
+      };
     }
-    const data = (await res.json()) as { url: string; sessionId: string };
-    return data;
+    const priceId = args.priceId || DEMO_PRICE_ID;
+    if (!priceId) {
+      return {
+        ok: false as const,
+        error:
+          "No priceId provided and no Demo Product is configured. Create a product first (the agent can do this with createStripeProduct).",
+      };
+    }
+    try {
+      const res = await fetch(
+        \`\${PROXY_BASE}/api/projects/\${PROJECT_ID}/stripe/checkout-session\`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Botflow-Project-Secret": PROJECT_SECRET,
+          },
+          body: JSON.stringify({ ...args, priceId, mode: MODE }),
+        },
+      );
+      const data = (await res.json().catch(() => null)) as
+        | { url?: string; sessionId?: string; error?: string }
+        | null;
+      if (!res.ok || !data?.url) {
+        return {
+          ok: false as const,
+          error: data?.error ?? \`Stripe checkout failed (HTTP \${res.status})\`,
+        };
+      }
+      return { ok: true as const, url: data.url, sessionId: data.sessionId };
+    } catch (err) {
+      return {
+        ok: false as const,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   },
 });
 
 /**
- * Generate a one-time login link into the connected account's Stripe Dashboard.
- * Use this for "Open Stripe Dashboard" buttons.
+ * Generate a link into the connected account's Stripe Dashboard.
+ * Use this for "Open Stripe Dashboard" buttons. Call with useAction.
+ *
+ * Returns { ok: true, url } or { ok: false, error }.
  */
 export const createDashboardLoginLink = action({
   args: {},
   handler: async () => {
-    requireConfigured();
-    const res = await fetch(
-      \`\${PROXY_BASE}/api/projects/\${PROJECT_ID}/stripe/dashboard-link\`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Botflow-Project-Secret": PROJECT_SECRET!,
-        },
-        body: JSON.stringify({ mode: MODE }),
-      },
-    );
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(\`Stripe dashboard link failed (\${res.status}): \${text}\`);
+    if (!PROJECT_ID || !PROJECT_SECRET) {
+      return {
+        ok: false as const,
+        error:
+          "Stripe is not initialized for this project. Ask the user to run 'set up Stripe' in chat.",
+      };
     }
-    const data = (await res.json()) as { url: string };
-    return data;
+    try {
+      const res = await fetch(
+        \`\${PROXY_BASE}/api/projects/\${PROJECT_ID}/stripe/dashboard-link\`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Botflow-Project-Secret": PROJECT_SECRET,
+          },
+          body: JSON.stringify({ mode: MODE }),
+        },
+      );
+      const data = (await res.json().catch(() => null)) as
+        | { url?: string; error?: string }
+        | null;
+      if (!res.ok || !data?.url) {
+        return {
+          ok: false as const,
+          error: data?.error ?? \`Stripe dashboard link failed (HTTP \${res.status})\`,
+        };
+      }
+      return { ok: true as const, url: data.url };
+    } catch (err) {
+      return {
+        ok: false as const,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   },
 });
 `;
@@ -233,13 +339,23 @@ export const applyStripeEvent = internalMutation({
  *
  * Returns the list of paths actually written.
  */
-export async function dropStripeFilesIntoSandbox(projectId: string): Promise<string[]> {
+export async function dropStripeFilesIntoSandbox(
+  projectId: string,
+  opts: { demoPriceId?: string } = {},
+): Promise<string[]> {
   const { sandboxReadFile } = await import('@/lib/vercel-sandbox');
   const written: string[] = [];
 
+  // Stamp the pre-provisioned Demo Product price into the helper so a fresh
+  // project has a working checkout out of the box. Empty string if none.
+  const platformStripeTs = PLATFORM_STRIPE_TS.replace(
+    '__DEMO_PRICE_ID__',
+    opts.demoPriceId ?? '',
+  );
+
   // Always re-write the two read-only files. Safe — the agent's guard refuses
   // *user* edits, but our scaffolder is the source of truth.
-  await sandboxWriteFile(projectId, '/convex/platformStripe.ts', PLATFORM_STRIPE_TS);
+  await sandboxWriteFile(projectId, '/convex/platformStripe.ts', platformStripeTs);
   written.push('/convex/platformStripe.ts');
   await sandboxWriteFile(projectId, '/convex/stripeWebhook.ts', STRIPE_WEBHOOK_TS);
   written.push('/convex/stripeWebhook.ts');
@@ -306,7 +422,7 @@ export async function setStripeConvexEnv(
  */
 export async function scaffoldStripeIntoProject(
   projectId: string,
-  opts: { mode: StripeMode; webhookSecret: string; proxyBase?: string },
+  opts: { mode: StripeMode; webhookSecret: string; proxyBase?: string; demoPriceId?: string },
 ): Promise<{
   filesWritten: string[];
   envSet: boolean;
@@ -321,7 +437,7 @@ export async function scaffoldStripeIntoProject(
   let filesError: string | undefined;
   try {
     filesWritten = await withTimeout(
-      dropStripeFilesIntoSandbox(projectId),
+      dropStripeFilesIntoSandbox(projectId, { demoPriceId: opts.demoPriceId }),
       15_000,
       'dropStripeFilesIntoSandbox',
     );

@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "14";
+export const BRIDGE_SCRIPT_VERSION = "15";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -144,6 +144,42 @@ function buildCustomTools(customTools) {
         "Returns status='connected' on success, 'dismissed' on cancel (do NOT retry — continue and tell the user they can connect later), 'timeout' (treat like dismiss), 'tier-blocked' (Free; relay message), 'backend-blocked' (no Convex backend).",
         {},
         makeHostToolHandler("initialize_stripe_payments"),
+      ),
+    );
+  }
+
+  if (customTools.includes("get_stripe_products")) {
+    tools.push(
+      tool(
+        "get_stripe_products",
+        "List the Stripe Products and Prices on the user's connected account for this project's current test/live mode. " +
+        "Call this BEFORE writing checkout code so you use a real price_ id — never invent or hardcode one. " +
+        "Returns { ok, mode, products: [{ productId, name, prices: [{ priceId, unitAmount, currency, recurring }] }] }. " +
+        "If the account has no products, create one with create_stripe_product. " +
+        "Returns status='not-connected' if Stripe isn't linked (run initialize_stripe_payments first) or status='tier-blocked' for Free users.",
+        {},
+        makeHostToolHandler("get_stripe_products"),
+      ),
+    );
+  }
+
+  if (customTools.includes("create_stripe_product")) {
+    tools.push(
+      tool(
+        "create_stripe_product",
+        "Create a Stripe Product + Price on the user's connected account and get back a real price_ id. " +
+        "Use when the app needs a product/price that doesn't exist yet (check first with get_stripe_products). " +
+        "unitAmount is in cents: 1500 = 15.00 USD. Omit interval for a one-time price; set it ('month'/'year'/etc.) for a subscription. " +
+        "Returns { ok, productId, priceId, ... } — use priceId in createCheckoutSession.",
+        {
+          name: z.string(),
+          unitAmount: z.number().int().positive(),
+          currency: z.string().optional(),
+          description: z.string().optional(),
+          interval: z.enum(["day", "week", "month", "year"]).optional(),
+          intervalCount: z.number().int().positive().optional(),
+        },
+        makeHostToolHandler("create_stripe_product"),
       ),
     );
   }

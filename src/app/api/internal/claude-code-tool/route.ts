@@ -332,13 +332,17 @@ export async function POST(req: Request) {
         // Scaffold in the background — file drop + Convex env set can be
         // slow for cold sandboxes/new projects. Don't block the tool call.
         const { after } = await import("next/server");
-        const { scaffoldStripeIntoProject } = await import("@/lib/stripe-scaffold");
+        const { ensureDemoProductPrice, scaffoldStripeIntoProject } = await import(
+          "@/lib/stripe-scaffold"
+        );
         after(async () => {
           try {
+            const demoPriceId = await ensureDemoProductPrice(existingAccountId, mode);
             const result = await scaffoldStripeIntoProject(binding.projectId, {
               mode,
               webhookSecret,
               proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
+              ...(demoPriceId ? { demoPriceId } : {}),
             });
             console.log(
               "[claude-code-tool/stripe] background scaffold complete",
@@ -407,13 +411,19 @@ export async function POST(req: Request) {
           })
           .where(eq(projects.id, binding.projectId));
         const { after } = await import("next/server");
-        const { scaffoldStripeIntoProject } = await import("@/lib/stripe-scaffold");
+        const { ensureDemoProductPrice, scaffoldStripeIntoProject } = await import(
+          "@/lib/stripe-scaffold"
+        );
         after(async () => {
           try {
+            const demoPriceId = accountId
+              ? await ensureDemoProductPrice(accountId, mode)
+              : null;
             const result = await scaffoldStripeIntoProject(binding.projectId, {
               mode,
               webhookSecret,
               proxyBase: process.env.APP_BASE_URL || "https://botflow.io",
+              ...(demoPriceId ? { demoPriceId } : {}),
             });
             console.log(
               "[claude-code-tool/stripe] background scaffold complete",
@@ -450,6 +460,160 @@ export async function POST(req: Request) {
         content:
           "Timed out waiting for the user to complete Stripe OAuth (5 minutes elapsed). Treat like a dismiss — do not retry.",
       });
+    }
+
+    case "get_stripe_products":
+    case "create_stripe_product": {
+      // Both tools list/create Products+Prices on the user's connected
+      // account. Mirrors GET/POST /api/projects/[id]/stripe/products, but runs
+      // under the sandbox tool-token binding instead of a Clerk session.
+      const { STRIPE_CONNECT_ENABLED } = await import("@/lib/feature-flags");
+      if (!STRIPE_CONNECT_ENABLED) {
+        return NextResponse.json({
+          ok: false,
+          content: "Stripe Connect is not enabled on this deployment.",
+        });
+      }
+      const { canUseStripeConnect } = await import("@/lib/tier");
+      const gate = await canUseStripeConnect(binding.userId);
+      if (!gate.allowed) {
+        return NextResponse.json({
+          ok: false,
+          status: "tier-blocked",
+          content: gate.reason,
+        });
+      }
+      const { getStripe, isStripeConfigured } = await import("@/lib/stripe");
+      const { userStripeIdentity } = await import("@/db/schema");
+      const mode: "test" | "live" =
+        project.stripePaymentMode === "live" ? "live" : "test";
+      if (!isStripeConfigured(mode)) {
+        return NextResponse.json({
+          ok: false,
+          content: `Stripe keys for ${mode} mode are not configured on the server.`,
+        });
+      }
+      const [identity] = await db
+        .select()
+        .from(userStripeIdentity)
+        .where(eq(userStripeIdentity.userId, binding.userId))
+        .limit(1);
+      const accountId =
+        identity && mode === "live" ? identity.liveAccountId : identity?.testAccountId;
+      if (!accountId) {
+        return NextResponse.json({
+          ok: false,
+          status: "not-connected",
+          content:
+            "The user has not linked a Stripe account for this mode yet. Call initialize_stripe_payments first.",
+        });
+      }
+
+      const stripe = getStripe(mode);
+
+      if (tool === "get_stripe_products") {
+        try {
+          const list = await stripe.products.list(
+            { active: true, limit: 50 },
+            { stripeAccount: accountId },
+          );
+          const products = await Promise.all(
+            list.data.map(async (p) => {
+              const prices = await stripe.prices.list(
+                { product: p.id, active: true, limit: 20 },
+                { stripeAccount: accountId },
+              );
+              return {
+                productId: p.id,
+                name: p.name,
+                description: p.description ?? null,
+                prices: prices.data.map((pr) => ({
+                  priceId: pr.id,
+                  unitAmount: pr.unit_amount,
+                  currency: pr.currency,
+                  recurring: pr.recurring
+                    ? { interval: pr.recurring.interval, intervalCount: pr.recurring.interval_count }
+                    : null,
+                })),
+              };
+            }),
+          );
+          return NextResponse.json({
+            ok: true,
+            mode,
+            content: JSON.stringify({ mode, products }),
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return NextResponse.json({
+            ok: false,
+            content: `Failed to list Stripe products: ${message}`,
+          });
+        }
+      }
+
+      // create_stripe_product
+      const args = body.input ?? {};
+      const name = typeof args.name === "string" ? args.name.trim() : "";
+      const unitAmount = typeof args.unitAmount === "number" ? args.unitAmount : NaN;
+      if (!name) {
+        return NextResponse.json({ ok: false, content: "name is required." });
+      }
+      if (!Number.isInteger(unitAmount) || unitAmount <= 0) {
+        return NextResponse.json({
+          ok: false,
+          content: "unitAmount (a positive integer in cents) is required.",
+        });
+      }
+      const currency =
+        typeof args.currency === "string" ? args.currency.toLowerCase() : "usd";
+      const interval =
+        typeof args.interval === "string" ? args.interval : undefined;
+      const intervalCount =
+        typeof args.intervalCount === "number" ? args.intervalCount : undefined;
+
+      try {
+        const priceData: import("stripe").Stripe.PriceCreateParams = {
+          currency,
+          unit_amount: unitAmount,
+          product_data: {
+            name,
+            metadata: { botflow_project_id: binding.projectId },
+          },
+        };
+        if (interval) {
+          priceData.recurring = {
+            interval: interval as import("stripe").Stripe.PriceCreateParams.Recurring.Interval,
+            interval_count: Math.max(1, intervalCount ?? 1),
+          };
+        }
+        const price = await stripe.prices.create(priceData, {
+          stripeAccount: accountId,
+        });
+        const productId =
+          typeof price.product === "string" ? price.product : price.product.id;
+        return NextResponse.json({
+          ok: true,
+          mode,
+          content: JSON.stringify({
+            mode,
+            productId,
+            priceId: price.id,
+            name,
+            unitAmount,
+            currency,
+            recurring: price.recurring
+              ? { interval: price.recurring.interval, intervalCount: price.recurring.interval_count }
+              : null,
+          }),
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return NextResponse.json({
+          ok: false,
+          content: `Failed to create Stripe product: ${message}`,
+        });
+      }
     }
 
     case "setup_auth": {

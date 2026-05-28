@@ -266,7 +266,11 @@ export async function POST(req: Request) {
     if (hasBackend) {
       customTools.push("convex_deploy");
       if (STRIPE_CONNECT_ENABLED) {
-        customTools.push("initialize_stripe_payments");
+        customTools.push(
+          "initialize_stripe_payments",
+          "get_stripe_products",
+          "create_stripe_product",
+        );
       }
     }
     // Git tools — only when a repo is linked. Gating must match the project

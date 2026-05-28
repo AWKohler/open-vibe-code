@@ -879,6 +879,82 @@ REQUIRED NEXT STEPS:
               }
             },
           }),
+          getStripeProducts: tool({
+            description:
+              "List the Stripe Products and Prices that already exist on the user's connected account (for the project's current test/live mode). " +
+              "Call this BEFORE writing any checkout code so you can use a real `price_…` id — never invent or hardcode a price id. " +
+              "Returns { ok, mode, products: [{ productId, name, prices: [{ priceId, unitAmount, currency, recurring }] }] }. " +
+              "If the account has no products yet, create one with createStripeProduct. " +
+              "Returns status='not-connected' if Stripe isn't linked yet (call initializeStripePayments first) or status='tier-blocked' for Free users.",
+            inputSchema: z.object({}),
+            async execute() {
+              const url = `${appBaseUrl}/api/projects/${projectId}/stripe/products`;
+              const res = await fetch(url, {
+                method: "GET",
+                headers: { ...(authHeaders ?? {}) },
+              });
+              const text = await res.text();
+              try {
+                return JSON.parse(text);
+              } catch {
+                return {
+                  ok: false,
+                  error: `stripe/products returned non-JSON (HTTP ${res.status}): ${text.slice(0, 500)}`,
+                };
+              }
+            },
+          }),
+          createStripeProduct: tool({
+            description:
+              "Create a Stripe Product + Price on the user's connected account and get back a real `price_…` id to use in checkout. " +
+              "Use this when the app needs a product/price that doesn't exist yet (check first with getStripeProducts). " +
+              "unitAmount is in the smallest currency unit (cents): 1500 = $15.00. " +
+              "Omit `interval` for a one-time price; set it ('month'/'year'/etc.) for a subscription price. " +
+              "Returns { ok, productId, priceId, ... }. Use the returned priceId in createCheckoutSession.",
+            inputSchema: z.object({
+              name: z.string().describe("Product name shown to buyers, e.g. 'Pro Plan'."),
+              unitAmount: z
+                .number()
+                .int()
+                .positive()
+                .describe("Price in cents. 1500 = $15.00."),
+              currency: z
+                .string()
+                .optional()
+                .describe("ISO currency code, lowercase. Default 'usd'."),
+              description: z.string().optional(),
+              interval: z
+                .enum(["day", "week", "month", "year"])
+                .optional()
+                .describe("Set for a recurring/subscription price. Omit for one-time."),
+              intervalCount: z
+                .number()
+                .int()
+                .positive()
+                .optional()
+                .describe("Number of intervals between charges. Default 1."),
+            }),
+            async execute(args) {
+              const url = `${appBaseUrl}/api/projects/${projectId}/stripe/products`;
+              const res = await fetch(url, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(authHeaders ?? {}),
+                },
+                body: JSON.stringify(args),
+              });
+              const text = await res.text();
+              try {
+                return JSON.parse(text);
+              } catch {
+                return {
+                  ok: false,
+                  error: `stripe/products returned non-JSON (HTTP ${res.status}): ${text.slice(0, 500)}`,
+                };
+              }
+            },
+          }),
         }
       : {}),
   } as const;

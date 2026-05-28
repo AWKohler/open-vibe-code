@@ -30,7 +30,7 @@ import {
   mintStripeAuthorizeUrl,
   pollConnectRequest,
 } from '@/lib/stripe-connect';
-import { scaffoldStripeIntoProject } from '@/lib/stripe-scaffold';
+import { ensureDemoProductPrice, scaffoldStripeIntoProject } from '@/lib/stripe-scaffold';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -64,13 +64,20 @@ function scheduleScaffolding(opts: {
   mode: 'test' | 'live';
   webhookSecret: string;
   proxyBase: string;
+  accountId: string | null;
 }) {
   after(async () => {
     try {
+      // Pre-provision a Demo Product price so the scaffolded checkout works
+      // out of the box. Best-effort — null falls back to "no demo price".
+      const demoPriceId = opts.accountId
+        ? await ensureDemoProductPrice(opts.accountId, opts.mode)
+        : null;
       const result = await scaffoldStripeIntoProject(opts.projectId, {
         mode: opts.mode,
         webhookSecret: opts.webhookSecret,
         proxyBase: opts.proxyBase,
+        ...(demoPriceId ? { demoPriceId } : {}),
       });
       console.log(
         '[stripe/initialize] background scaffold complete',
@@ -164,6 +171,7 @@ export async function POST(
       mode,
       webhookSecret,
       proxyBase: new URL(req.url).origin,
+      accountId: existingAccountId,
     });
     return NextResponse.json({
       ok: true,
@@ -210,6 +218,7 @@ export async function POST(
       mode,
       webhookSecret,
       proxyBase: new URL(req.url).origin,
+      accountId: accountId ?? null,
     });
     return NextResponse.json({
       ok: true,

@@ -84,6 +84,32 @@ interface AccountSessionResponse {
   error?: string;
 }
 
+/** Map botflow's CSS vars to Stripe Connect appearance.variables. Stripe's
+ *  appearance API recolors the embedded components in-place; this keeps them
+ *  visually consistent with the workspace's dark sand palette (or whatever
+ *  theme is active — we read the resolved CSS values, not hard-coded hex). */
+function themeVariables(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const styles = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) =>
+    styles.getPropertyValue(name).trim() || fallback;
+  return {
+    colorPrimary: v("--sand-accent", "#d8826a"),
+    colorBackground: v("--sand-surface", "#23201b"),
+    colorText: v("--sand-text", "#ede6db"),
+    colorSecondaryText: v("--sand-text-muted", "#b8ada1"),
+    colorBorder: v("--sand-border", "#3a342e"),
+    colorDanger: "#ef6961",
+    colorWarning: "#e0a44a",
+    fontFamily: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+    borderRadius: "8px",
+    spacingUnit: "4px",
+    fontSizeBase: "14px",
+    buttonPrimaryColorBackground: v("--sand-accent", "#d8826a"),
+    buttonPrimaryColorText: v("--sand-accent-contrast", "#1b1713"),
+  };
+}
+
 async function fetchAccountSession(projectId: string): Promise<AccountSessionResponse> {
   const res = await fetch(
     `/api/projects/${encodeURIComponent(projectId)}/stripe/account-session`,
@@ -131,12 +157,8 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
           publishableKey: initial.publishableKey!,
           fetchClientSecret,
           appearance: {
-            // Inline navigation keeps the Stripe auth gate (Standard accounts
-            // get one) and overflow content visible inside the component
-            // rather than floating it as a dialog, which can fail to anchor
-            // when the underlying component is 0-height.
             overlays: "drawer",
-            variables: { colorPrimary: "#635BFF" },
+            variables: themeVariables(),
           },
         });
         if (!cancelled) {
@@ -234,7 +256,7 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
               <ConnectNotificationBanner />
             </div>
             <div className="px-4 py-3">
-              <div className="bg-white rounded-lg min-h-[500px] overflow-hidden">
+              <div className="rounded-lg border border-border min-h-[500px] overflow-hidden">
                 {view === "payments" && <ConnectPayments />}
                 {view === "balances" && <ConnectBalances />}
                 {view === "payouts" && <ConnectPayouts />}

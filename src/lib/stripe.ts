@@ -70,6 +70,24 @@ export function getWebhookSecret(): string {
   return requireEnv('STRIPE_WEBHOOK_SECRET');
 }
 
+/** Connect OAuth client_id (`ca_…`) for the platform. Required to mint the
+ *  authorize URL users visit at connect.stripe.com to link their Standard
+ *  account. Test vs live mode use distinct client_ids configured separately
+ *  in the Stripe dashboard. */
+export function getConnectClientId(mode: StripeMode): string {
+  return mode === 'live'
+    ? requireEnv('STRIPE_CONNECT_CLIENT_ID_LIVE')
+    : requireEnv('STRIPE_CONNECT_CLIENT_ID_TEST');
+}
+
+export function isConnectOAuthConfigured(mode: StripeMode): boolean {
+  return Boolean(
+    mode === 'live'
+      ? process.env.STRIPE_CONNECT_CLIENT_ID_LIVE
+      : process.env.STRIPE_CONNECT_CLIENT_ID_TEST,
+  );
+}
+
 /** True when the platform has API keys configured for the given mode. */
 export function isStripeConfigured(mode: StripeMode): boolean {
   return Boolean(

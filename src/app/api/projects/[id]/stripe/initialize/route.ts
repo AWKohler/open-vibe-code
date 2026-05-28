@@ -1,33 +1,34 @@
 /**
  * POST /api/projects/[id]/stripe/initialize
  *
- * Slice 1 — silently provision an Express **test** account for this project.
- * No KYC, no Stripe-hosted popup, no Stripe.js: Express test accounts are
- * server-side creations. The live account is created lazily by a separate
- * endpoint when the user flips the workspace toolbar to Live (future slice).
+ * Standard Connect via OAuth. There are three outcomes:
  *
- * Idempotent: if `stripe_enabled` is already true, returns the stored
- * account id with `alreadyEnabled: true` and does no Stripe work.
+ *   1. The user already has a Stripe account linked for the current mode.
+ *      Flip projects.stripe_enabled = true and return already-connected.
  *
- * Auth: Clerk session; caller must own the project.
- * Tier: Pro/Max only (see canUseStripeConnect).
- * Feature flag: STRIPE_CONNECT_ENABLED.
+ *   2. The user has not yet linked their Stripe account. Return
+ *      needs-connect + an authorizeUrl so the UI / modal can launch OAuth.
+ *
+ *   3. The project doesn't qualify (no backend, tier-blocked, flag off).
+ *
+ * No Stripe API call is made here — the heavy lift happens in
+ * /api/stripe/oauth/callback after the user authorizes.
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { and, eq } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import { getDb } from '@/db';
-import { projects } from '@/db/schema';
+import { projects, userStripeIdentity } from '@/db/schema';
 import { canUseStripeConnect } from '@/lib/tier';
-import { getStripe, isStripeConfigured } from '@/lib/stripe';
+import { isConnectOAuthConfigured } from '@/lib/stripe';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   if (!STRIPE_CONNECT_ENABLED) {
@@ -61,7 +62,7 @@ export async function POST(
         ok: false,
         status: 'backend-blocked',
         error:
-          'This project was created with the No Backend option. Stripe requires a backend (Convex) to receive webhook events and store billing state.',
+          'This project has no backend. Stripe requires a backend (Convex) to receive webhook events and store billing state.',
       },
       { status: 400 },
     );
@@ -75,70 +76,65 @@ export async function POST(
     );
   }
 
-  // Idempotency: already initialized.
-  if (project.stripeEnabled && project.stripeTestAccountId) {
-    return NextResponse.json({
-      ok: true,
-      status: 'already-enabled',
-      mode: project.stripePaymentMode,
-      testAccountId: project.stripeTestAccountId,
-      liveAccountId: project.stripeLiveAccountId,
-      alreadyEnabled: true,
-    });
-  }
+  const mode = project.stripePaymentMode === 'live' ? 'live' : 'test';
 
-  if (!isStripeConfigured('test')) {
+  if (!isConnectOAuthConfigured(mode)) {
     return NextResponse.json(
       {
         ok: false,
-        error:
-          'Stripe test keys are not configured on this deployment. Set STRIPE_SECRET_KEY_TEST in the Vercel project env and redeploy.',
+        status: 'misconfigured',
+        error: `Stripe Connect OAuth client_id for ${mode} mode is not configured on the server.`,
       },
       { status: 500 },
     );
   }
 
-  let account: Awaited<ReturnType<ReturnType<typeof getStripe>['accounts']['create']>>;
-  try {
-    const stripe = getStripe('test');
-    account = await stripe.accounts.create({
-      type: 'express',
-      metadata: {
-        botflow_project_id: projectId,
-        botflow_user_id: userId,
-        botflow_mode: 'test',
-      },
+  // Does the caller already have a Stripe account linked for this mode?
+  const [identity] = await db
+    .select()
+    .from(userStripeIdentity)
+    .where(eq(userStripeIdentity.userId, userId))
+    .limit(1);
+
+  const existingAccountId =
+    identity && mode === 'live' ? identity.liveAccountId : identity?.testAccountId;
+
+  if (existingAccountId) {
+    // Reuse: just opt this project in. We also generate the per-project
+    // webhook HMAC if it hasn't been set yet.
+    const webhookSecret =
+      project.stripeWebhookSecret ?? `bfws_${randomBytes(32).toString('hex')}`;
+    await db
+      .update(projects)
+      .set({
+        stripeEnabled: true,
+        stripeWebhookSecret: webhookSecret,
+        updatedAt: new Date(),
+      })
+      .where(eq(projects.id, projectId));
+
+    return NextResponse.json({
+      ok: true,
+      status: 'already-connected',
+      mode,
+      accountId: existingAccountId,
+      message:
+        'Your Stripe account is already linked. This project is now enabled to use it.',
     });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error('[stripe/initialize] accounts.create threw:', err);
-    return NextResponse.json(
-      { ok: false, error: `Stripe account creation failed: ${message}` },
-      { status: 500 },
-    );
   }
 
-  // Per-project HMAC for signing webhook deliveries we'll later forward into
-  // the project's Convex HTTP endpoint. Generated now so a future slice can
-  // start using it without another DB write.
-  const webhookSecret = `bfws_${randomBytes(32).toString('hex')}`;
-
-  await db
-    .update(projects)
-    .set({
-      stripeTestAccountId: account.id,
-      stripeEnabled: true,
-      stripePaymentMode: 'test',
-      stripeWebhookSecret: webhookSecret,
-      updatedAt: new Date(),
-    })
-    .where(eq(projects.id, projectId));
+  // Not yet linked. Hand back an authorize URL the UI can launch.
+  const origin = new URL(req.url).origin;
+  const authorizeUrl = `${origin}/api/stripe/oauth/start?projectId=${encodeURIComponent(
+    projectId,
+  )}&mode=${mode}`;
 
   return NextResponse.json({
     ok: true,
-    status: 'enabled',
-    mode: 'test',
-    testAccountId: account.id,
-    alreadyEnabled: false,
+    status: 'needs-connect',
+    mode,
+    authorizeUrl,
+    message:
+      'The user has not yet connected their Stripe account. They need to click "Connect with Stripe" and authorize through Stripe\'s site.',
   });
 }

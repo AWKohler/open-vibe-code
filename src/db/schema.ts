@@ -424,8 +424,35 @@ export const userStripeIdentity = pgTable('user_stripe_identity', {
   defaultCountry: text('default_country'),
   legalEntityType: text('legal_entity_type'), // 'individual' | 'company' | null
   lastLiveAccountId: text('last_live_account_id'),
+  // OAuth-connected Stripe accounts (Standard Connect). One Botflow user
+  // links their Stripe account once and reuses it across every project.
+  testAccountId: text('test_account_id'),
+  liveAccountId: text('live_account_id'),
+  testPublishableKey: text('test_publishable_key'),
+  livePublishableKey: text('live_publishable_key'),
+  connectedAt: timestamp('connected_at'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  testAccountIdIdx: index('user_stripe_identity_test_account_id_idx').on(t.testAccountId),
+  liveAccountIdIdx: index('user_stripe_identity_live_account_id_idx').on(t.liveAccountId),
+}));
+
+// Short-lived state tokens for the Stripe OAuth flow. CSRF prevention + binds
+// the redirect callback back to the user/project/mode that started it.
+export const stripeOauthStates = pgTable('stripe_oauth_states', {
+  state: text('state').primaryKey(),
+  userId: text('user_id').notNull(),
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  mode: text('mode').notNull(), // 'test' | 'live'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  expiresAt: timestamp('expires_at').notNull(),
+  consumedAt: timestamp('consumed_at'),
+}, (t) => ({
+  expiresAtIdx: index('stripe_oauth_states_expires_at_idx').on(t.expiresAt),
+}));
+
+export type StripeOauthState = typeof stripeOauthStates.$inferSelect;
+export type NewStripeOauthState = typeof stripeOauthStates.$inferInsert;
 
 export type UserStripeIdentity = typeof userStripeIdentity.$inferSelect;
 export type NewUserStripeIdentity = typeof userStripeIdentity.$inferInsert;

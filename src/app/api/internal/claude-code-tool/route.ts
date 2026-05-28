@@ -265,9 +265,12 @@ export async function POST(req: Request) {
     }
 
     case "initialize_stripe_payments": {
-      // Mirrors POST /api/projects/[id]/stripe/initialize. The bridge can't
-      // call that route (no Clerk session), so we run the same logic here
-      // under the resolved tool-token binding.
+      // Mirrors POST /api/projects/[id]/stripe/initialize for the Claude-Code
+      // bridge (which can't call the cookie-authenticated route directly).
+      // Standard Connect via OAuth: returns either already-connected (the
+      // user has previously linked Stripe and we just flipped this project's
+      // flag) or needs-connect (the user must click "Connect with Stripe" in
+      // the workspace).
       const { STRIPE_CONNECT_ENABLED } = await import("@/lib/feature-flags");
       if (!STRIPE_CONNECT_ENABLED) {
         return NextResponse.json({
@@ -295,35 +298,34 @@ export async function POST(req: Request) {
         });
       }
 
-      if (project.stripeEnabled && project.stripeTestAccountId) {
+      const { isConnectOAuthConfigured } = await import("@/lib/stripe");
+      const { userStripeIdentity } = await import("@/db/schema");
+      const mode: "test" | "live" = project.stripePaymentMode === "live" ? "live" : "test";
+
+      if (!isConnectOAuthConfigured(mode)) {
         return NextResponse.json({
-          ok: true,
-          status: "already-enabled",
-          content: `Stripe is already set up for this project. Test account: ${project.stripeTestAccountId}. Mode: ${project.stripePaymentMode}.`,
-          mode: project.stripePaymentMode,
-          testAccountId: project.stripeTestAccountId,
-          liveAccountId: project.stripeLiveAccountId,
+          ok: false,
+          status: "misconfigured",
+          content: `Stripe Connect OAuth client_id for ${mode} mode is not configured on the server.`,
         });
       }
 
-      try {
-        const { getStripe } = await import("@/lib/stripe");
-        const stripe = getStripe("test");
-        const account = await stripe.accounts.create({
-          type: "express",
-          metadata: {
-            botflow_project_id: binding.projectId,
-            botflow_user_id: binding.userId,
-            botflow_mode: "test",
-          },
-        });
-        const webhookSecret = `bfws_${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
+      const [identity] = await db
+        .select()
+        .from(userStripeIdentity)
+        .where(eq(userStripeIdentity.userId, binding.userId))
+        .limit(1);
+
+      const existingAccountId =
+        identity && mode === "live" ? identity.liveAccountId : identity?.testAccountId;
+
+      if (existingAccountId) {
+        const webhookSecret =
+          project.stripeWebhookSecret ?? `bfws_${randomUUID().replace(/-/g, "")}${randomUUID().replace(/-/g, "")}`;
         await db
           .update(projects)
           .set({
-            stripeTestAccountId: account.id,
             stripeEnabled: true,
-            stripePaymentMode: "test",
             stripeWebhookSecret: webhookSecret,
             updatedAt: new Date(),
           })
@@ -331,19 +333,28 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
           ok: true,
-          status: "enabled",
-          mode: "test",
-          testAccountId: account.id,
-          content: `Stripe Express test account provisioned. Account id: ${account.id}. The Stripe tab is now available in the workspace. You can now write checkout buttons that call the project's Stripe action — do not write card-tokenization code.`,
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.error("[claude-code-tool/initialize_stripe_payments] threw:", err);
-        return NextResponse.json({
-          ok: false,
-          content: `initializeStripePayments failed: ${message}`,
+          status: "already-connected",
+          mode,
+          accountId: existingAccountId,
+          content: `Stripe is already linked for this user. This project is now enabled to use account ${existingAccountId} in ${mode} mode. Proceed to write Stripe-related code that calls the scaffolded local helpers.`,
         });
       }
+
+      // Build the authorize URL the user will visit. We don't drive the
+      // redirect from here — the agent tells the user in chat to click the
+      // workspace's "Connect with Stripe" button (which targets this URL).
+      const appBaseUrl = process.env.APP_BASE_URL || "https://botflow.io";
+      const authorizeUrl = `${appBaseUrl}/api/stripe/oauth/start?projectId=${encodeURIComponent(
+        binding.projectId,
+      )}&mode=${mode}`;
+      return NextResponse.json({
+        ok: true,
+        status: "needs-connect",
+        mode,
+        authorizeUrl,
+        content:
+          "The user has not yet linked their Stripe account on Botflow. Tell them in chat that they need to click 'Connect with Stripe' in the workspace (it'll appear because of this tool call) and authorize through Stripe's site. Don't loop — wait for them.",
+      });
     }
 
     case "setup_auth": {

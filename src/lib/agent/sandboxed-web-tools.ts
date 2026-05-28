@@ -762,14 +762,13 @@ REQUIRED NEXT STEPS:
           initializeStripePayments: tool({
             description:
               "Set up Stripe payments for this project. Call this when the user asks to add checkout, subscriptions, billing, a paywall, or any other payment flow.\n\n" +
-              "What this does:\n" +
-              "  • Silently provisions a Stripe Express **test** account for this project (no popup, no KYC — test accounts are server-side creations).\n" +
-              "  • Flips the workspace so a 'Stripe' tab becomes available where the user can see transactions and switch between Test and Live mode.\n" +
-              "  • Returns the test account id so you can reference it in subsequent tool calls.\n\n" +
-              "Requirements:\n" +
-              "  • Pro or Max plan (this tool returns a tier-blocked status for Free users — relay that message to the user).\n" +
-              "  • The project must have a backend (Convex). On a No-Backend project this returns backend-blocked.\n\n" +
-              "Idempotency: safe to call multiple times. If Stripe is already set up on this project, returns status='already-enabled' immediately.",
+              "Botflow uses Stripe **Standard** Connect. The user links their own Stripe account (or creates one) once — and that same account is reused across every Botflow project they build. Each project tags its Checkout Sessions and Products with the project id so the user can separate revenue per app in their Stripe Dashboard.\n\n" +
+              "Possible return statuses:\n" +
+              "  • 'already-connected' — the user has previously linked their Stripe account on Botflow. This project is now enabled to use it; no further action needed. The Stripe tab is available in the workspace.\n" +
+              "  • 'needs-connect' — the user has not yet linked Stripe. The response includes an authorizeUrl. **Do not** redirect the user yourself; tell them in chat that they need to connect Stripe and point at the 'Connect with Stripe' button that the workspace surfaces. They'll authorize on Stripe's site (~30s), then the workspace will refresh into the enabled state.\n" +
+              "  • 'tier-blocked' — user is on Free. Relay the message verbatim.\n" +
+              "  • 'backend-blocked' — project has no backend; Stripe needs Convex.\n\n" +
+              "Idempotent: safe to re-call. Once 'already-connected' returns, you can proceed to write Stripe-related code.",
             inputSchema: z.object({}),
             async execute() {
               const url = `${appBaseUrl}/api/projects/${projectId}/stripe/initialize`;

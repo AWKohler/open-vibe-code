@@ -545,7 +545,7 @@ export async function POST(req: Request) {
     const db = getDb();
 
     // Determine selected model for project and ensure ownership
-    let selectedModel: ModelId = "gpt-5.3-codex";
+    let selectedModel: ModelId = "fireworks-kimi-k2p6";
     // Default to true so non-project agent requests still get the full toolset.
     let hasBackend = true;
     let convexUrl: string | undefined;

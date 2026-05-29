@@ -156,7 +156,7 @@ export async function GET(request: Request) {
     modelParam === 'fireworks-glm-5p1' ? 'fireworks-glm-5p1' :
     modelParam === 'fireworks-kimi-k2p6' ? 'fireworks-kimi-k2p6' :
     modelParam === 'gemini-3.1-pro-preview' ? 'gemini-3.1-pro-preview' :
-    'gpt-5.3-codex'
+    'fireworks-kimi-k2p6'
   ) as 'gpt-5.3-codex' | 'gpt-5.4' | 'gpt-5.5' | 'claude-sonnet-4-6' | 'claude-opus-4-7' | 'fireworks-minimax-m2p7' | 'fireworks-glm-5p1' | 'fireworks-kimi-k2p6' | 'gemini-3.1-pro-preview';
 
   if (!userId) {

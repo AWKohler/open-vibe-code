@@ -145,7 +145,7 @@ export function resolveModelId(stored: string | null | undefined): ModelId {
   // Still-valid model: pass through
   if (stored && stored in MODEL_CONFIGS) return stored as ModelId;
   // Unknown or removed model: silently use default
-  return "gpt-5.3-codex";
+  return "fireworks-kimi-k2p6";
 }
 
 /** Check if a model supports image/file inputs */

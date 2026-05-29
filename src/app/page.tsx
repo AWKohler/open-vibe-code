@@ -1341,7 +1341,7 @@ export default function LandingV2() {
   const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState('');
   const [platform, setPlatform] = useState<ProjectPlatform>('web');
-  const [model, setModel] = useState<ModelId>('fireworks-minimax-m2p7');
+  const [model, setModel] = useState<ModelId>('fireworks-kimi-k2p6');
   const { toast } = useToast();
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
   const [hasAnthropicKey, setHasAnthropicKey] = useState<boolean | null>(null);

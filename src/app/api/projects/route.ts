@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
             ? 'fireworks-kimi-k2p6'
             : model === 'gemini-3.1-pro-preview'
             ? 'gemini-3.1-pro-preview'
-            : 'gpt-5.3-codex',
+            : 'fireworks-kimi-k2p6',
       })
       .returning();
 

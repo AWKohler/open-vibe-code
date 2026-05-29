@@ -13,7 +13,7 @@ export const projects = pgTable('projects', {
   // stay in the DB under their old segment_id for UI display).
   currentSegmentId: uuid('current_segment_id'),
   // Preferred model for this project: 'gpt-5.3-codex' | 'gpt-5.4' | 'gpt-5.5' | 'claude-sonnet-4-6' | 'claude-opus-4-7' | 'fireworks-minimax-m2p7' | 'fireworks-glm-5p1' | 'fireworks-kimi-k2p6' | 'gemini-3.1-pro-preview'
-  model: text('model').notNull().default('gpt-5.3-codex'),
+  model: text('model').notNull().default('fireworks-kimi-k2p6'),
   // Snapshot URLs for project thumbnails and HTML captures
   thumbnailUrl: text('thumbnail_url'),
   htmlSnapshotUrl: text('html_snapshot_url'),

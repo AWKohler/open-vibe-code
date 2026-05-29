@@ -10,6 +10,7 @@ import {
   sandboxListFiles,
   sandboxRun,
 } from '@/lib/vercel-sandbox';
+import { materializeFrontendEnv } from '@/lib/sandbox-env';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { countUserCfPagesDeployments } from '@/lib/usage';
 
@@ -102,6 +103,17 @@ export async function POST(
 
         // ── 1. pnpm run build, streaming logs ──
         const sandbox = await getOrCreatePersistentSandbox(projectId);
+
+        // Regenerate .env from the DB so the production bundle inlines the same
+        // frontend vars the user configured in the Env panel (Vite inlines
+        // VITE_* at build time). DB is the source of truth.
+        send('status', 'Syncing environment variables');
+        try {
+          await materializeFrontendEnv(projectId);
+        } catch (envErr) {
+          send('output', `[warn] failed to sync .env: ${envErr instanceof Error ? envErr.message : String(envErr)}`);
+        }
+
         send('status', 'Running pnpm build');
         const cmd = await sandbox.runCommand({
           cmd: 'pnpm',

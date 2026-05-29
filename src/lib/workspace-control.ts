@@ -13,6 +13,7 @@
  * `vercel-sandbox.ts` helpers.
  */
 import { getOrCreatePersistentSandbox, sandboxBash } from "@/lib/vercel-sandbox";
+import { materializeFrontendEnv } from "@/lib/sandbox-env";
 import { getRedis } from "@/lib/redis";
 import { sanitizeOutput } from "@/lib/output-sanitizer";
 
@@ -199,6 +200,15 @@ export default defineConfig(async ({ command, mode }) => {
       path: "/vercel/sandbox/.botflow-vite.config.mjs",
       content: Buffer.from(WRAPPER_CONFIG, "utf-8"),
     }]);
+
+    // Regenerate /vercel/sandbox/.env from the DB (frontend vars + the
+    // platform-managed VITE_CONVEX_URL) so Vite inlines fresh values on this
+    // start. DB is the source of truth — this overwrites any drift on disk.
+    try {
+      await materializeFrontendEnv(projectId);
+    } catch (envErr) {
+      console.warn("[startSandboxDevServer] failed to materialize .env:", envErr);
+    }
 
     // Spawn vite detached so it survives this request.
     await sandbox.runCommand({

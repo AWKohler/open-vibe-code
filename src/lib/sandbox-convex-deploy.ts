@@ -84,14 +84,8 @@ export async function deployConvexFromSandbox(params: {
    * must replay the inbound request's auth context.
    */
   authHeaders?: Record<string, string>;
-  /**
-   * If provided and the sandbox is empty, auto-reseed with the viteConvex
-   * template and write this URL into .env so Vite picks it up on next start.
-   * Handles the case where the Vercel sandbox expired and was re-created blank.
-   */
-  convexUrl?: string;
 }): Promise<DeployResult> {
-  const { projectId, appBaseUrl, authHeaders = {}, convexUrl } = params;
+  const { projectId, appBaseUrl, authHeaders = {} } = params;
 
   try {
     let zipBlob = await buildConvexDeployZip(projectId);
@@ -99,12 +93,13 @@ export async function deployConvexFromSandbox(params: {
     if (!zipBlob) {
       // Sandbox may have expired and been re-created empty. Try auto-seeding.
       try {
-        const { seedSandboxIfEmpty, writeSandboxEnvFile } = await import("./vercel-sandbox");
+        const { seedSandboxIfEmpty } = await import("./vercel-sandbox");
+        const { materializeFrontendEnv } = await import("./sandbox-env");
         const seeded = await seedSandboxIfEmpty(projectId, "viteConvex");
         if (seeded) {
-          if (convexUrl) {
-            await writeSandboxEnvFile(projectId, { VITE_CONVEX_URL: convexUrl }).catch(() => undefined);
-          }
+          // Regenerate .env from the DB (frontend vars + VITE_CONVEX_URL) so the
+          // re-created sandbox keeps the user's configured frontend vars.
+          await materializeFrontendEnv(projectId).catch(() => undefined);
           zipBlob = await buildConvexDeployZip(projectId);
         }
       } catch (reseedErr) {

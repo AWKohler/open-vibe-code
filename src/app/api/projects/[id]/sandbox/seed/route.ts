@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { projects, projectEnvVars } from "@/db/schema";
+import { projects } from "@/db/schema";
 import {
   seedSandboxIfEmpty,
-  writeSandboxEnvFile,
   type SandboxTemplate,
 } from "@/lib/vercel-sandbox";
+import { materializeFrontendEnv } from "@/lib/sandbox-env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,21 +41,12 @@ export async function POST(
   try {
     const seeded = await seedSandboxIfEmpty(project.id, template);
 
-    // Sandboxed-web projects: write .env so Vite picks up VITE_CONVEX_URL etc. on
-    // the first dev server start. We only do this on the first seed — re-running
-    // wouldn't hurt, but the user may have edited .env in the sandbox manually.
+    // Sandboxed-web projects: write .env so Vite picks up VITE_CONVEX_URL plus
+    // any user-defined frontend vars on the first dev server start. DB is the
+    // source of truth — materializeFrontendEnv regenerates the whole file.
     if (seeded && project.platform === "sandboxed-web") {
-      const env: Record<string, string> = {};
-      const effectiveConvexUrl = project.userConvexUrl || project.convexDeployUrl;
-      if (effectiveConvexUrl && project.backendType !== "none") {
-        env.VITE_CONVEX_URL = effectiveConvexUrl;
-      }
-      const userEnv = await db.select().from(projectEnvVars).where(eq(projectEnvVars.projectId, id));
-      for (const row of userEnv) {
-        if (row.key) env[row.key] = row.value ?? "";
-      }
       try {
-        await writeSandboxEnvFile(project.id, env);
+        await materializeFrontendEnv(project.id);
       } catch (e) {
         console.warn("Failed to write sandbox .env:", e);
       }

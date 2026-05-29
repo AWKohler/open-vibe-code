@@ -3,10 +3,30 @@ import { getDb } from '@/db';
 import { projects, projectEnvVars } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
+import { materializeFrontendEnv, platformConvexEnvVar } from '@/lib/sandbox-env';
+import { isReservedEnvKey } from '@/lib/platform-env';
 
 /**
- * GET - List all environment variables for a project
- * Returns both system vars (VITE_CONVEX_URL) and user-defined vars
+ * Frontend (Vite) environment variables.
+ *
+ * Source of truth: the `project_env_vars` table. After every mutation we
+ * regenerate /vercel/sandbox/.env from the DB (see materializeFrontendEnv) so
+ * the running dev server and the next production build pick up the change.
+ *
+ * Backend (Convex) env vars are handled by the sibling route
+ * `env/backend/route.ts` and live on the Convex deployment, not here.
+ */
+
+async function loadOwnedProject(projectId: string, userId: string) {
+  const db = getDb();
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+  if (!project || project.userId !== userId) return null;
+  return project;
+}
+
+/**
+ * GET - List frontend env vars (user-defined) plus the read-only,
+ * platform-managed VITE_CONVEX_URL / EXPO_PUBLIC_CONVEX_URL.
  */
 export async function GET(
   _req: NextRequest,
@@ -16,61 +36,35 @@ export async function GET(
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const project = await loadOwnedProject(id, userId);
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
   const db = getDb();
-
-  // Verify project ownership
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project || project.userId !== userId) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
-
-  // Get user-defined env vars
   const envVars = await db.select().from(projectEnvVars)
     .where(eq(projectEnvVars.projectId, id));
 
-  // Build system env vars (read-only)
-  const systemEnvVars: Array<{
-    key: string;
-    value: string;
-    isSystem: true;
-    isSecret: false;
-  }> = [];
-
-  const effectiveConvexUrl = project.userConvexUrl || project.convexDeployUrl;
-  if (effectiveConvexUrl) {
-    // Inject the appropriate env var based on platform
-    // Vite uses VITE_ prefix, Expo uses EXPO_PUBLIC_ prefix
-    if (project.platform === 'mobile' || project.platform === 'multiplatform') {
-      systemEnvVars.push({
-        key: 'EXPO_PUBLIC_CONVEX_URL',
-        value: effectiveConvexUrl,
-        isSystem: true,
-        isSecret: false,
-      });
-    } else {
-      systemEnvVars.push({
-        key: 'VITE_CONVEX_URL',
-        value: effectiveConvexUrl,
-        isSystem: true,
-        isSecret: false,
-      });
-    }
+  const systemEnvVars: Array<{ key: string; value: string; isSystem: true; isSecret: false }> = [];
+  const platformVar = platformConvexEnvVar(project);
+  if (platformVar) {
+    systemEnvVars.push({ ...platformVar, isSystem: true, isSecret: false });
   }
 
   return NextResponse.json({
-    envVars: envVars.map(e => ({
-      id: e.id,
-      key: e.key,
-      value: e.value,
-      isSecret: e.isSecret,
-      isSystem: false,
-    })),
+    envVars: envVars
+      .filter((e) => !isReservedEnvKey(e.key)) // never surface a reserved key as user-editable
+      .map((e) => ({
+        id: e.id,
+        key: e.key,
+        value: e.value,
+        isSecret: e.isSecret,
+        isSystem: false,
+      })),
     systemEnvVars,
   });
 }
 
 /**
- * POST - Create or update an environment variable
+ * POST - Create or update a single frontend env var.
  */
 export async function POST(
   req: NextRequest,
@@ -80,22 +74,12 @@ export async function POST(
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
-
-  // Verify project ownership
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project || project.userId !== userId) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+  const project = await loadOwnedProject(id, userId);
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const body = await req.json();
-  const { key, value, isSecret } = body as {
-    key: string;
-    value: string;
-    isSecret?: boolean;
-  };
+  const { key, value, isSecret } = body as { key: string; value: string; isSecret?: boolean };
 
-  // Validate key format (must be valid env var name)
   if (!key || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
     return NextResponse.json(
       { error: 'Invalid variable name. Use letters, numbers, and underscores only. Must start with a letter or underscore.' },
@@ -103,32 +87,32 @@ export async function POST(
     );
   }
 
-  // Prevent overriding system vars
-  const systemVarNames = ['VITE_CONVEX_URL', 'EXPO_PUBLIC_CONVEX_URL'];
-  if (systemVarNames.includes(key.toUpperCase())) {
+  if (isReservedEnvKey(key)) {
     return NextResponse.json(
-      { error: 'Cannot override system variable' },
+      { error: 'This variable is managed by Botflow and can’t be edited here.' },
       { status: 400 }
     );
   }
 
-  // Upsert env var
+  const db = getDb();
   const [envVar] = await db.insert(projectEnvVars)
-    .values({
-      projectId: id,
-      key: key.toUpperCase(),
-      value,
-      isSecret: isSecret ?? false,
-    })
+    .values({ projectId: id, key: key.toUpperCase(), value, isSecret: isSecret ?? false })
     .onConflictDoUpdate({
       target: [projectEnvVars.projectId, projectEnvVars.key],
-      set: {
-        value,
-        isSecret: isSecret ?? false,
-        updatedAt: new Date(),
-      },
+      set: { value, isSecret: isSecret ?? false, updatedAt: new Date() },
     })
     .returning();
+
+  // Push the change into the sandbox .env (best-effort: a stopped/expired
+  // sandbox shouldn't block saving — it'll be regenerated on next dev start).
+  let synced = true;
+  let syncError: string | undefined;
+  try {
+    await materializeFrontendEnv(id);
+  } catch (e) {
+    synced = false;
+    syncError = e instanceof Error ? e.message : String(e);
+  }
 
   return NextResponse.json({
     id: envVar.id,
@@ -136,11 +120,13 @@ export async function POST(
     value: envVar.value,
     isSecret: envVar.isSecret,
     isSystem: false,
+    synced,
+    syncError,
   }, { status: 201 });
 }
 
 /**
- * PUT - Bulk import environment variables from .env content
+ * PUT - Bulk import frontend env vars from .env content.
  */
 export async function PUT(
   req: NextRequest,
@@ -150,49 +136,31 @@ export async function PUT(
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
-
-  // Verify project ownership
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project || project.userId !== userId) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+  const project = await loadOwnedProject(id, userId);
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { content } = await req.json() as { content: string };
 
-  // System vars that cannot be overridden
-  const systemVarNames = ['VITE_CONVEX_URL', 'EXPO_PUBLIC_CONVEX_URL'];
-
-  // Parse .env format
   const lines = content.split('\n');
-  const envVars: Array<{ key: string; value: string }> = [];
-
+  const parsed: Array<{ key: string; value: string }> = [];
   for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
-
-    // Match KEY=value format (supports quoted values)
     const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (match) {
-      const key = match[1].toUpperCase();
-      let value = match[2];
-
-      // Remove surrounding quotes if present
-      if ((value.startsWith('"') && value.endsWith('"')) ||
-          (value.startsWith("'") && value.endsWith("'"))) {
-        value = value.slice(1, -1);
-      }
-
-      // Skip system vars
-      if (systemVarNames.includes(key)) continue;
-
-      envVars.push({ key, value });
+    if (!match) continue;
+    const key = match[1].toUpperCase();
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
     }
+    if (isReservedEnvKey(key)) continue; // silently skip platform-managed keys
+    parsed.push({ key, value });
   }
 
-  // Upsert all parsed env vars
+  const db = getDb();
   let imported = 0;
-  for (const { key, value } of envVars) {
+  for (const { key, value } of parsed) {
     await db.insert(projectEnvVars)
       .values({ projectId: id, key, value, isSecret: false })
       .onConflictDoUpdate({
@@ -202,11 +170,20 @@ export async function PUT(
     imported++;
   }
 
-  return NextResponse.json({ imported });
+  let synced = true;
+  let syncError: string | undefined;
+  try {
+    await materializeFrontendEnv(id);
+  } catch (e) {
+    synced = false;
+    syncError = e instanceof Error ? e.message : String(e);
+  }
+
+  return NextResponse.json({ imported, synced, syncError });
 }
 
 /**
- * DELETE - Remove an environment variable by key
+ * DELETE - Remove a frontend env var by key.
  */
 export async function DELETE(
   req: NextRequest,
@@ -216,25 +193,34 @@ export async function DELETE(
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
-
-  // Verify project ownership
-  const [project] = await db.select().from(projects).where(eq(projects.id, id));
-  if (!project || project.userId !== userId) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+  const project = await loadOwnedProject(id, userId);
+  if (!project) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { key } = await req.json() as { key: string };
+  if (!key) return NextResponse.json({ error: 'Key is required' }, { status: 400 });
 
-  if (!key) {
-    return NextResponse.json({ error: 'Key is required' }, { status: 400 });
+  if (isReservedEnvKey(key)) {
+    return NextResponse.json(
+      { error: 'This variable is managed by Botflow and can’t be deleted here.' },
+      { status: 400 }
+    );
   }
 
+  const db = getDb();
   await db.delete(projectEnvVars)
     .where(and(
       eq(projectEnvVars.projectId, id),
       eq(projectEnvVars.key, key.toUpperCase())
     ));
 
-  return NextResponse.json({ success: true });
+  let synced = true;
+  let syncError: string | undefined;
+  try {
+    await materializeFrontendEnv(id);
+  } catch (e) {
+    synced = false;
+    syncError = e instanceof Error ? e.message : String(e);
+  }
+
+  return NextResponse.json({ success: true, synced, syncError });
 }

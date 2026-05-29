@@ -120,13 +120,13 @@ export async function POST(req: Request) {
       if (!zipBlob) {
         // Sandbox may have expired and been re-created empty. Try auto-seeding.
         try {
-          const { seedSandboxIfEmpty, writeSandboxEnvFile } = await import("@/lib/vercel-sandbox");
+          const { seedSandboxIfEmpty } = await import("@/lib/vercel-sandbox");
+          const { materializeFrontendEnv } = await import("@/lib/sandbox-env");
           const seeded = await seedSandboxIfEmpty(binding.projectId, "viteConvex");
           if (seeded) {
-            const convexUrl = project.userConvexUrl || project.convexDeployUrl;
-            if (convexUrl) {
-              await writeSandboxEnvFile(binding.projectId, { VITE_CONVEX_URL: convexUrl }).catch(() => undefined);
-            }
+            // Regenerate .env from the DB (frontend vars + VITE_CONVEX_URL) so a
+            // re-created sandbox keeps the user's configured frontend vars.
+            await materializeFrontendEnv(binding.projectId).catch(() => undefined);
             zipBlob = await buildConvexDeployZip(binding.projectId);
           }
         } catch (reseedErr) {

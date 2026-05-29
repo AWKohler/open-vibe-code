@@ -547,7 +547,7 @@ export function getSandboxedWebTools(params: {
     autonomy: "autonomous" | "manual" | "ask-each-time" | null;
   };
 }) {
-  const { projectId, hasBackend, appBaseUrl, authHeaders, convexUrl, github } = params;
+  const { projectId, hasBackend, appBaseUrl, authHeaders, github } = params;
   const baseTools = getPersistentTools(projectId);
   const workspaceTools = getWorkspaceControlTools(projectId);
   const gitTools = github
@@ -826,7 +826,6 @@ REQUIRED NEXT STEPS:
           projectId,
           appBaseUrl,
           ...(authHeaders ? { authHeaders } : {}),
-          convexUrl,
         });
         if (result.ok) {
           return {

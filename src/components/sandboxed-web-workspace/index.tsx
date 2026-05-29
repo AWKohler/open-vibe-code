@@ -50,6 +50,7 @@ import {
   AppWindow,
   Frame,
   ArrowUpRight,
+  ExternalLink,
 } from "lucide-react";
 import type { PreviewInfo } from "@/lib/preview-store";
 import { cn } from "@/lib/utils";
@@ -140,6 +141,10 @@ export function SandboxedWebWorkspace({
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [stripePaymentMode, setStripePaymentMode] = useState<"test" | "live">("test");
   const [stripeModeToggling, setStripeModeToggling] = useState(false);
+  /** Set when the previewed app asks us to open a Stripe URL it can't iframe
+   *  (Checkout / dashboard). We surface a card with a real "Open" button so the
+   *  user's click is a fresh top-level gesture (no popup blocker). */
+  const [checkoutHandoffUrl, setCheckoutHandoffUrl] = useState<string | null>(null);
 
   // ── Publish / Cloudflare Pages state ─────────────────────────────────
   const [cloudflareProjectName, setCloudflareProjectName] = useState<string | null>(null);
@@ -662,6 +667,32 @@ export function SandboxedWebWorkspace({
     };
   }, [stripeEnabled, sandboxStatus, projectId]);
 
+  // ── Stripe checkout iframe handoff ───────────────────────────────────
+  // Stripe Checkout (and the Connect dashboard) refuse to load in an iframe.
+  // The previewed app runs in our preview iframe, so the scaffolded
+  // redirectToCheckout helper postMessages the URL up to us instead of
+  // navigating. We validate it's an https *.stripe.com URL and show a card
+  // with an "Open Checkout" button — clicking it is a top-level user gesture,
+  // so the new tab isn't popup-blocked.
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      const data = e.data as { type?: string; url?: string } | null;
+      if (!data || data.type !== "botflow:open-url" || typeof data.url !== "string") return;
+      let parsed: URL;
+      try {
+        parsed = new URL(data.url);
+      } catch {
+        return;
+      }
+      // Only ever surface Stripe URLs — never a popup to an arbitrary origin.
+      if (parsed.protocol !== "https:") return;
+      if (parsed.host !== "stripe.com" && !parsed.host.endsWith(".stripe.com")) return;
+      setCheckoutHandoffUrl(parsed.toString());
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
+
   // ── Stripe OAuth success — react to ?stripe_connect=success ──────────
   // The OAuth callback redirects here after the user authorizes. Reload
   // project state so stripeEnabled flips and the Stripe tab appears.
@@ -811,6 +842,36 @@ export function SandboxedWebWorkspace({
           authorizeUrl={pendingStripeRequest.authorizeUrl}
           onClose={() => setPendingStripeRequest(null)}
         />
+      )}
+      {checkoutHandoffUrl && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[120] w-[min(440px,calc(100vw-2rem))] rounded-xl border border-border bg-neutral-900 text-white shadow-2xl">
+          <div className="px-4 py-3 space-y-2.5">
+            <div className="text-sm font-medium">Open Stripe Checkout in a new tab</div>
+            <p className="text-xs leading-relaxed text-neutral-300">
+              Stripe Checkout can&apos;t load inside the preview window. Click below to
+              open it in a new tab. (In your published app it opens normally —
+              this only happens in the preview.)
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-0.5">
+              <button
+                onClick={() => setCheckoutHandoffUrl(null)}
+                className="text-xs font-medium px-3 py-1.5 rounded-md text-neutral-300 hover:bg-white/10 transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => {
+                  window.open(checkoutHandoffUrl, "_blank", "noopener,noreferrer");
+                  setCheckoutHandoffUrl(null);
+                }}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-accent text-accent-foreground hover:opacity-90 transition-opacity"
+              >
+                Open Checkout
+                <ExternalLink size={13} />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Agent sidebar. Hold the initial prompt until the sandbox is ready —
           otherwise the agent fires its first turn against an empty filesystem

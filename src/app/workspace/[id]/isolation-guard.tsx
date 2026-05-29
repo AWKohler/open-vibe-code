@@ -1,12 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { Monitor } from 'lucide-react';
-import { Workspace } from '@/components/workspace';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { PersistentWorkspace } from '@/components/persistent-workspace';
 import { SandboxedWebWorkspace } from '@/components/sandboxed-web-workspace';
-import { checkDeviceSupport } from '@/lib/device';
 import type { ProjectPlatform, BackendType } from '@/lib/project-platform';
 
 interface Props {
@@ -17,78 +14,114 @@ interface Props {
 }
 
 /**
- * Guards the Workspace component behind:
- * 1. A device support check — blocks unsupported mobile devices
- * 2. A cross-origin isolation check — WebContainer requires SharedArrayBuffer
+ * Routes a project to its workspace runtime by platform:
+ *   - swift          → PersistentWorkspace (Vercel sandbox, iOS)
+ *   - sandboxed-web  → SandboxedWebWorkspace ("Web", Vercel sandbox)
+ *   - web (legacy)   → migrate the WebContainer project onto a sandbox, then
+ *                      render it as a sandboxed-web project
+ *
+ * Vercel sandboxes run server-side, so the old WebContainer cross-origin
+ * isolation reload and desktop-only device gate are no longer needed.
  */
 export function IsolationGuard({ projectId, initialPrompt, platform, backendType }: Props) {
-  const [deviceBlocked, setDeviceBlocked] = useState<string | null>(null);
-  const [ready] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true;
-    if (window.crossOriginIsolated) return true;
-    return Boolean(sessionStorage.getItem('wc-isolation-reload'));
-  });
+  if (platform === 'swift') {
+    return <PersistentWorkspace projectId={projectId} initialPrompt={initialPrompt} platform={platform} />;
+  }
+  if (platform === 'web') {
+    return (
+      <WebContainerMigrationGate
+        projectId={projectId}
+        initialPrompt={initialPrompt}
+        backendType={backendType}
+      />
+    );
+  }
+  return <SandboxedWebWorkspace projectId={projectId} initialPrompt={initialPrompt} backendType={backendType} />;
+}
+
+/**
+ * One-time, on-open migration of a legacy WebContainer project onto a Vercel
+ * sandbox. Shows a loading state while the server restores the saved files into
+ * a fresh sandbox, then hands off to the normal sandbox workspace. The POST is
+ * idempotent, so retries (and double-opens) are safe.
+ */
+function WebContainerMigrationGate({
+  projectId,
+  initialPrompt,
+  backendType,
+}: {
+  projectId: string;
+  initialPrompt?: string;
+  backendType?: BackendType;
+}) {
+  const [status, setStatus] = useState<'migrating' | 'done' | 'error'>('migrating');
+  const [error, setError] = useState<string | null>(null);
+  const startedRef = useRef(false);
+
+  const run = useCallback(async () => {
+    setStatus('migrating');
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/migrate-to-sandbox`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || `Migration failed (${res.status})`);
+      }
+      setStatus('done');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Migration failed');
+      setStatus('error');
+    }
+  }, [projectId]);
 
   useEffect(() => {
-    const device = checkDeviceSupport();
-    if (!device.supported) {
-      setDeviceBlocked(device.reason ?? 'Your device is not supported.');
-    }
-  }, []);
+    if (startedRef.current) return;
+    startedRef.current = true;
+    run();
+  }, [run]);
 
-  useEffect(() => {
-    if (deviceBlocked) return;
-    if (!ready) {
-      sessionStorage.setItem('wc-isolation-reload', '1');
-      window.location.reload();
-    } else {
-      sessionStorage.removeItem('wc-isolation-reload');
-    }
-  }, [ready, deviceBlocked]);
+  if (status === 'done') {
+    return (
+      <SandboxedWebWorkspace projectId={projectId} initialPrompt={initialPrompt} backendType={backendType} />
+    );
+  }
 
-  if (deviceBlocked) {
+  if (status === 'error') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[var(--sand-bg)] text-[var(--sand-text)] px-4">
         <div className="max-w-md text-center space-y-5 p-8 rounded-2xl border border-border bg-white shadow-sm">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100">
-            <Monitor className="h-7 w-7 text-neutral-500" />
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-100">
+            <AlertTriangle className="h-7 w-7 text-amber-600" />
           </div>
-          <h1 className="text-2xl font-semibold text-neutral-900">Desktop required</h1>
+          <h1 className="text-2xl font-semibold text-neutral-900">Upgrade didn&apos;t finish</h1>
           <p className="text-sm text-neutral-600 leading-relaxed">
-            {deviceBlocked}
+            We hit a snag moving this project to the new sandbox runtime. Your files are safe — you can try again.
           </p>
-          <p className="text-xs text-neutral-400">
-            Botflow uses WebContainer technology that requires a desktop browser to run full development environments.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
-            <Link
-              href="/projects"
-              className="inline-flex items-center rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90 transition"
-            >
-              View my projects
-            </Link>
-            <Link
-              href="/"
-              className="inline-flex items-center rounded-xl border border-border bg-elevated px-4 py-2 text-sm font-medium text-[var(--sand-text)] shadow-sm hover:bg-neutral-50 transition"
-            >
-              Back home
-            </Link>
-          </div>
+          {error && <p className="text-xs text-neutral-400 break-words">{error}</p>}
+          <button
+            onClick={() => { startedRef.current = true; run(); }}
+            className="inline-flex items-center gap-2 rounded-xl bg-black px-4 py-2 text-sm font-medium text-white shadow hover:opacity-90 transition"
+          >
+            Try again
+          </button>
         </div>
       </div>
     );
   }
 
-  // Sandbox projects don't need WebContainer / cross-origin isolation.
-  // Route swift → PersistentWorkspace (Swift/iOS), sandboxed-web → SandboxedWebWorkspace.
-  if (platform === 'swift') {
-    return <PersistentWorkspace projectId={projectId} initialPrompt={initialPrompt} platform={platform} />;
-  }
-  if (platform === 'sandboxed-web') {
-    return <SandboxedWebWorkspace projectId={projectId} initialPrompt={initialPrompt} backendType={backendType} />;
-  }
-
-  if (!ready) return null;
-
-  return <Workspace projectId={projectId} initialPrompt={initialPrompt} platform={platform} backendType={backendType} />;
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-[var(--sand-bg)] text-[var(--sand-text)] px-4">
+      <div className="max-w-md text-center space-y-5 p-8 rounded-2xl border border-border bg-white shadow-sm">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100">
+          <Loader2 className="h-7 w-7 text-neutral-500 animate-spin" />
+        </div>
+        <h1 className="text-2xl font-semibold text-neutral-900">Upgrading this project…</h1>
+        <p className="text-sm text-neutral-600 leading-relaxed">
+          We&apos;re moving this project to Botflow&apos;s faster sandbox runtime. This only happens once and takes a moment.
+        </p>
+      </div>
+    </div>
+  );
 }

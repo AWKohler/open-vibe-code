@@ -8,7 +8,6 @@ import { cn } from '@/lib/utils';
 import {
   Plus,
   Laptop,
-  Smartphone,
   Cog,
   Calendar,
   Layers,
@@ -308,34 +307,15 @@ export default function ProjectsPage() {
                           ) : (
                             <div className="absolute inset-0 flex items-center justify-center">
                               <div className="flex flex-col items-center text-muted">
-                                {project.platform === 'mobile' ? (
-                                  <Smartphone className="h-10 w-10 mb-2" />
-                                ) : project.platform === 'multiplatform' ? (
-                                  <Layers className="h-10 w-10 mb-2" />
-                                ) : (
-                                  <Laptop className="h-10 w-10 mb-2" />
-                                )}
+                                <Laptop className="h-10 w-10 mb-2" />
                                 <span className="text-xs">No preview</span>
                               </div>
                             </div>
                           )}
 
                           <div className="absolute top-3 left-3">
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium backdrop-blur-sm',
-                                project.platform === 'mobile'
-                                  ? 'bg-accent text-[var(--sand-accent-contrast)]'
-                                  : 'bg-surface text-fg'
-                              )}
-                            >
-                              {project.platform === 'mobile' ? (
-                                <Smartphone className="h-3 w-3" />
-                              ) : project.platform === 'multiplatform' ? (
-                                <Layers className="h-3 w-3" />
-                              ) : (
-                                <Laptop className="h-3 w-3" />
-                              )}
+                            <span className="inline-flex items-center gap-1 rounded-full bg-surface text-fg px-2 py-1 text-xs font-medium backdrop-blur-sm">
+                              <Laptop className="h-3 w-3" />
                               {getProjectPlatformLabel(project.platform)}
                             </span>
                           </div>

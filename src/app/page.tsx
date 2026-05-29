@@ -1001,8 +1001,6 @@ import {
   Bot,
   Layers,
   Plus,
-  Monitor,
-  Smartphone,
   Laptop,
   ImagePlus,
   X as IconX,
@@ -1032,9 +1030,7 @@ import {
   getNextProjectPlatform,
   getProjectPlatformLabel,
   getProjectPlatformShortLabel,
-  isMobilePlatformsEnabled,
   isSwiftPlatformEnabled,
-  isSandboxedWebPlatformEnabled,
   normalizeProjectPlatform,
   type ProjectPlatform,
 } from '@/lib/project-platform';
@@ -1340,7 +1336,7 @@ export default function LandingV2() {
   const router = useRouter();
   const { isSignedIn } = useUser();
   const [prompt, setPrompt] = useState('');
-  const [platform, setPlatform] = useState<ProjectPlatform>('web');
+  const [platform, setPlatform] = useState<ProjectPlatform>('sandboxed-web');
   const [model, setModel] = useState<ModelId>('fireworks-kimi-k2p6');
   const { toast } = useToast();
   const [hasOpenAIKey, setHasOpenAIKey] = useState<boolean | null>(null);
@@ -1734,13 +1730,9 @@ export default function LandingV2() {
         if (storedModel) {
           setModel(resolveModelId(storedModel));
         }
-        if (
-          storedPlatform === 'web' ||
-          (storedPlatform === 'swift' && isSwiftPlatformEnabled()) ||
-          (storedPlatform === 'sandboxed-web' && isSandboxedWebPlatformEnabled()) ||
-          ((storedPlatform === 'mobile' || storedPlatform === 'multiplatform') &&
-            isMobilePlatformsEnabled())
-        ) {
+        if (storedPlatform) {
+          // normalizeProjectPlatform coerces deprecated/unknown values to the
+          // default sandbox platform and respects the Swift flag.
           setPlatform(normalizeProjectPlatform(storedPlatform));
         }
         if (storedName) setProjectName(storedName);
@@ -1915,24 +1907,16 @@ export default function LandingV2() {
                             </div>
                           )}
                         </div>
-                        {(isSwiftPlatformEnabled() || isSandboxedWebPlatformEnabled() || isMobilePlatformsEnabled()) && (
+                        {isSwiftPlatformEnabled() && (
                           <button
                             type="button"
                             onClick={() => setPlatform(getNextProjectPlatform(platform))}
                             className="shrink-0 inline-flex items-center gap-1.5 sm:gap-2 rounded-full border border-[var(--sand-border)] bg-[var(--sand-elevated)] px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-[var(--sand-text)] shadow-sm hover:border-transparent hover:bg-[var(--sand-accent)]/15 transition"
                             title="Toggle platform"
                           >
-                            {platform === 'mobile' ? (
-                              <Smartphone className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            ) : platform === 'multiplatform' ? (
-                              <Monitor className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            ) : (
-                              <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                            )}
+                            <Laptop className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                             <span className="hidden sm:inline">
-                              {platform === 'mobile'
-                                ? 'Mobile App (Experimental)'
-                                : getProjectPlatformLabel(platform)}
+                              {getProjectPlatformLabel(platform)}
                             </span>
                             <span className="sm:hidden">
                               {getProjectPlatformShortLabel(platform)}

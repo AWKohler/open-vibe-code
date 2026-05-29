@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
 import { projects, projectStars } from '@/db/schema';
-import { eq, and, desc, sql, isNotNull } from 'drizzle-orm';
+import { eq, and, desc, sql, isNotNull, inArray } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 import { clerkClient } from '@clerk/nextjs/server';
 import { type ProjectPlatform } from '@/lib/project-platform';
@@ -19,14 +19,14 @@ export async function GET(req: NextRequest) {
 
     const db = getDb();
     const whereClauses = [eq(projects.isPublic, true), isNotNull(projects.publicSlug)];
-    if (
-      platformFilter === 'web' ||
-      platformFilter === 'swift' ||
-      platformFilter === 'sandboxed-web' ||
-      platformFilter === 'mobile' ||
-      platformFilter === 'multiplatform'
-    ) {
-      whereClauses.push(eq(projects.platform, platformFilter as ProjectPlatform));
+    if (platformFilter === 'web') {
+      // "Web" spans the new sandbox platform plus legacy WebContainer rows
+      // (and deprecated mobile/multiplatform, which are surfaced as Web).
+      whereClauses.push(
+        inArray(projects.platform, ['sandboxed-web', 'web', 'mobile', 'multiplatform']),
+      );
+    } else if (platformFilter === 'swift') {
+      whereClauses.push(eq(projects.platform, 'swift' as ProjectPlatform));
     }
 
     const orderBy =

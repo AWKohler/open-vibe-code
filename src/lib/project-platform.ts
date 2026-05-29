@@ -5,7 +5,9 @@ export function isSwiftPlatformEnabled(): boolean {
 }
 
 export function isSandboxedWebPlatformEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_ALLOW_SANDBOXED_WEB_EXP === "true";
+  // Sandboxed-web ("Web") is now the default, always-on platform. The flag is
+  // retained only so legacy call sites keep compiling; it always reports true.
+  return true;
 }
 
 export function isMobilePlatformsEnabled(): boolean {
@@ -18,18 +20,13 @@ export function isSandboxPlatform(platform: string): boolean {
 }
 
 export function getEnabledProjectPlatforms(): ProjectPlatform[] {
-  const platforms: ProjectPlatform[] = ["web"];
+  // "Web" (stored as sandboxed-web, a Vercel sandbox) is the default platform.
+  // Swift remains a flag-gated beta. WebContainer ("web"), mobile, and
+  // multiplatform are deprecated and no longer creatable.
+  const platforms: ProjectPlatform[] = ["sandboxed-web"];
 
   if (isSwiftPlatformEnabled()) {
     platforms.push("swift");
-  }
-
-  if (isSandboxedWebPlatformEnabled()) {
-    platforms.push("sandboxed-web");
-  }
-
-  if (isMobilePlatformsEnabled()) {
-    platforms.push("multiplatform", "mobile");
   }
 
   return platforms;
@@ -52,15 +49,19 @@ export function normalizeProjectPlatform(
     return "swift";
   }
 
-  if (platform === "sandboxed-web" && isSandboxedWebPlatformEnabled()) {
+  if (platform === "sandboxed-web") {
     return "sandboxed-web";
   }
 
-  if ((platform === "mobile" || platform === "multiplatform") && isMobilePlatformsEnabled()) {
-    return platform;
+  // Legacy WebContainer projects pass through as "web" so the workspace can
+  // route them to the on-open migration gate. They never get re-created at
+  // this value — new/unknown projects default to the sandbox platform.
+  if (platform === "web") {
+    return "web";
   }
 
-  return "web";
+  // Deprecated (mobile/multiplatform) and anything unrecognized → default.
+  return "sandboxed-web";
 }
 
 export function getNextProjectPlatform(
@@ -80,12 +81,11 @@ export function getProjectPlatformLabel(platform: string): string {
   switch (platform) {
     case "swift":
       return "Swift";
-    case "sandboxed-web":
-      return "Sandboxed Web";
+    // Legacy "mobile"/"multiplatform" rows are deprecated; surface them as Web
+    // so old list items don't render a dead label.
     case "mobile":
-      return "Mobile";
     case "multiplatform":
-      return "Universal";
+    case "sandboxed-web":
     case "web":
     default:
       return "Web";
@@ -96,12 +96,9 @@ export function getProjectPlatformShortLabel(platform: string): string {
   switch (platform) {
     case "swift":
       return "Swift";
-    case "sandboxed-web":
-      return "Sandbox";
     case "mobile":
-      return "Mobile";
     case "multiplatform":
-      return "Multi";
+    case "sandboxed-web":
     case "web":
     default:
       return "Web";

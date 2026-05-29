@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Star, Laptop, Smartphone, Layers } from "lucide-react";
+import { Star, Laptop } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getProjectPlatformLabel,
@@ -27,7 +27,9 @@ export function ShowcaseCard({ project, compact = false }: { project: ShowcasePr
   // must not be used as an <img> src. Match the projects page behavior.
   const [thumbFailed, setThumbFailed] = useState(false);
   const thumb = project.thumbnailUrl;
-  const Icon = project.platform === "mobile" ? Smartphone : project.platform === "multiplatform" ? Layers : Laptop;
+  // Swift keeps its own label; everything else (web/sandboxed-web and legacy
+  // mobile/multiplatform rows) is surfaced as "Web".
+  const Icon = Laptop;
 
   return (
     <Link

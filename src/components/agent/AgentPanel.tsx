@@ -306,6 +306,8 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
   const [hasMoonshotKey, setHasMoonshotKey] = useState<boolean | null>(null);
   const [hasFireworksKey, setHasFireworksKey] = useState<boolean | null>(null);
   const [hasGoogleKey, setHasGoogleKey] = useState<boolean | null>(null);
+  // Server flag (USE_TOGETHER_KIMI): Kimi K2.6 is served by Together AI, not Fireworks.
+  const [useTogetherKimi, setUseTogetherKimi] = useState(false);
   // BYOK user's per-account preference for which agent runs Claude models.
   // Honored by the derivation only when the user has a genuine choice
   // (BYOK with no OAuth). OAuth users are ToS-locked to Claude Code regardless.
@@ -1267,6 +1269,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
           setHasGoogleKey(Boolean(data?.hasGoogleKey));
+          setUseTogetherKimi(Boolean(data?.useTogetherKimi));
           const pref = data?.preferredAnthropicBackend;
           if (pref === 'botflow' || pref === 'claude-code') {
             setPreferredAnthropicBackend(pref);
@@ -1290,6 +1293,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           setHasMoonshotKey(Boolean(data?.hasMoonshotKey));
           setHasFireworksKey(Boolean(data?.hasFireworksKey));
           setHasGoogleKey(Boolean(data?.hasGoogleKey));
+          setUseTogetherKimi(Boolean(data?.useTogetherKimi));
           const pref = data?.preferredAnthropicBackend;
           if (pref === 'botflow' || pref === 'claude-code') {
             setPreferredAnthropicBackend(pref as 'botflow' | 'claude-code');
@@ -1660,6 +1664,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             userTier={userTier}
             onTierLocked={setLimitPayload}
             size="sm"
+            useTogetherKimi={useTogetherKimi}
           />
           <Button
             type="button"

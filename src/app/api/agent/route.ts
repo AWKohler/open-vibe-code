@@ -1000,6 +1000,10 @@ export async function POST(req: Request) {
           );
         }
 
+        agentLog.info("kimi_routed_to_together", {
+          model: selectedModel,
+          usingServerKey: Boolean(isServerKeyModel(selectedModel) && serverTogetherKey),
+        });
         const together = createOpenAICompatible({
           name: "together",
           apiKey,

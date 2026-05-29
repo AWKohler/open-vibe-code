@@ -17,12 +17,16 @@ export interface ModelSelectorProps {
   onTierLocked?: (payload: LimitReachedPayload) => void;
   size?: 'sm' | 'md';
   className?: string;
+  /** When true, Kimi K2.6 is served by Together AI (USE_TOGETHER_KIMI flag),
+   *  so its provider badge reads "Together" instead of "Fireworks". */
+  useTogetherKimi?: boolean;
 }
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
   fireworks: 'Fireworks',
+  together: 'Together',
   google: 'Google',
 };
 
@@ -90,10 +94,19 @@ const MODEL_ORDER: ModelId[] = [
   'gpt-5.5',                 // x12
 ];
 
-export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className }: ModelSelectorProps) {
+export function ModelSelector({ value, onChange, providerAccess, userTier = 'free', onTierLocked, size = 'md', className, useTogetherKimi = false }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+
+  /** Provider label for the dropdown badge — reflects the live Kimi→Together redirect. */
+  const providerLabel = useCallback(
+    (modelId: ModelId) => {
+      if (modelId === 'fireworks-kimi-k2p6' && useTogetherKimi) return PROVIDER_LABELS.together;
+      return PROVIDER_LABELS[MODEL_CONFIGS[modelId].provider];
+    },
+    [useTogetherKimi],
+  );
 
   const currentConfig = MODEL_CONFIGS[value];
 
@@ -215,7 +228,7 @@ export function ModelSelector({ value, onChange, providerAccess, userTier = 'fre
                       {config.displayName}
                     </span>
                     <span className="inline-flex items-center rounded-full bg-soft px-1.5 py-0.5 text-[10px] font-medium text-muted">
-                      {PROVIDER_LABELS[config.provider]}
+                      {providerLabel(modelId)}
                     </span>
                     {tierBadge && (
                       <span className={cn(

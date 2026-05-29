@@ -2,6 +2,7 @@ import { streamText, tool, convertToModelMessages, type ModelMessage } from "ai"
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createFireworks } from "@ai-sdk/fireworks";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { getDb } from "@/db";
@@ -16,6 +17,12 @@ import { getSandboxedWebTools } from "@/lib/agent/sandboxed-web-tools";
 import { MODEL_CONFIGS, resolveModelId, type ModelId } from "@/lib/agent/models";
 import { agentLog, generateRequestId, setRequestId } from "@/lib/agent/logger";
 import { classifyError, formatErrorResponse } from "@/lib/agent/errors";
+import { USE_TOGETHER_KIMI } from "@/lib/feature-flags";
+
+/** Together AI's OpenAI-compatible Kimi K2.6 model identifier. */
+const TOGETHER_KIMI_MODEL = "moonshotai/Kimi-K2.6";
+/** Together AI's OpenAI-compatible base URL. */
+const TOGETHER_BASE_URL = "https://api.together.xyz/v1";
 
 /** Convert a stream error to the JSON string the client's parseError() expects. */
 function getStreamErrorMessage(error: unknown): string {
@@ -623,6 +630,11 @@ export async function POST(req: Request) {
       if (selectedModel === 'gpt-5.3-codex' || selectedModel === 'gpt-5.4' || selectedModel === 'gpt-5.5') {
         return Boolean(creds.codexOAuthAccessToken || creds.openaiApiKey);
       }
+      if (selectedModel === 'fireworks-kimi-k2p6' && USE_TOGETHER_KIMI) {
+        // Kimi traffic is redirected to Together AI — BYOK means a personal
+        // Together key and no server-side TOGETHER_API_KEY.
+        return Boolean(creds.togetherApiKey) && !process.env.TOGETHER_API_KEY;
+      }
       if (selectedModel === 'fireworks-minimax-m2p7' || selectedModel === 'fireworks-glm-5p1' || selectedModel === 'fireworks-kimi-k2p6') {
         return Boolean(creds.fireworksApiKey) && !process.env.FIREWORKS_API_KEY;
       }
@@ -959,6 +971,42 @@ export async function POST(req: Request) {
         const google = createGoogleGenerativeAI({ apiKey });
         const result = streamText({
           model: google(modelConfig.apiModelId),
+          system: systemPrompt,
+          messages: resolvedMessages,
+          tools,
+          onFinish,
+        });
+        return result.toUIMessageStreamResponse({ headers: responseHeaders, onError: getStreamErrorMessage });
+      }
+
+      // ── Kimi K2.6 via Together AI (feature-flagged redirect off Fireworks) ──
+      // When USE_TOGETHER_KIMI is on, Kimi traffic goes to Together AI's
+      // OpenAI-compatible endpoint instead of Fireworks. The model id stays
+      // `fireworks-kimi-k2p6` everywhere else; only the provider changes here.
+      if (selectedModel === "fireworks-kimi-k2p6" && USE_TOGETHER_KIMI) {
+        // Priority: server-side TOGETHER_API_KEY (server-key model) → BYOK key
+        const serverTogetherKey = process.env.TOGETHER_API_KEY;
+        const apiKey = isServerKeyModel(selectedModel) && serverTogetherKey
+          ? serverTogetherKey
+          : creds.togetherApiKey;
+
+        if (!apiKey) {
+          const msg = isServerKeyModel(selectedModel)
+            ? `${modelConfig.displayName} is temporarily unavailable (missing server configuration). Please try a different model or add your own Together AI API key in Settings.`
+            : "Missing Together AI API key. Please add it in Settings.";
+          return new Response(
+            JSON.stringify({ error: msg, errorType: isServerKeyModel(selectedModel) ? "unavailable" : "auth" }),
+            { status: isServerKeyModel(selectedModel) ? 503 : 400, headers: { "Content-Type": "application/json" } },
+          );
+        }
+
+        const together = createOpenAICompatible({
+          name: "together",
+          apiKey,
+          baseURL: TOGETHER_BASE_URL,
+        });
+        const result = streamText({
+          model: together(TOGETHER_KIMI_MODEL),
           system: systemPrompt,
           messages: resolvedMessages,
           tools,

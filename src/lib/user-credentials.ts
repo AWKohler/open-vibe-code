@@ -22,6 +22,7 @@ export interface UserCredentials {
   anthropicApiKey: string | null;
   moonshotApiKey: string | null;
   fireworksApiKey: string | null;
+  togetherApiKey: string | null;
   googleApiKey: string | null;
   // Claude OAuth
   claudeOAuthAccessToken: string | null;
@@ -119,6 +120,9 @@ export async function getUserCredentials(userId: string): Promise<UserCredential
     anthropicApiKey: (meta.anthropicApiKey ?? neon.anthropicApiKey) ?? null,
     moonshotApiKey: (meta.moonshotApiKey ?? neon.moonshotApiKey) ?? null,
     fireworksApiKey: (meta.fireworksApiKey ?? neon.fireworksApiKey) ?? null,
+    // Together AI key is a newer field stored only in Clerk privateMetadata
+    // (no Neon legacy column), so there's nothing to fall back to.
+    togetherApiKey: meta.togetherApiKey ?? null,
     googleApiKey: (meta.googleApiKey ?? neon.googleApiKey) ?? null,
     claudeOAuthAccessToken: (meta.claudeOAuthAccessToken ?? neon.claudeOAuthAccessToken) ?? null,
     claudeOAuthRefreshToken: (meta.claudeOAuthRefreshToken ?? neon.claudeOAuthRefreshToken) ?? null,

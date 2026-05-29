@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getUserCredentials, setUserCredentials } from '@/lib/user-credentials';
+import { USE_TOGETHER_KIMI } from '@/lib/feature-flags';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,7 +18,11 @@ export async function GET() {
       hasAnthropicKey: Boolean(creds.anthropicApiKey),
       hasMoonshotKey: Boolean(creds.moonshotApiKey),
       hasFireworksKey: Boolean(creds.fireworksApiKey),
+      hasTogetherKey: Boolean(creds.togetherApiKey),
       hasGoogleKey: Boolean(creds.googleApiKey),
+      // Surface the server-only Together/Kimi flag so the client can decide
+      // whether to show the Together AI BYOK input in the connections tab.
+      useTogetherKimi: USE_TOGETHER_KIMI,
       hasClaudeOAuth: Boolean(creds.claudeOAuthAccessToken),
       hasCodexOAuth: Boolean(creds.codexOAuthAccessToken),
       hasConvexOAuth: Boolean(creds.convexOAuthAccessToken),
@@ -41,6 +46,7 @@ export async function POST(req: NextRequest) {
       anthropicApiKey,
       moonshotApiKey,
       fireworksApiKey,
+      togetherApiKey,
       googleApiKey,
       convexBackendPreference,
       preferredAnthropicBackend,
@@ -49,6 +55,7 @@ export async function POST(req: NextRequest) {
       anthropicApiKey?: string | null;
       moonshotApiKey?: string | null;
       fireworksApiKey?: string | null;
+      togetherApiKey?: string | null;
       googleApiKey?: string | null;
       convexBackendPreference?: 'platform' | 'user' | 'none';
       preferredAnthropicBackend?: 'botflow' | 'claude-code';
@@ -62,6 +69,7 @@ export async function POST(req: NextRequest) {
     if (anthropicApiKey !== undefined) updates.anthropicApiKey = anthropicApiKey || null;
     if (moonshotApiKey !== undefined) updates.moonshotApiKey = moonshotApiKey || null;
     if (fireworksApiKey !== undefined) updates.fireworksApiKey = fireworksApiKey || null;
+    if (togetherApiKey !== undefined) updates.togetherApiKey = togetherApiKey || null;
     if (googleApiKey !== undefined) updates.googleApiKey = googleApiKey || null;
     if (
       convexBackendPreference === 'platform' ||
@@ -85,6 +93,7 @@ export async function POST(req: NextRequest) {
       hasAnthropicKey: Boolean(merged.anthropicApiKey),
       hasMoonshotKey: Boolean(merged.moonshotApiKey),
       hasFireworksKey: Boolean(merged.fireworksApiKey),
+      hasTogetherKey: Boolean(merged.togetherApiKey),
       hasGoogleKey: Boolean(merged.googleApiKey),
     });
   } catch (e) {

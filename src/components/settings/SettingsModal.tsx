@@ -18,7 +18,7 @@ interface SettingsModalProps {
 }
 
 type Tab = 'usage' | 'connections' | 'subscription';
-type Provider = 'openai' | 'anthropic' | 'moonshot' | 'fireworks' | 'google';
+type Provider = 'openai' | 'anthropic' | 'moonshot' | 'fireworks' | 'together' | 'google';
 type OAuthStep = 'idle' | 'tos' | 'connecting' | 'exchanging' | 'success';
 
 const PROVIDERS: Array<{
@@ -32,6 +32,8 @@ const PROVIDERS: Array<{
   { provider: 'google', label: 'Google AI Studio API Key', field: 'googleApiKey', placeholder: 'AIza...' },
   { provider: 'moonshot', label: 'Moonshot API Key', field: 'moonshotApiKey', placeholder: 'moonshot-...' },
   { provider: 'fireworks', label: 'Fireworks AI API Key', field: 'fireworksApiKey', placeholder: 'fw-...' },
+  // Only rendered when the USE_TOGETHER_KIMI flag is on (Kimi routed to Together AI).
+  { provider: 'together', label: 'Together AI API Key', field: 'togetherApiKey', placeholder: 'together-...' },
 ];
 
 export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceContext = false }: SettingsModalProps) {
@@ -41,11 +43,13 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
   const [savingKey, setSavingKey] = useState<Provider | null>(null);
   const [removingKey, setRemovingKey] = useState<Provider | null>(null);
   const [keys, setKeys] = useState<Record<Provider, string>>({
-    openai: '', anthropic: '', moonshot: '', fireworks: '', google: '',
+    openai: '', anthropic: '', moonshot: '', fireworks: '', together: '', google: '',
   });
   const [hasKey, setHasKey] = useState<Record<Provider, boolean>>({
-    openai: false, anthropic: false, moonshot: false, fireworks: false, google: false,
+    openai: false, anthropic: false, moonshot: false, fireworks: false, together: false, google: false,
   });
+  // Server-controlled flag (USE_TOGETHER_KIMI): gates the Together AI key input.
+  const [useTogetherKimi, setUseTogetherKimi] = useState(false);
   const [hasClaudeOAuth, setHasClaudeOAuth] = useState(false);
   const [hasCodexOAuth, setHasCodexOAuth] = useState(false);
   const [hasConvexOAuth, setHasConvexOAuth] = useState(false);
@@ -91,7 +95,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
     if (!open) return;
     let cancelled = false;
     setLoading(true);
-    setKeys({ openai: '', anthropic: '', moonshot: '', fireworks: '', google: '' });
+    setKeys({ openai: '', anthropic: '', moonshot: '', fireworks: '', together: '', google: '' });
     setOauthStep('idle');
     setTosChecked(false);
     setOauthCode('');
@@ -112,8 +116,10 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
               anthropic: Boolean(data?.hasAnthropicKey),
               moonshot: Boolean(data?.hasMoonshotKey),
               fireworks: Boolean(data?.hasFireworksKey),
+              together: Boolean(data?.hasTogetherKey),
               google: Boolean(data?.hasGoogleKey),
             });
+            setUseTogetherKimi(Boolean(data?.useTogetherKimi));
             setHasClaudeOAuth(Boolean(data?.hasClaudeOAuth));
             setHasCodexOAuth(Boolean(data?.hasCodexOAuth));
             setHasConvexOAuth(Boolean(data?.hasConvexOAuth));
@@ -189,6 +195,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
           anthropic: Boolean(data?.hasAnthropicKey),
           moonshot: Boolean(data?.hasMoonshotKey),
           fireworks: Boolean(data?.hasFireworksKey),
+          together: Boolean(data?.hasTogetherKey),
           google: Boolean(data?.hasGoogleKey),
         });
         setKeys(prev => ({ ...prev, [provider]: '' }));
@@ -872,7 +879,7 @@ export function SettingsModal({ open, onClose, defaultTab = 'usage', workspaceCo
                         )}
                       </p>
                       <div className="space-y-4">
-                        {PROVIDERS.map(({ provider, label, placeholder }) => (
+                        {PROVIDERS.filter(p => p.provider !== 'together' || useTogetherKimi).map(({ provider, label, placeholder }) => (
                           <div key={provider}>
                             <label className="flex items-center gap-2 text-sm font-medium text-fg mb-1.5">
                               {label}

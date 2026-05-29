@@ -25,3 +25,12 @@ export const CLAUDE_CODE_ENABLED =
  *  is verified end-to-end on botflow.io. */
 export const STRIPE_CONNECT_ENABLED =
   process.env.NEXT_PUBLIC_STRIPE_CONNECT_ENABLED === 'true';
+
+/** When true: Kimi K2.6 traffic is routed to Together AI instead of Fireworks.
+ *  The model id stays `fireworks-kimi-k2p6` (so existing project preferences and
+ *  the model selector are unaffected) — only the backend provider changes. The
+ *  server key becomes `TOGETHER_API_KEY` and the connections tab exposes a
+ *  Together AI BYOK input. Server-only flag (no NEXT_PUBLIC_ prefix); the client
+ *  learns its value via the /api/user-settings response. */
+export const USE_TOGETHER_KIMI =
+  process.env.USE_TOGETHER_KIMI === 'true';

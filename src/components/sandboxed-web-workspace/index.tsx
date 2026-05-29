@@ -235,8 +235,11 @@ export function SandboxedWebWorkspace({
 
     const poll = async () => {
       try {
+        // NOTE: must send a *value* (`=1`). Vercel's runtime drops value-less
+        // query params, so a bare `?signature` arrives as no param at all and
+        // the route falls through to returning the full listing.
         const res = await fetch(
-          `/api/projects/${projectId}/sandbox/files?signature`,
+          `/api/projects/${projectId}/sandbox/files?signature=1`,
           { cache: "no-store" },
         );
         if (!res.ok || cancelled) return;

@@ -7,6 +7,7 @@ import {
   getOrCreatePersistentSandbox,
   sandboxListFiles,
   sandboxReadFile,
+  sandboxTreeSignature,
   sandboxWriteFile,
 } from "@/lib/vercel-sandbox";
 
@@ -35,8 +36,16 @@ export async function GET(
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const filePath = req.nextUrl.searchParams.get("path");
+  const wantsSignature = req.nextUrl.searchParams.get("signature") !== null;
 
   try {
+    if (wantsSignature) {
+      // Cheap change-detection probe the client polls to decide whether to
+      // re-fetch the full tree. See sandboxTreeSignature for the rationale.
+      const signature = await sandboxTreeSignature(project.id);
+      return NextResponse.json({ signature });
+    }
+
     if (filePath) {
       const result = await sandboxReadFile(project.id, filePath);
       if (!result) return NextResponse.json({ error: "File not found" }, { status: 404 });

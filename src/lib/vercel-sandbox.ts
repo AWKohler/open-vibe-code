@@ -564,6 +564,36 @@ export async function sandboxListFiles(
   return entries;
 }
 
+/**
+ * Cheap "did the file tree change?" probe.
+ *
+ * Returns a single short signature string derived from the path, type, size,
+ * and mtime of every file/folder in the project (excluding node_modules/.git).
+ * The client polls this on an interval and only re-fetches the full listing
+ * when the signature differs from the last one it saw — so the common case
+ * (nothing changed) costs one `find | cksum` and a few bytes over the wire,
+ * not a full recursive tree transfer.
+ *
+ * Because the signature folds in size+mtime, it flips on creates, deletes,
+ * renames, AND in-place edits (e.g. `touch`, agent writes, `git pull`).
+ */
+export async function sandboxTreeSignature(projectId: string): Promise<string> {
+  // `%y %s %T@ %p` → type, size, mtime(epoch), path. Sorting makes the hash
+  // order-independent across find's traversal; cksum gives "<sum> <bytes>".
+  const script =
+    `find ${SANDBOX_ROOT} ` +
+    `-not -path '*/node_modules/*' -not -path '*/.git/*' -not -name .DS_Store ` +
+    `-printf '%y %s %T@ %p\\n' | LC_ALL=C sort | cksum`;
+  // No `pipefail`: `find` can exit non-zero on a benign traversal warning, and
+  // we don't want that to mask a perfectly good signature. The pipeline's exit
+  // is `cksum`'s, which only fails if it couldn't read stdin at all.
+  const res = await sandboxBash(projectId, script, { timeoutMs: 30_000 });
+  // Non-zero usually means a transient hiccup; return empty so the caller
+  // treats it as "unknown" and doesn't trigger a spurious reconcile.
+  if (res.exitCode !== 0) return "";
+  return res.stdout.trim();
+}
+
 // Recursive grep using ripgrep when available, falling back to grep -r.
 export async function sandboxGrep(
   projectId: string,

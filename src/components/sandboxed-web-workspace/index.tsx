@@ -216,6 +216,57 @@ export function SandboxedWebWorkspace({
     }
   }, [projectId]);
 
+  // ── Live file-tree reconcile ──────────────────────────────────────────
+  // The sandbox FS can change underneath us at any time: the terminal
+  // (`touch`, `rm`, `mv`), the agent's file tools, and `git pull` all mutate
+  // disk without going through this component. Without a change feed the tree
+  // would stay frozen at its boot snapshot until a manual refresh.
+  //
+  // We poll a cheap signature endpoint (`?signature` → `find | cksum`) that
+  // folds in path+size+mtime for every file. When it differs from the last
+  // value we saw, the tree genuinely changed, so we re-fetch the full listing.
+  // `setFiles` only swaps the path→type map; `expandedFolders` (owned by
+  // FileTree) and `selectedFile` are untouched, so reconciling never collapses
+  // folders or steals the user's selection.
+  const lastTreeSignatureRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (sandboxStatus !== "ready") return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/sandbox/files?signature`,
+          { cache: "no-store" },
+        );
+        if (!res.ok || cancelled) return;
+        const { signature } = (await res.json()) as { signature: string };
+        // Empty signature == probe hiccup; leave the baseline alone.
+        if (!signature || cancelled) return;
+
+        if (lastTreeSignatureRef.current === null) {
+          // First successful probe. Establish the baseline and reconcile once
+          // to close the gap between boot's snapshot and this signature (a
+          // change in that window would otherwise go unnoticed until the next).
+          lastTreeSignatureRef.current = signature;
+          await refreshFiles();
+        } else if (signature !== lastTreeSignatureRef.current) {
+          lastTreeSignatureRef.current = signature;
+          await refreshFiles();
+        }
+      } catch {
+        // Network blips are fine; the next tick catches up.
+      }
+    };
+
+    void poll();
+    const timer = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [projectId, sandboxStatus, refreshFiles]);
+
   // Boot the sandbox: ensure session → seed if empty → load file tree.
   // Extracted so the retry button on the error banner can re-invoke it.
   const bootSandbox = useCallback(async () => {

@@ -18,7 +18,7 @@ import {
   ConnectPayouts,
 } from "@stripe/react-connect-js";
 import { loadConnectAndInitialize, type StripeConnectInstance } from "@stripe/connect-js";
-import { ExternalLink, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, ExternalLink, Loader2, RefreshCw, Unplug } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface StripeModeToggleProps {
@@ -73,6 +73,9 @@ interface StripeTabProps {
   mode: "test" | "live";
   /** Click handler for "Open Full Stripe Dashboard ↗". */
   onOpenFullDashboard?: () => void;
+  /** Called after the user disconnects the account in the current mode, so the
+   *  workspace can flip stripeEnabled off and leave the tab. */
+  onDisconnected?: (mode: "test" | "live") => void;
 }
 
 interface AccountSessionResponse {
@@ -82,6 +85,33 @@ interface AccountSessionResponse {
   mode?: string;
   accountId?: string;
   error?: string;
+}
+
+interface AccountStatus {
+  connected: boolean;
+  ready: boolean;
+  chargesEnabled?: boolean;
+  payoutsEnabled?: boolean;
+  detailsSubmitted?: boolean;
+  requirements?: {
+    currentlyDue: string[];
+    pastDue: string[];
+    disabledReason: string | null;
+  };
+}
+
+async function fetchAccountStatus(projectId: string): Promise<AccountStatus | null> {
+  try {
+    const res = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/stripe/account-status`,
+      { cache: "no-store" },
+    );
+    const data = (await res.json()) as AccountStatus & { ok: boolean };
+    if (!res.ok || !data.ok) return null;
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 /** Map botflow's CSS vars to Stripe Connect appearance.variables. Stripe's
@@ -124,13 +154,15 @@ async function fetchAccountSession(projectId: string): Promise<AccountSessionRes
   return data;
 }
 
-export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabProps) {
+export function StripeTab({ projectId, mode, onOpenFullDashboard, onDisconnected }: StripeTabProps) {
   const [view, setView] = useState<StripeSubView>("payments");
   const [connectInstance, setConnectInstance] = useState<StripeConnectInstance | null>(null);
   const [accountId, setAccountId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [retryTick, setRetryTick] = useState(0);
+  const [status, setStatus] = useState<AccountStatus | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   // Pin projectId in a ref so the SDK's fetchClientSecret callback always
   // hits the right URL even if the tab is re-keyed mid-flight.
@@ -150,6 +182,11 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
 
     (async () => {
       try {
+        // Pull live readiness in parallel — gates whether we render the full
+        // dashboard or an onboarding-completion panel.
+        void fetchAccountStatus(projectIdRef.current).then((s) => {
+          if (!cancelled) setStatus(s);
+        });
         // Initial pre-fetch lands the publishable key + account id. The SDK
         // will call fetchClientSecret again on its own as needed (~1h TTL).
         const initial = await fetchAccountSession(projectIdRef.current);
@@ -191,30 +228,87 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
     [],
   );
 
+  const refreshStatus = useCallback(async () => {
+    const s = await fetchAccountStatus(projectIdRef.current);
+    setStatus(s);
+  }, []);
+
+  const handleDisconnect = useCallback(async () => {
+    if (disconnecting) return;
+    const confirmed = window.confirm(
+      `Disconnect your Stripe account from ${mode} mode? You can reconnect (or link a different account) afterwards.`,
+    );
+    if (!confirmed) return;
+    setDisconnecting(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${encodeURIComponent(projectIdRef.current)}/stripe/disconnect`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mode }),
+        },
+      );
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? `Disconnect failed (HTTP ${res.status})`);
+        return;
+      }
+      onDisconnected?.(mode);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDisconnecting(false);
+    }
+  }, [disconnecting, mode, onDisconnected]);
+
+  // Connected but not finished onboarding → don't render the dashboard (it
+  // would falsely imply the account is live). Show a completion panel instead.
+  const needsOnboarding = status?.connected === true && status.ready === false;
+
   return (
     <div className="flex flex-col h-full bg-bolt-bg">
       <div className="flex items-center justify-between px-6 py-3 border-b border-border">
         <div className="flex items-center gap-1.5">
-          {subViews.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => setView(v.id)}
-              className={cn(
-                "text-xs font-medium px-3 py-1.5 rounded-md transition-colors",
-                view === v.id
-                  ? "bg-elevated text-fg"
-                  : "text-muted hover:text-fg hover:bg-elevated/50",
-              )}
-            >
-              {v.label}
-            </button>
-          ))}
+          {/* Hide the dashboard sub-views until onboarding is actually
+              complete — they'd misrepresent a half-onboarded account as live. */}
+          {!needsOnboarding &&
+            subViews.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => setView(v.id)}
+                className={cn(
+                  "text-xs font-medium px-3 py-1.5 rounded-md transition-colors",
+                  view === v.id
+                    ? "bg-elevated text-fg"
+                    : "text-muted hover:text-fg hover:bg-elevated/50",
+                )}
+              >
+                {v.label}
+              </button>
+            ))}
+          {needsOnboarding && (
+            <span className="text-xs font-medium text-amber-300">
+              Finish activating your Stripe account
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {accountId && (
             <span className="text-[10px] text-muted font-mono">
               {accountId.slice(0, 14)}…
             </span>
+          )}
+          {accountId && (
+            <button
+              onClick={handleDisconnect}
+              disabled={disconnecting}
+              className="flex items-center gap-1 text-xs font-medium text-muted hover:text-red-400 transition-colors disabled:opacity-50"
+              title={`Disconnect your Stripe account from ${mode} mode`}
+            >
+              {disconnecting ? <Loader2 size={12} className="animate-spin" /> : <Unplug size={12} />}
+              Disconnect
+            </button>
           )}
           {onOpenFullDashboard && (
             <button
@@ -254,18 +348,46 @@ export function StripeTab({ projectId, mode, onOpenFullDashboard }: StripeTabPro
                 provide the outer page padding + vertical rhythm between
                 the notification banner row and the active sub-view. */}
             <div className="px-6 py-5 space-y-5">
-              <ConnectNotificationBanner />
-              <div className="min-h-[500px]">
-                {view === "payments" && <ConnectPayments />}
-                {view === "balances" && <ConnectBalances />}
-                {view === "payouts" && <ConnectPayouts />}
-                {view === "account" && <ConnectAccountManagement />}
-                {view === "onboarding" && (
-                  <ConnectAccountOnboarding
-                    onExit={() => setView("account")}
-                  />
-                )}
-              </div>
+              {needsOnboarding ? (
+                <>
+                  <div className="flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                    <AlertTriangle size={18} className="text-amber-300 mt-0.5 shrink-0" />
+                    <div className="text-sm text-amber-100/90 space-y-1">
+                      <p className="font-medium text-amber-200">
+                        Your Stripe account isn&apos;t fully activated yet
+                      </p>
+                      <p className="text-[13px] leading-relaxed">
+                        Until activation is complete, your live app can&apos;t take
+                        payments — checkout will fail with &quot;no valid payment
+                        method types&quot;. Finish the steps below to go live. If you
+                        linked the wrong account, use Disconnect above.
+                      </p>
+                    </div>
+                  </div>
+                  <ConnectNotificationBanner />
+                  <div className="min-h-[500px]">
+                    <ConnectAccountOnboarding onExit={() => void refreshStatus()} />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <ConnectNotificationBanner />
+                  <div className="min-h-[500px]">
+                    {view === "payments" && <ConnectPayments />}
+                    {view === "balances" && <ConnectBalances />}
+                    {view === "payouts" && <ConnectPayouts />}
+                    {view === "account" && <ConnectAccountManagement />}
+                    {view === "onboarding" && (
+                      <ConnectAccountOnboarding
+                        onExit={() => {
+                          setView("account");
+                          void refreshStatus();
+                        }}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </ConnectComponentsProvider>
         )}

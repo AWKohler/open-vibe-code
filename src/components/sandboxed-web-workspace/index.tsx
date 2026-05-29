@@ -1150,6 +1150,19 @@ export function SandboxedWebWorkspace({
                     toast({ title: "Couldn't open dashboard", description: err instanceof Error ? err.message : String(err) });
                   }
                 }}
+                onDisconnected={(disconnectedMode) => {
+                  // The disconnected mode is no longer linked. If it's the mode
+                  // this project is on, the tab can't load anymore — flip Stripe
+                  // off and leave the tab so the user can re-connect.
+                  if (disconnectedMode === stripePaymentMode) {
+                    setStripeEnabled(false);
+                    setCurrentView("preview");
+                  }
+                  toast({
+                    title: "Stripe disconnected",
+                    description: `Your Stripe account was disconnected from ${disconnectedMode} mode.`,
+                  });
+                }}
               />
             </div>
           )}

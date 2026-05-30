@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { CodeEditor } from "@/components/workspace/code-editor";
 import { FileTree } from "@/components/workspace/file-tree";
+import { TemplateForkModal } from "./template-fork-modal";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -43,6 +44,8 @@ export interface PublicProjectData {
     deployedUrl: string | null;
     /** Whether a source bundle exists (drives the Code tab + "Use as template"). */
     hasSource: boolean;
+    /** Whether the template needs a Convex backend (drives the fork modal). */
+    usesConvex: boolean;
   };
 }
 
@@ -98,7 +101,7 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
   const [stars, setStars] = useState(project.starCount);
   const [hasStarred, setHasStarred] = useState(project.hasStarred);
   const [starring, setStarring] = useState(false);
-  const [forking, setForking] = useState(false);
+  const [forkModalOpen, setForkModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const fileTree = useMemo(() => buildFileTree(sourceFiles ?? []), [sourceFiles]);
@@ -162,39 +165,25 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
     }
   }, [isSignedIn, router, project.publicSlug, starring, stars, hasStarred, toast]);
 
-  const handleFork = useCallback(async () => {
+  // "Use as template" → open the creation modal (which routes to /start so the
+  // new project goes through the real naming + Convex provisioning + gating
+  // flow). Signed-out users sign in first and return with ?fork=1.
+  const handleUseAsTemplate = useCallback(() => {
     if (!isSignedIn) {
       router.push(`/sign-in?redirect_url=${encodeURIComponent(`/p/${project.publicSlug}?fork=1`)}`);
       return;
     }
-    if (forking) return;
-    setForking(true);
-    try {
-      const res = await fetch(`/api/public/projects/${project.publicSlug}/fork`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? "Failed to fork");
-      }
-      const { projectId } = await res.json();
-      router.push(`/workspace/${projectId}`);
-    } catch (err) {
-      toast({ title: "Could not use as template", description: err instanceof Error ? err.message : undefined });
-      setForking(false);
-    }
-  }, [isSignedIn, router, project.publicSlug, forking, toast]);
+    setForkModalOpen(true);
+  }, [isSignedIn, router, project.publicSlug]);
 
-  // Auto-fork after sign-in (?fork=1)
+  // Auto-open the fork modal after sign-in / Convex connect (?fork=1).
   useEffect(() => {
     if (!isSignedIn || !hasSource) return;
     const url = new URL(window.location.href);
     if (url.searchParams.get("fork") === "1") {
       url.searchParams.delete("fork");
       window.history.replaceState({}, "", url.toString());
-      handleFork();
+      setForkModalOpen(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
@@ -290,11 +279,10 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
 
               {hasSource && (
                 <button
-                  onClick={handleFork}
-                  disabled={forking}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-fg px-3.5 py-1.5 text-sm font-medium text-bg shadow-md hover:opacity-90 disabled:opacity-60 transition"
+                  onClick={handleUseAsTemplate}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-fg px-3.5 py-1.5 text-sm font-medium text-bg shadow-md hover:opacity-90 transition"
                 >
-                  {forking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  <Sparkles className="h-4 w-4" />
                   Use as template
                 </button>
               )}
@@ -331,6 +319,15 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
           />
         )}
       </main>
+
+      {forkModalOpen && (
+        <TemplateForkModal
+          slug={project.publicSlug}
+          sourceName={project.name}
+          usesConvex={project.usesConvex}
+          onClose={() => setForkModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

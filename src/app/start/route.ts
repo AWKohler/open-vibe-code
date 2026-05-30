@@ -132,7 +132,10 @@ export async function GET(request: Request) {
   const prompt = url.searchParams.get('prompt')?.slice(0, 30000) ?? '';
   const visibility = url.searchParams.get('visibility') ?? 'public';
   const platformParam = url.searchParams.get('platform');
-  const platform = normalizeProjectPlatform(platformParam) as ProjectPlatform;
+  // Template fork: seedSlug points at a public project whose source bundle seeds
+  // the new sandbox. Forks are always the sandbox "Web" platform.
+  const seedSlug = url.searchParams.get('seedSlug');
+  const platform = (seedSlug ? 'sandboxed-web' : normalizeProjectPlatform(platformParam)) as ProjectPlatform;
   const backendTypeParam = url.searchParams.get('backendType');
   const modelParam = url.searchParams.get('model');
   const model = (
@@ -219,8 +222,28 @@ export async function GET(request: Request) {
       const cloudConvexForAll = process.env.ALLOW_CLOUD_CONVEX_FOR_ALL === 'true';
       const limits = await getUserTierAndLimits(userId);
       if (!cloudConvexForAll && limits.tier === 'free') {
+        // Template forks of a Convex project can't silently drop the backend —
+        // that would break the seeded code. The modal already blocks this for
+        // free users; bounce back with an upsell instead of downgrading.
+        if (seedSlug) {
+          const errUrl = new URL('/', request.url);
+          errUrl.searchParams.set('error', 'convex_requires_pro');
+          return NextResponse.redirect(errUrl);
+        }
         backendType = 'none';
       }
+    }
+
+    // Resolve the source bundle for a template fork (seeds the new sandbox on
+    // first open). Looked up here so the column is set at insert time.
+    let seedBundleUrl: string | null = null;
+    if (seedSlug) {
+      const [src] = await db
+        .select({ publicSourceUrl: projects.publicSourceUrl })
+        .from(projects)
+        .where(eq(projects.publicSlug, seedSlug))
+        .limit(1);
+      seedBundleUrl = src?.publicSourceUrl ?? null;
     }
 
     // Resolve the initial agent backend for this project. The user's BYOK
@@ -255,6 +278,12 @@ export async function GET(request: Request) {
         backendType,
         agentBackend: initialAgentBackend,
         currentSegmentId: randomUUID(),
+        // Template fork: seed the sandbox from the source bundle on first open
+        // (falls back to the template if the source had no bundle).
+        ...(seedBundleUrl ? { seedBundleUrl } : {}),
+        ...(seedSlug
+          ? { sandboxTemplate: backendType === 'none' ? 'vite' as const : 'viteConvex' as const }
+          : {}),
       })
       .returning();
 

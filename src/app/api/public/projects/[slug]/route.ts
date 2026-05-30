@@ -60,6 +60,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
         // preview. The source itself is fetched lazily from /source.
         deployedUrl: proj.cloudflareDeploymentUrl,
         hasSource: Boolean(proj.publicSourceUrl),
+        // Whether this template needs a Convex backend — drives the fork modal's
+        // backend-selection step.
+        usesConvex: proj.backendType !== 'none',
       },
     });
   } catch (err) {

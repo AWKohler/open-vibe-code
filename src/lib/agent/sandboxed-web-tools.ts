@@ -683,7 +683,10 @@ export function getSandboxedWebTools(params: {
         "AFTER SUCCESS:\n" +
         "  1. Add Google to convex/auth.ts providers array.\n" +
         "  2. Run convexDeploy.\n" +
-        "  3. Add a 'Sign in with Google' button: signIn('google')",
+        "  3. Add a 'Sign in with Google' button using the startOAuthSignIn helper " +
+        "from @/lib/botflowAuth (NOT signIn('google') directly) so it works from " +
+        "the preview iframe, and call resumePendingOAuthSignIn(signIn) once at app " +
+        "mount. See the setupAuth context for the exact pattern.",
       inputSchema: z.object({
         provider: z.literal("google").default("google").describe("OAuth provider to add. Currently only 'google' is supported."),
       }),

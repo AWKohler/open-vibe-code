@@ -145,6 +145,10 @@ export function SandboxedWebWorkspace({
    *  (Checkout / dashboard). We surface a card with a real "Open" button so the
    *  user's click is a fresh top-level gesture (no popup blocker). */
   const [checkoutHandoffUrl, setCheckoutHandoffUrl] = useState<string | null>(null);
+  /** Set when the previewed app asks us to resume an OAuth sign-in that can't
+   *  complete inside the iframe. We reopen the app in a new top-level tab with
+   *  ?botflow_signin=<provider> so the flow runs (and the session lands) there. */
+  const [authHandoff, setAuthHandoff] = useState<{ provider: string; url: string } | null>(null);
 
   // ── Publish / Cloudflare Pages state ─────────────────────────────────
   const [cloudflareProjectName, setCloudflareProjectName] = useState<string | null>(null);
@@ -735,20 +739,51 @@ export function SandboxedWebWorkspace({
   // navigating. We validate it's an https *.stripe.com URL and show a card
   // with an "Open Checkout" button — clicking it is a top-level user gesture,
   // so the new tab isn't popup-blocked.
+  //
+  // OAuth (Google, GitHub, …) hits the same wall: the provider page refuses to
+  // be framed, and a session completed in a popup wouldn't reach the framed app
+  // anyway (storage partitioning). So the scaffolded startOAuthSignIn helper
+  // posts botflow:open-auth, and we reopen the app itself in a new tab with
+  // ?botflow_signin=<provider> so the flow runs — and the session lands — there.
   useEffect(() => {
     const handler = (e: MessageEvent) => {
-      const data = e.data as { type?: string; url?: string } | null;
-      if (!data || data.type !== "botflow:open-url" || typeof data.url !== "string") return;
-      let parsed: URL;
-      try {
-        parsed = new URL(data.url);
-      } catch {
+      const data = e.data as { type?: string; url?: string; provider?: string } | null;
+      if (!data || typeof data !== "object") return;
+
+      if (data.type === "botflow:open-url" && typeof data.url === "string") {
+        let parsed: URL;
+        try {
+          parsed = new URL(data.url);
+        } catch {
+          return;
+        }
+        // Only ever surface Stripe URLs — never a popup to an arbitrary origin.
+        if (parsed.protocol !== "https:") return;
+        if (parsed.host !== "stripe.com" && !parsed.host.endsWith(".stripe.com")) return;
+        setCheckoutHandoffUrl(parsed.toString());
         return;
       }
-      // Only ever surface Stripe URLs — never a popup to an arbitrary origin.
-      if (parsed.protocol !== "https:") return;
-      if (parsed.host !== "stripe.com" && !parsed.host.endsWith(".stripe.com")) return;
-      setCheckoutHandoffUrl(parsed.toString());
+
+      if (data.type === "botflow:open-auth" && typeof data.provider === "string") {
+        // The target tab is the app itself, so trust only messages coming from
+        // the sandbox's own origin and build the URL from that origin — never
+        // from attacker-supplied data.
+        if (!e.origin.endsWith(".vercel.run") && !e.origin.startsWith("http://localhost")) return;
+        // Provider ids are short slugs ("google", "github", …). Reject anything
+        // that isn't, so it can't be smuggled into the query string.
+        if (!/^[a-z0-9_-]{1,32}$/.test(data.provider)) return;
+        let origin: string;
+        try {
+          origin = new URL(e.origin).origin;
+        } catch {
+          return;
+        }
+        setAuthHandoff({
+          provider: data.provider,
+          url: origin + "/?botflow_signin=" + encodeURIComponent(data.provider),
+        });
+        return;
+      }
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
@@ -928,6 +963,37 @@ export function SandboxedWebWorkspace({
                 className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-accent text-accent-foreground hover:opacity-90 transition-opacity"
               >
                 Open Checkout
+                <ExternalLink size={13} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {authHandoff && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[120] w-[min(440px,calc(100vw-2rem))] rounded-xl border border-border bg-neutral-900 text-white shadow-2xl">
+          <div className="px-4 py-3 space-y-2.5">
+            <div className="text-sm font-medium">Finish signing in in a new tab</div>
+            <p className="text-xs leading-relaxed text-neutral-300">
+              Sign-in can&apos;t complete inside the preview window. Click below to
+              open your app in a new tab and continue — you&apos;ll be signed in
+              there. (In your published app it works normally; this only happens
+              in the preview.)
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-0.5">
+              <button
+                onClick={() => setAuthHandoff(null)}
+                className="text-xs font-medium px-3 py-1.5 rounded-md text-neutral-300 hover:bg-white/10 transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => {
+                  window.open(authHandoff.url, "_blank", "noopener,noreferrer");
+                  setAuthHandoff(null);
+                }}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-accent text-accent-foreground hover:opacity-90 transition-opacity"
+              >
+                Open app
                 <ExternalLink size={13} />
               </button>
             </div>
@@ -1127,8 +1193,8 @@ export function SandboxedWebWorkspace({
                 variant="default"
                 size="sm"
                 className={cn(
-                  "font-bold text-sm",
-                  cloudflareProjectName && "bg-green-600 hover:bg-green-700 text-white",
+                  "font-bold text-sm text-white",
+                  cloudflareProjectName && "bg-green-600 hover:bg-green-700",
                 )}
                 onClick={() => setPublishOpen((v) => !v)}
                 title={cloudflareProjectName ? "Manage deployment" : "Publish to Cloudflare Pages"}

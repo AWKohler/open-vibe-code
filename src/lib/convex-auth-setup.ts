@@ -47,8 +47,83 @@ function generateConvexAuthSecrets(): { privateKeyPem: string; jwksJson: string 
   return { privateKeyPem: privateKey, jwksJson };
 }
 
+/**
+ * Frontend helper that makes OAuth sign-in work from the Botflow preview
+ * iframe. OAuth (Google, GitHub, …) cannot complete inside the embedded
+ * preview: the provider's page refuses to be framed, and even if it loaded the
+ * resulting session would land in a different storage partition than the
+ * preview. So inside the preview we hand the flow off to the workspace, which
+ * re-opens this app in a new top-level tab with the provider preselected and
+ * resumes sign-in there. In the deployed app (and in that new tab) it runs
+ * normally. Written to /src/lib/botflowAuth.ts via buildAuthBoilerplate.
+ *
+ * NOTE: keep this string free of backticks and ${...} — it is emitted verbatim.
+ */
+export const AUTH_HELPER_TS = `// botflowAuth — makes OAuth sign-in work from the Botflow preview iframe.
+//
+// OAuth providers (Google, GitHub, …) can't complete inside the embedded
+// preview, so here we hand sign-in off to the Botflow workspace, which reopens
+// this app in a new top-level tab and resumes the flow. In your deployed app
+// (and in that new tab) sign-in runs normally — these helpers are no-ops there.
+
+// True when this app is running inside the Botflow preview iframe.
+export function inBotflowPreview(): boolean {
+  try {
+    return typeof window !== "undefined" && window.self !== window.top;
+  } catch {
+    // Cross-origin access to window.top throws, which means we ARE framed.
+    return true;
+  }
+}
+
+// Call this from an OAuth sign-in button's onClick. Pass the signIn function
+// from useAuthActions() and the provider id ("google", "github", …). In the
+// preview it asks the workspace to reopen the app in a new tab and resume
+// there; everywhere else it starts the real OAuth redirect.
+export async function startOAuthSignIn(
+  signIn: (provider: string) => Promise<unknown>,
+  provider: string,
+): Promise<void> {
+  if (inBotflowPreview()) {
+    try {
+      window.parent.postMessage({ type: "botflow:open-auth", provider: provider }, "*");
+      return;
+    } catch {
+      // Fall through to a best-effort popup if the parent is unreachable.
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("botflow_signin", provider);
+    window.open(url.toString(), "_blank", "noopener");
+    return;
+  }
+  await signIn(provider);
+}
+
+// Call once when the app mounts (e.g. a top-level useEffect). When the preview
+// handoff reopened this app in a new tab it appended ?botflow_signin=<provider>
+// — this resumes that OAuth flow now (top-level, where it works) and strips the
+// param so a refresh doesn't repeat it. No-op in the preview and when absent.
+export function resumePendingOAuthSignIn(
+  signIn: (provider: string) => Promise<unknown>,
+): void {
+  if (typeof window === "undefined" || inBotflowPreview()) return;
+  const params = new URLSearchParams(window.location.search);
+  const provider = params.get("botflow_signin");
+  if (!provider) return;
+  params.delete("botflow_signin");
+  const query = params.toString();
+  const clean = window.location.pathname + (query ? "?" + query : "") + window.location.hash;
+  window.history.replaceState(null, "", clean);
+  void signIn(provider);
+}
+`;
+
 function buildAuthBoilerplate(): ConvexAuthFile[] {
   return [
+    {
+      path: "src/lib/botflowAuth.ts",
+      content: AUTH_HELPER_TS,
+    },
     {
       path: "convex/auth.config.ts",
       content: `// Required by @convex-dev/auth — tells Convex to trust JWTs issued by
@@ -144,6 +219,9 @@ FILES WRITTEN (WRITE THESE EXACTLY AS PROVIDED IN THE files ARRAY):
   convex/http.ts         — Mounts auth's OAuth callback/sign-out HTTP routes.
   convex/schema.ts       — Spreads authTables so built-in auth tables exist in DB.
   convex/users.ts        — viewer query: returns the current user doc (or null).
+  src/lib/botflowAuth.ts — Helpers so OAuth sign-in works from the preview iframe
+                           (startOAuthSignIn / resumePendingOAuthSignIn). Only
+                           needed once you add an OAuth provider — see below.
 
 REQUIRED SEQUENCE AFTER WRITING FILES:
   1. pnpm add @convex-dev/auth @auth/core
@@ -285,9 +363,35 @@ ADDING OAUTH PROVIDERS (Google):
 
   Step 3 — Run convexDeploy to push the updated auth config.
 
-  Step 4 — Add a Google sign-in button to the UI:
-           const { signIn } = useAuthActions();
-           <button onClick={() => void signIn("google")}>Sign in with Google</button>
+  Step 4 — Add a Google sign-in button to the UI.
+
+           CRITICAL: OAuth can't complete inside the Botflow preview iframe
+           (the provider page refuses to be framed). The scaffold provides
+           src/lib/botflowAuth.ts to handle this — ALWAYS use it for OAuth
+           buttons; never call signIn("google") directly for an OAuth provider.
+
+             import { useAuthActions } from "@convex-dev/auth/react";
+             import { startOAuthSignIn } from "@/lib/botflowAuth";
+
+             const { signIn } = useAuthActions();
+             <button onClick={() => void startOAuthSignIn(signIn, "google")}>
+               Sign in with Google
+             </button>
+
+           In the preview, startOAuthSignIn asks the workspace to reopen the app
+           in a new tab and resume sign-in there; in the deployed app it just
+           calls signIn normally. (Password/anonymous sign-in does NOT redirect,
+           so keep calling signIn directly for those.)
+
+           Then, so the new tab resumes the flow automatically, call
+           resumePendingOAuthSignIn ONCE at app mount (e.g. in App.tsx):
+
+             import { useEffect } from "react";
+             import { useAuthActions } from "@convex-dev/auth/react";
+             import { resumePendingOAuthSignIn } from "@/lib/botflowAuth";
+
+             const { signIn } = useAuthActions();
+             useEffect(() => { resumePendingOAuthSignIn(signIn); }, [signIn]);
 
   If the user clicks Cancel in the modal, setupOAuthProvider returns
   ok: false. In that case, do NOT retry automatically — just acknowledge

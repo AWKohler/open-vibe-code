@@ -124,6 +124,39 @@ export async function POST(
           send('output', `[warn] failed to sync .env: ${envErr instanceof Error ? envErr.message : String(envErr)}`);
         }
 
+        // Ensure dependencies are present. Fresh / migrated / forked sandboxes
+        // may never have had a dev server started, so node_modules (and the
+        // build's `tsc`/`vite` binaries) won't exist yet. Install on demand.
+        send('status', 'Checking dependencies');
+        const nmCheck = await sandbox.runCommand({
+          cmd: 'sh',
+          args: ['-lc', `test -d ${SANDBOX_ROOT}/node_modules`],
+          cwd: SANDBOX_ROOT,
+        });
+        if ((await nmCheck.wait()).exitCode !== 0) {
+          send('status', 'Installing dependencies (first deploy)…');
+          const inst = await sandbox.runCommand({
+            cmd: 'pnpm',
+            args: ['install'],
+            cwd: SANDBOX_ROOT,
+            detached: true,
+          });
+          try {
+            for await (const chunk of inst.logs()) {
+              const text = typeof chunk.data === 'string' ? chunk.data : new TextDecoder().decode(chunk.data);
+              for (const line of text.split('\n')) {
+                if (line.length > 0) send('output', line);
+              }
+            }
+          } catch { /* ignore log stream hiccups */ }
+          const instRes = await inst.wait();
+          if (instRes.exitCode !== 0) {
+            send('build_error', `Dependency install failed (exit ${instRes.exitCode}). Try again.`);
+            controller.close();
+            return;
+          }
+        }
+
         send('status', 'Running pnpm build');
         const cmd = await sandbox.runCommand({
           cmd: 'pnpm',

@@ -20,7 +20,7 @@ import { getDb } from '@/db';
 import { projects, userStripeIdentity } from '@/db/schema';
 import { canUseStripeConnect } from '@/lib/tier';
 import { isConnectOAuthConfigured, isStripeConfigured, type StripeMode } from '@/lib/stripe';
-import { setStripeConvexEnv } from '@/lib/stripe-scaffold';
+import { setStripeConvexEnv, mirrorStripeProductsAcrossModes } from '@/lib/stripe-scaffold';
 import { mintStripeAuthorizeUrl } from '@/lib/stripe-connect';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
@@ -130,6 +130,29 @@ export async function POST(
     }).catch((err) => {
       console.error('[stripe/mode] setStripeConvexEnv failed (non-fatal):', err);
     });
+  }
+
+  // Mirror this project's products from the mode we're leaving into the mode
+  // we're entering, so a stable lookup key resolves to a real price in the new
+  // mode without anyone re-creating the product. Best-effort, non-fatal.
+  const fromMode: StripeMode = project.stripePaymentMode === 'live' ? 'live' : 'test';
+  const fromAccountId =
+    fromMode === 'live' ? identity?.liveAccountId : identity?.testAccountId;
+  if (fromAccountId && fromAccountId !== accountId) {
+    try {
+      const result = await mirrorStripeProductsAcrossModes({
+        projectId,
+        fromMode,
+        fromAccountId,
+        toMode: requested,
+        toAccountId: accountId,
+      });
+      if (result.errors.length) {
+        console.warn('[stripe/mode] product mirror had errors:', result.errors);
+      }
+    } catch (err) {
+      console.error('[stripe/mode] product mirror failed (non-fatal):', err);
+    }
   }
 
   return NextResponse.json({ ok: true, mode: requested, accountId });

@@ -19,6 +19,7 @@ import {
   userStripeIdentity,
 } from '@/db/schema';
 import { getStripe, type StripeMode } from '@/lib/stripe';
+import { mirrorStripeProductsAcrossModes } from '@/lib/stripe-scaffold';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -150,6 +151,26 @@ export async function GET(req: NextRequest) {
       updatedAt: now,
     })
     .where(eq(projects.id, stateRow.projectId));
+
+  // If the user already had the OTHER mode connected (e.g. they built in test
+  // and just linked live), mirror this project's products into the newly
+  // connected mode so existing lookup keys resolve there too. Best-effort.
+  const otherMode: StripeMode = mode === 'live' ? 'test' : 'live';
+  const otherAccountId =
+    otherMode === 'live' ? existing?.liveAccountId : existing?.testAccountId;
+  if (otherAccountId) {
+    try {
+      await mirrorStripeProductsAcrossModes({
+        projectId: stateRow.projectId,
+        fromMode: otherMode,
+        fromAccountId: otherAccountId,
+        toMode: mode,
+        toAccountId: stripeUserId,
+      });
+    } catch (err) {
+      console.error('[stripe/oauth/callback] product mirror failed (non-fatal):', err);
+    }
+  }
 
   // Mark the state token consumed so it can't be replayed.
   await db

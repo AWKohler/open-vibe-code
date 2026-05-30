@@ -10,7 +10,7 @@
  * helper knows to rewrite it on the next agent turn.
  */
 
-export const BRIDGE_SCRIPT_VERSION = "17";
+export const BRIDGE_SCRIPT_VERSION = "18";
 
 export const BRIDGE_SCRIPT_SOURCE = `#!/usr/bin/env node
 /* eslint-disable */
@@ -223,8 +223,9 @@ function buildCustomTools(customTools) {
       tool(
         "get_stripe_products",
         "List the Stripe Products and Prices on the user's connected account for this project's current test/live mode. " +
-        "Call this BEFORE writing checkout code so you use a real price_ id — never invent or hardcode one. " +
-        "Returns { ok, mode, products: [{ productId, name, prices: [{ priceId, unitAmount, currency, recurring }] }] }. " +
+        "Call this BEFORE writing checkout code so you reference a product by its lookupKey — never invent or hardcode a price_ id. " +
+        "Returns { ok, mode, products: [{ productId, name, prices: [{ priceId, lookupKey, unitAmount, currency, recurring }] }] }. " +
+        "Use the lookupKey (not priceId) in checkout — it resolves to the right price in whichever mode is active. " +
         "If the account has no products, create one with create_stripe_product. " +
         "Returns status='not-connected' if Stripe isn't linked (run initialize_stripe_payments first) or status='tier-blocked' for Free users.",
         {},
@@ -237,10 +238,11 @@ function buildCustomTools(customTools) {
     tools.push(
       tool(
         "create_stripe_product",
-        "Create a Stripe Product + Price on the user's connected account and get back a real price_ id. " +
+        "Create a Stripe Product + Price on the user's connected account and get back a stable lookupKey. " +
         "Use when the app needs a product/price that doesn't exist yet (check first with get_stripe_products). " +
         "unitAmount is in cents: 1500 = 15.00 USD. Omit interval for a one-time price; set it ('month'/'year'/etc.) for a subscription. " +
-        "Returns { ok, productId, priceId, ... } — use priceId in createCheckoutSession.",
+        "Returns { ok, productId, priceId, lookupKey, ... } — store the lookupKey in the app and pass it to createCheckoutSession, " +
+        "NEVER the raw price_ id. The lookupKey is mode-agnostic and is mirrored across test/live on switch, so checkout never breaks.",
         {
           name: z.string(),
           unitAmount: z.number().int().positive(),

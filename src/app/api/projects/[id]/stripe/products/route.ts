@@ -22,6 +22,7 @@ import { getDb } from '@/db';
 import { projects, userStripeIdentity } from '@/db/schema';
 import { canUseStripeConnect } from '@/lib/tier';
 import { getStripe, isStripeConfigured, type StripeMode } from '@/lib/stripe';
+import { makeStripeLookupKey } from '@/lib/stripe-scaffold';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -151,6 +152,7 @@ export async function GET(
           active: p.active,
           prices: prices.data.map((pr) => ({
             priceId: pr.id,
+            lookupKey: pr.lookup_key ?? null,
             unitAmount: pr.unit_amount,
             currency: pr.currency,
             recurring: pr.recurring
@@ -181,6 +183,8 @@ interface CreateBody {
   /** When set, creates a recurring price. Omit for a one-time price. */
   interval?: 'day' | 'week' | 'month' | 'year';
   intervalCount?: number;
+  /** Optional human-readable hint for the generated lookup key (e.g. "pro_monthly"). */
+  lookupKey?: string;
 }
 
 export async function POST(
@@ -212,14 +216,25 @@ export async function POST(
   }
   const currency = (body.currency ?? 'usd').toLowerCase();
 
+  // Stable, mode-agnostic handle. The app stores THIS (not price_…); the
+  // checkout proxy resolves it to the right price in the active mode, and the
+  // mirror routine recreates it under the same key in the other mode.
+  const lookupKey = makeStripeLookupKey(projectId, body.lookupKey || name);
+
   const stripe = getStripe(mode);
   try {
     const priceData: import('stripe').Stripe.PriceCreateParams = {
       currency,
       unit_amount: unitAmount,
+      lookup_key: lookupKey,
+      transfer_lookup_key: true,
       product_data: {
         name,
-        metadata: { botflow_project_id: projectId },
+        metadata: {
+          botflow_project_id: projectId,
+          botflow_managed: '1',
+          botflow_lookup_key: lookupKey,
+        },
       },
     };
     if (body.interval) {
@@ -238,6 +253,7 @@ export async function POST(
       mode,
       productId: typeof price.product === 'string' ? price.product : price.product.id,
       priceId: price.id,
+      lookupKey,
       name,
       unitAmount,
       currency,

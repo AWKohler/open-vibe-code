@@ -9,7 +9,9 @@
  * Auth: X-Botflow-Project-Secret matches projects.stripe_webhook_secret.
  *
  * Body:
- *   priceId        — Stripe Price object id (must exist on the connected acct)
+ *   lookupKey      — mode-agnostic price handle; resolved to the active mode's
+ *                    price id (preferred — works across test/live)
+ *   priceId        — explicit Stripe Price id override (must exist on the acct)
  *   successUrl     — where Stripe sends the buyer on completion
  *   cancelUrl      — where Stripe sends the buyer on abandon
  *   customerEmail? — prefilled into Checkout
@@ -20,14 +22,17 @@
  * Returns: { url, sessionId }
  */
 import { NextRequest, NextResponse } from 'next/server';
+import type Stripe from 'stripe';
 import { authProjectSecret } from '@/lib/stripe-proxy-auth';
-import { getStripe, STRIPE_PLATFORM_FEE_PERCENT } from '@/lib/stripe';
+import { getStripe, STRIPE_PLATFORM_FEE_PERCENT, type StripeMode } from '@/lib/stripe';
+import { ensureDemoProductPrice, BOTFLOW_DEMO_LOOKUP_KEY } from '@/lib/stripe-scaffold';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 interface RequestBody {
+  lookupKey?: string;
   priceId?: string;
   successUrl?: string;
   cancelUrl?: string;
@@ -36,6 +41,34 @@ interface RequestBody {
   metadata?: Record<string, string>;
   checkoutMode?: 'payment' | 'subscription';
   mode?: 'test' | 'live'; // sent by the scaffolded action; informational only
+}
+
+/**
+ * Resolve a mode-agnostic lookup key to a concrete price id on the connected
+ * account for the active mode. Self-heals the Demo Product if its key is the
+ * one missing. Returns null if nothing matches.
+ */
+async function resolvePriceFromLookupKey(
+  stripe: Stripe,
+  accountId: string,
+  lookupKey: string,
+  mode: StripeMode,
+): Promise<string | null> {
+  const found = await stripe.prices.list(
+    { lookup_keys: [lookupKey], active: true, limit: 1 },
+    { stripeAccount: accountId },
+  );
+  if (found.data[0]) return found.data[0].id;
+
+  if (lookupKey === BOTFLOW_DEMO_LOOKUP_KEY) {
+    await ensureDemoProductPrice(accountId, mode);
+    const again = await stripe.prices.list(
+      { lookup_keys: [lookupKey], active: true, limit: 1 },
+      { stripeAccount: accountId },
+    );
+    return again.data[0]?.id ?? null;
+  }
+  return null;
 }
 
 export async function POST(
@@ -63,10 +96,10 @@ export async function POST(
     return NextResponse.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { priceId, successUrl, cancelUrl } = body;
-  if (!priceId || !successUrl || !cancelUrl) {
+  const { priceId, lookupKey, successUrl, cancelUrl } = body;
+  if ((!priceId && !lookupKey) || !successUrl || !cancelUrl) {
     return NextResponse.json(
-      { ok: false, error: 'priceId, successUrl and cancelUrl are required' },
+      { ok: false, error: 'lookupKey (or priceId), successUrl and cancelUrl are required' },
       { status: 400 },
     );
   }
@@ -75,6 +108,30 @@ export async function POST(
 
   const stripe = getStripe(auth.mode);
   try {
+    // Resolve the price to charge for the CURRENT mode. An explicit priceId
+    // wins; otherwise resolve the lookup key (this is what makes the same code
+    // work in both test and live — the key maps to that mode's price id).
+    let resolvedPriceId = priceId ?? null;
+    if (!resolvedPriceId && lookupKey) {
+      resolvedPriceId = await resolvePriceFromLookupKey(
+        stripe,
+        auth.accountId,
+        lookupKey,
+        auth.mode,
+      );
+    }
+    if (!resolvedPriceId) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: lookupKey
+            ? `No active price found for "${lookupKey}" in ${auth.mode} mode. Create the product with createStripeProduct, or switch Stripe mode once so it gets mirrored.`
+            : 'Could not resolve a price for checkout.',
+        },
+        { status: 400 },
+      );
+    }
+
     const metadata: Record<string, string> = {
       ...(body.metadata ?? {}),
       botflow_project_id: projectId,
@@ -92,7 +149,7 @@ export async function POST(
     // slice that lets the user list / configure products).
     const sessionParams: import('stripe').Stripe.Checkout.SessionCreateParams = {
       mode: checkoutMode,
-      line_items: [{ price: priceId, quantity }],
+      line_items: [{ price: resolvedPriceId, quantity }],
       success_url: successUrl,
       cancel_url: cancelUrl,
       metadata,

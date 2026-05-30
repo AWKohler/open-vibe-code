@@ -23,13 +23,41 @@ import { sandboxWriteFile } from '@/lib/vercel-sandbox';
 import { getStripe, type StripeMode } from '@/lib/stripe';
 
 /**
+ * Stable lookup key for the out-of-the-box Demo Product. A Stripe Price's
+ * `lookup_key` is the mode-agnostic handle we resolve to the real `price_…` id
+ * at checkout time — so the same key works in BOTH test and live mode once the
+ * demo price has been provisioned in each. Shared per connected account.
+ */
+export const BOTFLOW_DEMO_LOOKUP_KEY = 'botflow_demo';
+
+/**
+ * Build a per-project lookup key for a managed Price. Namespaced by project id
+ * (one connected account is shared across all of a user's projects) and given a
+ * short random suffix so repeated names never collide. The agent stores the
+ * returned key in app code; it resolves to the correct mode's price at runtime.
+ */
+export function makeStripeLookupKey(projectId: string, nameOrKey: string): string {
+  const pid = projectId.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 32);
+  const slug = nameOrKey
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40) || 'item';
+  const rand = Math.random().toString(36).slice(2, 6);
+  return `botflow_${pid}_${slug}_${rand}`;
+}
+
+/**
  * Idempotently ensure a "Demo Product" with an active $10 one-time price exists
  * on the connected account, so a freshly-scaffolded project has a working
  * checkout out of the box (no need for the user to paste a price id). Tagged
  * with metadata.botflow_demo_product so repeat calls reuse the same one.
  *
- * Never throws — returns the price id or null. The caller scaffolds with an
- * empty demo price id on failure (checkout then requires an explicit priceId).
+ * The demo price carries a stable lookup_key (BOTFLOW_DEMO_LOOKUP_KEY) so the
+ * scaffolded checkout resolves it per-mode. Idempotent: reuses an existing demo
+ * price, and backfills the lookup_key if an older demo price is missing it.
+ *
+ * Never throws — returns the demo lookup key on success or null on failure.
  */
 export async function ensureDemoProductPrice(
   accountId: string,
@@ -38,7 +66,14 @@ export async function ensureDemoProductPrice(
   try {
     const stripe = getStripe(mode);
 
-    // Look for an existing demo product (active) and reuse its active price.
+    // If a price already carries the demo lookup key in this mode, we're done.
+    const byKey = await stripe.prices.list(
+      { lookup_keys: [BOTFLOW_DEMO_LOOKUP_KEY], active: true, limit: 1 },
+      { stripeAccount: accountId },
+    );
+    if (byKey.data[0]) return BOTFLOW_DEMO_LOOKUP_KEY;
+
+    // Look for an existing demo product (active) and reuse / fix its price.
     const existing = await stripe.products.search(
       { query: "metadata['botflow_demo_product']:'1' AND active:'true'", limit: 1 },
       { stripeAccount: accountId },
@@ -49,20 +84,36 @@ export async function ensureDemoProductPrice(
         { product: demoProduct.id, active: true, limit: 1 },
         { stripeAccount: accountId },
       );
-      if (prices.data[0]) return prices.data[0].id;
-      // Product exists but lost its price — mint a fresh one below using it.
-      const price = await stripe.prices.create(
-        { currency: 'usd', unit_amount: 1000, product: demoProduct.id },
+      if (prices.data[0]) {
+        // Backfill the lookup key onto the existing demo price.
+        await stripe.prices.update(
+          prices.data[0].id,
+          { lookup_key: BOTFLOW_DEMO_LOOKUP_KEY, transfer_lookup_key: true },
+          { stripeAccount: accountId },
+        );
+        return BOTFLOW_DEMO_LOOKUP_KEY;
+      }
+      // Product exists but lost its price — mint a fresh one using it.
+      await stripe.prices.create(
+        {
+          currency: 'usd',
+          unit_amount: 1000,
+          product: demoProduct.id,
+          lookup_key: BOTFLOW_DEMO_LOOKUP_KEY,
+          transfer_lookup_key: true,
+        },
         { stripeAccount: accountId },
       );
-      return price.id;
+      return BOTFLOW_DEMO_LOOKUP_KEY;
     }
 
     // None yet — create product + price in one call via inline product_data.
-    const price = await stripe.prices.create(
+    await stripe.prices.create(
       {
         currency: 'usd',
         unit_amount: 1000,
+        lookup_key: BOTFLOW_DEMO_LOOKUP_KEY,
+        transfer_lookup_key: true,
         product_data: {
           name: 'Demo Product',
           metadata: { botflow_demo_product: '1' },
@@ -70,11 +121,109 @@ export async function ensureDemoProductPrice(
       },
       { stripeAccount: accountId },
     );
-    return price.id;
+    return BOTFLOW_DEMO_LOOKUP_KEY;
   } catch (err) {
     console.error('[stripe-scaffold] ensureDemoProductPrice failed:', err);
     return null;
   }
+}
+
+/**
+ * Copy this project's managed Stripe Products (and the Demo Product) from one
+ * mode's connected account into another, so a stable lookup key resolves to a
+ * real price in BOTH modes. Idempotent: skips any lookup key already present in
+ * the target. Best-effort — never throws; returns a summary for logging.
+ *
+ * Called when the user switches modes or connects a new mode, so a product
+ * created in (say) test keeps working after flipping to live without anyone
+ * re-creating it or editing code.
+ */
+export async function mirrorStripeProductsAcrossModes(opts: {
+  projectId: string;
+  fromMode: StripeMode;
+  fromAccountId: string;
+  toMode: StripeMode;
+  toAccountId: string;
+}): Promise<{ mirrored: number; errors: string[] }> {
+  const errors: string[] = [];
+  let mirrored = 0;
+
+  // The demo product is shared per account (not project-scoped) — ensure it
+  // exists in the target mode too.
+  try {
+    await ensureDemoProductPrice(opts.toAccountId, opts.toMode);
+  } catch (err) {
+    errors.push(`demo: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  try {
+    const src = getStripe(opts.fromMode);
+    const dst = getStripe(opts.toMode);
+
+    const products = await src.products.search(
+      {
+        query: `metadata['botflow_project_id']:'${opts.projectId}' AND active:'true'`,
+        limit: 100,
+      },
+      { stripeAccount: opts.fromAccountId },
+    );
+
+    for (const product of products.data) {
+      let prices;
+      try {
+        prices = await src.prices.list(
+          { product: product.id, active: true, limit: 100 },
+          { stripeAccount: opts.fromAccountId },
+        );
+      } catch (err) {
+        errors.push(`prices(${product.id}): ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      for (const price of prices.data) {
+        const key = price.lookup_key;
+        if (!key) continue; // only mirror keyed prices
+        try {
+          const existing = await dst.prices.list(
+            { lookup_keys: [key], active: true, limit: 1 },
+            { stripeAccount: opts.toAccountId },
+          );
+          if (existing.data[0]) continue; // already present in target mode
+          await dst.prices.create(
+            {
+              currency: price.currency,
+              ...(price.unit_amount != null ? { unit_amount: price.unit_amount } : {}),
+              ...(price.recurring
+                ? {
+                    recurring: {
+                      interval: price.recurring.interval,
+                      interval_count: price.recurring.interval_count,
+                    },
+                  }
+                : {}),
+              lookup_key: key,
+              transfer_lookup_key: true,
+              product_data: {
+                name: product.name,
+                metadata: {
+                  botflow_project_id: opts.projectId,
+                  botflow_managed: '1',
+                  botflow_lookup_key: key,
+                },
+              },
+            },
+            { stripeAccount: opts.toAccountId },
+          );
+          mirrored++;
+        } catch (err) {
+          errors.push(`mirror(${key}): ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+  } catch (err) {
+    errors.push(err instanceof Error ? err.message : String(err));
+  }
+
+  return { mirrored, errors };
 }
 
 // ───────────────────────── templates ──────────────────────────
@@ -98,11 +247,12 @@ const PROXY_BASE = process.env.BOTFLOW_STRIPE_PROXY_BASE ?? "https://botflow.io"
 const PROJECT_SECRET = process.env.BOTFLOW_STRIPE_WEBHOOK_SECRET;
 const MODE = (process.env.STRIPE_MODE ?? "test") as "test" | "live";
 
-// A pre-created "Demo Product" price exists on the connected account out of
-// the box, so checkout works before you create your own products. Replace it
-// with a real price id (ask the agent to create one, or read it from the
-// Stripe tab). Empty string means none was provisioned.
-const DEMO_PRICE_ID = "__DEMO_PRICE_ID__";
+// Products are referenced by a stable "lookup key" — a mode-agnostic handle
+// that resolves to the correct test/live Price id at runtime, so switching
+// Stripe modes never breaks checkout. createStripeProduct returns one; pass it
+// as lookupKey. A pre-created "Demo Product" ships under this key so checkout
+// works out of the box before you create your own products.
+const DEMO_LOOKUP_KEY = "botflow_demo";
 
 // IMPORTANT: these actions NEVER throw. Convex serializes thrown action errors
 // into an opaque "Server Error" on the client, which is impossible to debug.
@@ -115,10 +265,13 @@ const DEMO_PRICE_ID = "__DEMO_PRICE_ID__";
  *
  * Returns { ok: true, url, sessionId } on success — redirect with
  * window.location.assign(url). On failure returns { ok: false, error }.
- * If you omit priceId, the pre-provisioned Demo Product price is used.
+ * Pass lookupKey (from createStripeProduct) to pick the product — it resolves
+ * to the right price in the current Stripe mode. Omit it to use the Demo
+ * Product. (priceId is an advanced override for a specific test/live price id.)
  */
 export const createCheckoutSession = action({
   args: {
+    lookupKey: v.optional(v.string()),
     priceId: v.optional(v.string()),
     successUrl: v.string(),
     cancelUrl: v.string(),
@@ -136,14 +289,9 @@ export const createCheckoutSession = action({
           "Stripe is not initialized for this project. Ask the user to run 'set up Stripe' in chat.",
       };
     }
-    const priceId = args.priceId || DEMO_PRICE_ID;
-    if (!priceId) {
-      return {
-        ok: false as const,
-        error:
-          "No priceId provided and no Demo Product is configured. Create a product first (the agent can do this with createStripeProduct).",
-      };
-    }
+    // Default to the Demo Product's lookup key when neither a lookupKey nor an
+    // explicit priceId override was provided.
+    const lookupKey = args.priceId ? args.lookupKey : (args.lookupKey || DEMO_LOOKUP_KEY);
     try {
       const res = await fetch(
         \`\${PROXY_BASE}/api/projects/\${PROJECT_ID}/stripe/checkout-session\`,
@@ -153,7 +301,7 @@ export const createCheckoutSession = action({
             "Content-Type": "application/json",
             "X-Botflow-Project-Secret": PROJECT_SECRET,
           },
-          body: JSON.stringify({ ...args, priceId, mode: MODE }),
+          body: JSON.stringify({ ...args, lookupKey, mode: MODE }),
         },
       );
       const data = (await res.json().catch(() => null)) as
@@ -373,21 +521,16 @@ export function redirectToCheckout(url: string): void {
  */
 export async function dropStripeFilesIntoSandbox(
   projectId: string,
-  opts: { demoPriceId?: string } = {},
+  // opts retained for call-site compatibility; the demo product is now
+  // referenced by a fixed lookup key baked into the template (no stamping).
+  _opts: { demoPriceId?: string } = {},
 ): Promise<string[]> {
   const { sandboxReadFile } = await import('@/lib/vercel-sandbox');
   const written: string[] = [];
 
-  // Stamp the pre-provisioned Demo Product price into the helper so a fresh
-  // project has a working checkout out of the box. Empty string if none.
-  const platformStripeTs = PLATFORM_STRIPE_TS.replace(
-    '__DEMO_PRICE_ID__',
-    opts.demoPriceId ?? '',
-  );
-
   // Always re-write the two read-only files. Safe — the agent's guard refuses
   // *user* edits, but our scaffolder is the source of truth.
-  await sandboxWriteFile(projectId, '/convex/platformStripe.ts', platformStripeTs);
+  await sandboxWriteFile(projectId, '/convex/platformStripe.ts', PLATFORM_STRIPE_TS);
   written.push('/convex/platformStripe.ts');
   await sandboxWriteFile(projectId, '/convex/stripeWebhook.ts', STRIPE_WEBHOOK_TS);
   written.push('/convex/stripeWebhook.ts');

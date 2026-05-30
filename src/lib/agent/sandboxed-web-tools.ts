@@ -1012,8 +1012,9 @@ REQUIRED NEXT STEPS:
           getStripeProducts: tool({
             description:
               "List the Stripe Products and Prices that already exist on the user's connected account (for the project's current test/live mode). " +
-              "Call this BEFORE writing any checkout code so you can use a real `price_…` id — never invent or hardcode a price id. " +
-              "Returns { ok, mode, products: [{ productId, name, prices: [{ priceId, unitAmount, currency, recurring }] }] }. " +
+              "Call this BEFORE writing checkout code so you can reference an existing product by its `lookupKey` — never invent or hardcode a `price_…` id. " +
+              "Returns { ok, mode, products: [{ productId, name, prices: [{ priceId, lookupKey, unitAmount, currency, recurring }] }] }. " +
+              "Use the `lookupKey` (not priceId) in checkout — it resolves to the right price in whichever Stripe mode is active. " +
               "If the account has no products yet, create one with createStripeProduct. " +
               "Returns status='not-connected' if Stripe isn't linked yet (call initializeStripePayments first) or status='tier-blocked' for Free users.",
             inputSchema: z.object({}),
@@ -1036,11 +1037,12 @@ REQUIRED NEXT STEPS:
           }),
           createStripeProduct: tool({
             description:
-              "Create a Stripe Product + Price on the user's connected account and get back a real `price_…` id to use in checkout. " +
+              "Create a Stripe Product + Price on the user's connected account and get back a stable `lookupKey` to use in checkout. " +
               "Use this when the app needs a product/price that doesn't exist yet (check first with getStripeProducts). " +
               "unitAmount is in the smallest currency unit (cents): 1500 = $15.00. " +
               "Omit `interval` for a one-time price; set it ('month'/'year'/etc.) for a subscription price. " +
-              "Returns { ok, productId, priceId, ... }. Use the returned priceId in createCheckoutSession.",
+              "Returns { ok, productId, priceId, lookupKey, ... }. Store the `lookupKey` in the app and pass it to createCheckoutSession — " +
+              "NEVER store the raw `price_…` id. The lookupKey is mode-agnostic: it resolves to the correct price in whichever Stripe mode is active, and Botflow mirrors the product into the other mode when the user switches, so test↔live never breaks.",
             inputSchema: z.object({
               name: z.string().describe("Product name shown to buyers, e.g. 'Pro Plan'."),
               unitAmount: z

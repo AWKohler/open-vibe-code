@@ -20,25 +20,11 @@ const nextConfig: NextConfig = {
     };
     return config;
   },
-  headers: async () => {
-    // COEP/COOP isolation was needed for the legacy WebContainer platform
-    // (SharedArrayBuffer). The Sandboxed Web platform doesn't use it — the
-    // preview is rendered by a remote Vercel Sandbox in an iframe — so
-    // /workspace/ no longer needs it. Worse, COEP 'credentialless' strips
-    // cookies from cross-origin iframes (including Stripe's embedded
-    // Connect components), which breaks the data-layer channel.
-    //
-    // /p/ (public preview view) keeps the headers in case a legacy
-    // WebContainer-based project is still published there. Drop those too
-    // once we've confirmed no live /p/ traffic exercises WebContainer.
-    const coepHeaders = [
-      { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
-      { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-    ];
-    return [
-      { source: '/p/(.*)', headers: coepHeaders },
-    ];
-  },
+  // COEP/COOP cross-origin isolation was only ever needed for the legacy
+  // WebContainer platform (SharedArrayBuffer). WebContainer is fully removed and
+  // the public (/p/) view is now a static iframe of the deployed site, so no
+  // route needs these headers anymore — and COEP 'credentialless' would strip
+  // cookies from cross-origin iframes (e.g. Stripe Connect).
 };
 
 export default nextConfig;

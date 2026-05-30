@@ -684,6 +684,7 @@ export async function tarSandboxProject(projectId: string): Promise<Buffer> {
     "--exclude=node_modules",
     "--exclude=.build",
     "--exclude=build",
+    "--exclude=dist",
     "--exclude=*.xcodeproj/xcuserdata",
     "--exclude=*.xcodeproj/project.xcworkspace/xcuserdata",
     "--exclude=DerivedData",

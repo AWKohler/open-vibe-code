@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import { projects } from "@/db/schema";
 import {
   seedSandboxIfEmpty,
+  seedSandboxFromBundle,
   type SandboxTemplate,
 } from "@/lib/vercel-sandbox";
 import { materializeFrontendEnv } from "@/lib/sandbox-env";
@@ -39,7 +40,15 @@ export async function POST(
   }
 
   try {
-    const seeded = await seedSandboxIfEmpty(project.id, template);
+    // Forked-from-public projects carry a source bundle to extract instead of a
+    // template. Use it once, then clear the pointer.
+    let seeded: boolean;
+    if (project.seedBundleUrl) {
+      seeded = await seedSandboxFromBundle(project.id, project.seedBundleUrl);
+      await db.update(projects).set({ seedBundleUrl: null }).where(eq(projects.id, project.id));
+    } else {
+      seeded = await seedSandboxIfEmpty(project.id, template);
+    }
 
     // Sandboxed-web projects: write .env so Vite picks up VITE_CONVEX_URL plus
     // any user-defined frontend vars on the first dev server start. DB is the

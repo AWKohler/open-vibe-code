@@ -16,7 +16,6 @@ import {
   ExternalLink,
   Database,
   Globe,
-  Lock,
   Star,
   Copy,
   Check,
@@ -33,7 +32,6 @@ export default function ProjectsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [togglingPublicId, setTogglingPublicId] = useState<string | null>(null);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [thumbnailErrors, setThumbnailErrors] = useState<Record<string, true>>({});
@@ -80,35 +78,6 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleTogglePublic = async (project: Project) => {
-    const makingPublic = !project.isPublic;
-    setTogglingPublicId(project.id);
-    try {
-      const res = await fetch(`/api/projects/${project.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isPublic: makingPublic }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? 'Failed to update visibility');
-      }
-      const updated = (await res.json()) as Project;
-      setProjects((prev) => prev.map((p) => (p.id === project.id ? updated : p)));
-      toast({
-        title: makingPublic ? 'Project is now public' : 'Project is now private',
-        description: makingPublic && updated.publicSlug
-          ? `Anyone can view it at /p/${updated.publicSlug}`
-          : undefined,
-      });
-    } catch (err) {
-      console.error(err);
-      toast({ title: 'Failed to update visibility', description: err instanceof Error ? err.message : undefined });
-    } finally {
-      setTogglingPublicId(null);
-      setOpenMenuId(null);
-    }
-  };
 
   const handleCopyShareLink = async (project: Project) => {
     if (!project.publicSlug) return;
@@ -395,26 +364,11 @@ export default function ProjectsPage() {
                                     <Database className="h-4 w-4" />
                                     Open Database Manager
                                   </button>
-                                  <div className="my-1 h-px bg-border" />
-                                  <button
-                                    onClick={() => handleTogglePublic(project)}
-                                    disabled={togglingPublicId === project.id}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-elevated"
-                                  >
-                                    {project.isPublic ? (
-                                      <>
-                                        <Lock className="h-4 w-4" />
-                                        {togglingPublicId === project.id ? 'Updating…' : 'Make private'}
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Globe className="h-4 w-4" />
-                                        {togglingPublicId === project.id ? 'Updating…' : 'Make public'}
-                                      </>
-                                    )}
-                                  </button>
+                                  {/* Public visibility is controlled from the
+                                      project's Publish popover (deploy-gated), not here. */}
                                   {project.isPublic && project.publicSlug && (
                                     <>
+                                      <div className="my-1 h-px bg-border" />
                                       <button
                                         onClick={() => handleCopyShareLink(project)}
                                         className="w-full flex items-center gap-2 px-3 py-2 text-sm text-fg hover:bg-elevated"

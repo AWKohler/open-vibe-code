@@ -343,6 +343,41 @@ export async function seedSandboxIfEmpty(
 }
 
 /**
+ * Seed an empty sandbox by extracting a gzipped-tar source bundle (produced by
+ * `tarSandboxProject`, e.g. a forked public project's source) into the sandbox
+ * root, instead of cloning a template repo. Returns true if seeded, false if the
+ * sandbox already had content.
+ */
+export async function seedSandboxFromBundle(
+  projectId: string,
+  bundleUrl: string,
+): Promise<boolean> {
+  const sandbox = await getOrCreatePersistentSandbox(projectId);
+
+  const check = await sandbox.runCommand("sh", [
+    "-c",
+    `ls -A ${SANDBOX_ROOT} 2>/dev/null | grep -v '^node_modules$' | grep -v '^\\.git$' | head -1 || true`,
+  ]);
+  if ((await check.stdout()).trim()) return false;
+
+  const res = await fetch(bundleUrl);
+  if (!res.ok) throw new Error(`Failed to download source bundle (${res.status})`);
+  const buf = Buffer.from(await res.arrayBuffer());
+
+  const tmp = `/tmp/seed-${projectId}.tar.gz`;
+  await sandbox.writeFiles([{ path: tmp, content: buf }]);
+
+  const extract = await sandbox.runCommand("sh", [
+    "-c",
+    `mkdir -p ${SANDBOX_ROOT} && tar xzf ${tmp} -C ${SANDBOX_ROOT} && rm -f ${tmp}`,
+  ]);
+  if (extract.exitCode !== 0) {
+    throw new Error(`Bundle extract failed: ${(await extract.stderr()) || `exit ${extract.exitCode}`}`);
+  }
+  return true;
+}
+
+/**
  * Write a `.env` file at the sandbox root from a record of key/value pairs.
  */
 export async function writeSandboxEnvFile(

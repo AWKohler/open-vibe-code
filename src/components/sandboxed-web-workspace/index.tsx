@@ -157,6 +157,10 @@ export function SandboxedWebWorkspace({
   const [managedDomainsEnabled, setManagedDomainsEnabled] = useState(false);
   const [publishOpen, setPublishOpen] = useState(false);
   const publishBtnRef = useRef<HTMLButtonElement | null>(null);
+  // Public/showcase state — a project is listed publicly only via the deploy popover.
+  const [isPublic, setIsPublic] = useState(false);
+  const [publicSlug, setPublicSlug] = useState<string | null>(null);
+  const [publicDescription, setPublicDescription] = useState<string | null>(null);
 
   // Fall back to Preview if Database tab is selected but no backend
   useEffect(() => {
@@ -181,6 +185,9 @@ export function SandboxedWebWorkspace({
         if (typeof proj?.githubDefaultBranch === "string") setGithubDefaultBranch(proj.githubDefaultBranch);
         if (proj?.cloudflareProjectName) setCloudflareProjectName(proj.cloudflareProjectName);
         if (proj?.cloudflareDeploymentUrl) setCloudflareDeploymentUrl(proj.cloudflareDeploymentUrl);
+        if (typeof proj?.isPublic === "boolean") setIsPublic(proj.isPublic);
+        if (typeof proj?.publicSlug === "string") setPublicSlug(proj.publicSlug);
+        if (typeof proj?.publicDescription === "string") setPublicDescription(proj.publicDescription);
         if (proj?.managedDomainId) setManagedDomainId(proj.managedDomainId);
         if (proj?.managedDomainHostname) setManagedDomainHostname(proj.managedDomainHostname);
         if (proj?.customDomain) setCustomDomain(proj.customDomain);
@@ -1315,6 +1322,13 @@ export function SandboxedWebWorkspace({
         anchorRef={publishBtnRef}
         cloudflareProjectName={cloudflareProjectName}
         cloudflareDeploymentUrl={cloudflareDeploymentUrl}
+        isPublic={isPublic}
+        publicSlug={publicSlug}
+        publicDescription={publicDescription}
+        onPublicChanged={(next, slug) => {
+          setIsPublic(next);
+          if (slug !== undefined) setPublicSlug(slug);
+        }}
         onPublished={(name, url) => {
           setCloudflareProjectName(name || cloudflareProjectName);
           setCloudflareDeploymentUrl(url);

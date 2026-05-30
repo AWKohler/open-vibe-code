@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
-import { projects, projectFiles, projectAssets } from '@/db/schema';
+import { projects } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { countUserProjects } from '@/lib/usage';
 import { limitReachedResponse } from '@/lib/plan-response';
 
+/**
+ * "Use as template" — fork a public project into the current user's account.
+ *
+ * Creates a fresh sandbox (sandboxed-web) project that carries the source
+ * project's published bundle in `seedBundleUrl`. The sandbox is NOT booted here
+ * (cost-aware) — it lazily extracts the bundle on first open (see the sandbox
+ * seed route). All deploy / public / GitHub metadata is reset.
+ */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   try {
@@ -18,7 +26,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
 
     const db = getDb();
 
-    // Enforce project count limit
     const [limits, currentCount] = await Promise.all([
       getUserTierAndLimits(userId),
       countUserProjects(userId),
@@ -32,7 +39,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       });
     }
 
-    // Find source public project
     const [source] = await db
       .select()
       .from(projects)
@@ -43,65 +49,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
       ? overrideName.trim().slice(0, 100)
       : `${source.name} (copy)`;
 
-    // Create new project under current user — platform, model, and backend
-    // type carried over (a no-backend source forks to a no-backend project),
-    // but all deployment / github / public metadata reset.
-    // Forks of `'user'` (BYOC) projects fall back to `'platform'` because we
-    // don't have the forker's Convex OAuth token at fork time.
+    // Forks of BYOC ('user') projects fall back to platform-managed Convex —
+    // we don't have the forker's Convex OAuth token at fork time.
     const forkedBackendType: 'platform' | 'none' =
       source.backendType === 'none' ? 'none' : 'platform';
+    const sandboxTemplate = forkedBackendType === 'none' ? 'vite' : 'viteConvex';
+
     const [newProject] = await db
       .insert(projects)
       .values({
         name: newName,
         userId,
-        platform: source.platform,
+        platform: 'sandboxed-web',
         model: source.model,
-        thumbnailUrl: source.thumbnailUrl,
-        htmlSnapshotUrl: source.htmlSnapshotUrl,
-        forkedFromProjectId: source.id,
         backendType: forkedBackendType,
+        sandboxTemplate,
+        forkedFromProjectId: source.id,
+        // Seed the new sandbox from the source bundle on first open. If the
+        // source has no bundle (legacy), the seed falls back to the template.
+        seedBundleUrl: source.publicSourceUrl ?? null,
       })
       .returning();
-
-    // Copy text files
-    const srcFiles = await db
-      .select({ path: projectFiles.path, content: projectFiles.content, hash: projectFiles.hash, size: projectFiles.size, mimeType: projectFiles.mimeType })
-      .from(projectFiles)
-      .where(eq(projectFiles.projectId, source.id));
-
-    if (srcFiles.length > 0) {
-      await db.insert(projectFiles).values(
-        srcFiles.map((f) => ({
-          projectId: newProject.id,
-          path: f.path,
-          content: f.content,
-          hash: f.hash,
-          size: f.size,
-          mimeType: f.mimeType ?? null,
-        }))
-      );
-    }
-
-    // Copy binary assets (reference the same UploadThing URL — we're not re-uploading)
-    const srcAssets = await db
-      .select()
-      .from(projectAssets)
-      .where(eq(projectAssets.projectId, source.id));
-
-    if (srcAssets.length > 0) {
-      await db.insert(projectAssets).values(
-        srcAssets.map((a) => ({
-          projectId: newProject.id,
-          path: a.path,
-          uploadThingUrl: a.uploadThingUrl,
-          uploadThingKey: a.uploadThingKey,
-          hash: a.hash,
-          size: a.size,
-          mimeType: a.mimeType ?? null,
-        }))
-      );
-    }
 
     return NextResponse.json({ projectId: newProject.id }, { status: 201 });
   } catch (err) {

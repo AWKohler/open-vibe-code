@@ -49,10 +49,20 @@ export const projects = pgTable('projects', {
   managedDomainHostname: text('managed_domain_hostname'), // e.g. "www.myapp.com"
   // Convex Auth — set to true after setupAuth runs successfully
   authConfigured: boolean('auth_configured').notNull().default(false),
-  // Public sharing
+  // Public sharing — a project can only be public if it is deployed (Cloudflare
+  // Pages). On a public deploy we tar the project source (no node_modules) and
+  // store it in UploadThing; the read-only public viewer + "use as template"
+  // fork both read from this bundle. Cleared (and the UT object deleted) when
+  // the project is made private.
   isPublic: boolean('is_public').notNull().default(false),
   publicSlug: text('public_slug'), // human-readable unique URL slug, nullable
   publicDescription: text('public_description'), // optional short description shown on showcase
+  publicSourceUrl: text('public_source_url'),     // UploadThing URL of the source bundle (.tar.gz)
+  publicSourceKey: text('public_source_key'),     // UploadThing key, for deletion on unpublish/replace
+  // Transient: when set, the project's sandbox seeds by extracting this bundle
+  // (a forked public project's source) on first boot instead of cloning a
+  // template. Cleared once the seed runs.
+  seedBundleUrl: text('seed_bundle_url'),
   starCount: integer('star_count').notNull().default(0),
   forkedFromProjectId: uuid('forked_from_project_id'),
   publishedAt: timestamp('published_at'),

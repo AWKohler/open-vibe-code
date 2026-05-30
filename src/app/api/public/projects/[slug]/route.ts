@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/db';
-import { projects, projectFiles, projectAssets, projectStars } from '@/db/schema';
+import { projects, projectStars } from '@/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 
@@ -16,16 +16,6 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
     if (!proj) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-
-    const textFiles = await db
-      .select({ path: projectFiles.path, content: projectFiles.content, hash: projectFiles.hash })
-      .from(projectFiles)
-      .where(eq(projectFiles.projectId, proj.id));
-
-    const binaryAssets = await db
-      .select({ path: projectAssets.path, url: projectAssets.uploadThingUrl, hash: projectAssets.hash })
-      .from(projectAssets)
-      .where(eq(projectAssets.projectId, proj.id));
 
     // Resolve author
     let author: { name: string; imageUrl: string | null } = { name: 'Anonymous', imageUrl: null };
@@ -60,18 +50,17 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ slu
         publicSlug: proj.publicSlug,
         publicDescription: proj.publicDescription,
         thumbnailUrl: proj.thumbnailUrl,
-        htmlSnapshotUrl: proj.htmlSnapshotUrl,
         starCount: proj.starCount,
         publishedAt: proj.publishedAt,
         createdAt: proj.createdAt,
         author,
         hasStarred,
         isOwner: userId === proj.userId,
+        // The live deployed site (Cloudflare Pages) — iframed in the read-only
+        // preview. The source itself is fetched lazily from /source.
+        deployedUrl: proj.cloudflareDeploymentUrl,
+        hasSource: Boolean(proj.publicSourceUrl),
       },
-      files: [
-        ...textFiles.map((f) => ({ path: f.path, content: f.content, type: 'file' as const, hash: f.hash })),
-        ...binaryAssets.map((a) => ({ path: a.path, url: a.url, type: 'asset' as const, hash: a.hash })),
-      ],
     });
   } catch (err) {
     console.error(err);

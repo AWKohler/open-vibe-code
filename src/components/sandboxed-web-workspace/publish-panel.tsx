@@ -35,6 +35,11 @@ interface SandboxPublishPanelProps {
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   cloudflareProjectName: string | null;
   cloudflareDeploymentUrl: string | null;
+  isPublic: boolean;
+  publicSlug: string | null;
+  publicDescription: string | null;
+  /** slug is passed when it was (re)generated on publish. */
+  onPublicChanged: (isPublic: boolean, slug?: string | null) => void;
   onPublished: (name: string, url: string) => void;
   onUnpublished: () => void;
   canUseCustomDomain: boolean;
@@ -76,6 +81,10 @@ export function SandboxPublishPanel({
   anchorRef,
   cloudflareProjectName,
   cloudflareDeploymentUrl,
+  isPublic,
+  publicSlug,
+  publicDescription,
+  onPublicChanged,
   onPublished,
   onUnpublished,
   canUseCustomDomain,
@@ -89,6 +98,15 @@ export function SandboxPublishPanel({
 }: SandboxPublishPanelProps) {
   const initial: PublishState = cloudflareProjectName ? "published" : "idle";
   const [state, setState] = useState<PublishState>(initial);
+
+  // Public/showcase opt-in for the next deploy. Off by default; mirrors the
+  // project's current public state once metadata loads.
+  const [listPublic, setListPublic] = useState(isPublic);
+  const [publicDesc, setPublicDesc] = useState(publicDescription ?? "");
+  const [currentSlug, setCurrentSlug] = useState<string | null>(publicSlug);
+  useEffect(() => { setListPublic(isPublic); }, [isPublic]);
+  useEffect(() => { setPublicDesc(publicDescription ?? ""); }, [publicDescription]);
+  useEffect(() => { setCurrentSlug(publicSlug); }, [publicSlug]);
 
   // The workspace fetches project metadata asynchronously, so cloudflareProjectName
   // can flip from null → set after the panel mounts. Reflect that in the panel's
@@ -173,6 +191,8 @@ export function SandboxPublishPanel({
       try {
         const res = await fetch(`/api/projects/${projectId}/sandbox/publish`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ public: listPublic, description: publicDesc.trim() || undefined }),
           signal: ctrl.signal,
         });
         if (!res.ok || !res.body) {
@@ -220,7 +240,16 @@ export function SandboxPublishPanel({
                 setState("error");
                 setErrorOutput("Failed to parse publish response");
               }
-              return;
+              // Don't return — the public-visibility reconcile streams next.
+            } else if (event === "public_listed") {
+              try {
+                const j = JSON.parse(decoded) as { isPublic: boolean; slug: string | null };
+                setCurrentSlug(j.slug);
+                onPublicChanged(j.isPublic, j.slug);
+              } catch { /* non-fatal */ }
+            } else if (event === "public_error") {
+              // Deploy succeeded but bundling/visibility failed — surface softly.
+              setStatusLine(`Published, but public listing failed: ${decoded}`);
             }
           }
         }
@@ -231,7 +260,7 @@ export function SandboxPublishPanel({
       }
     })();
     eventSourceRef.current = { close: () => ctrl.abort() } as unknown as EventSource;
-  }, [projectId, onPublished]);
+  }, [projectId, onPublished, onPublicChanged, listPublic, publicDesc]);
 
   const cancelBuild = () => {
     eventSourceRef.current?.close();
@@ -317,6 +346,46 @@ export function SandboxPublishPanel({
 
   if (!isOpen || typeof document === "undefined") return null;
 
+  // Public/showcase opt-in — applied on the next Build & publish. Off by default.
+  const publicToggle = (
+    <div className="rounded-xl border border-border bg-bg/50 p-3 space-y-2">
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={listPublic}
+          onChange={(e) => setListPublic(e.target.checked)}
+          className="mt-0.5 rounded border-border"
+        />
+        <span className="text-xs text-fg">
+          List publicly in Explore
+          <span className="block text-[10px] text-muted mt-0.5">
+            Saves a read-only snapshot of your code. Anyone can view the live site and source, or use it as a template. Applied when you deploy.
+          </span>
+        </span>
+      </label>
+      {listPublic && (
+        <input
+          type="text"
+          value={publicDesc}
+          onChange={(e) => setPublicDesc(e.target.value)}
+          maxLength={140}
+          placeholder="Short description (optional)"
+          className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg focus:border-emerald-500/50 focus:outline-none"
+        />
+      )}
+      {listPublic && currentSlug && state === "published" && (
+        <a
+          href={`/p/${currentSlug}`}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-400 hover:text-emerald-300"
+        >
+          <ExternalLink size={10} /> /p/{currentSlug}
+        </a>
+      )}
+    </div>
+  );
+
   const panel = (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
@@ -348,6 +417,7 @@ export function SandboxPublishPanel({
                 Build your project in the sandbox and deploy it to Cloudflare Pages.
                 We&apos;ll stream the build output here as it happens.
               </p>
+              <div className="mb-4">{publicToggle}</div>
               <button
                 onClick={startBuild}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-400 transition"
@@ -600,6 +670,9 @@ export function SandboxPublishPanel({
                   </div>
                 )}
               </div>
+
+              {/* Public/showcase listing */}
+              {publicToggle}
 
               {/* Bottom actions */}
               <div className="flex gap-2 pt-2 border-t border-border/60">

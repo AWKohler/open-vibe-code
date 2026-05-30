@@ -4,12 +4,10 @@ import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/nextjs";
-import { checkDeviceSupport } from "@/lib/device";
 import {
   Eye,
   Code2,
   Star,
-  Monitor,
   Loader2,
   Sparkles,
   RefreshCw,
@@ -17,11 +15,7 @@ import {
   ArrowLeft,
   Copy,
   Check,
-  Play,
 } from "lucide-react";
-import { WebContainerManager } from "@/lib/webcontainer";
-import { DevServerManager } from "@/lib/dev-server";
-import { getPreviewStore, type PreviewInfo } from "@/lib/preview-store";
 import { CodeEditor } from "@/components/workspace/code-editor";
 import { FileTree } from "@/components/workspace/file-tree";
 import { useToast } from "@/components/ui/toast";
@@ -31,10 +25,6 @@ import {
   type ProjectPlatform,
 } from "@/lib/project-platform";
 
-type PublicFile =
-  | { path: string; type: "file"; content: string; hash: string }
-  | { path: string; type: "asset"; url: string; hash: string };
-
 export interface PublicProjectData {
   project: {
     id: string;
@@ -43,15 +33,17 @@ export interface PublicProjectData {
     publicSlug: string;
     publicDescription: string | null;
     thumbnailUrl: string | null;
-    htmlSnapshotUrl: string | null;
     starCount: number;
     publishedAt: string | null;
     createdAt: string;
     author: { name: string; imageUrl: string | null };
     hasStarred: boolean;
     isOwner: boolean;
+    /** Live Cloudflare Pages deployment — iframed read-only. */
+    deployedUrl: string | null;
+    /** Whether a source bundle exists (drives the Code tab + "Use as template"). */
+    hasSource: boolean;
   };
-  files: PublicFile[];
 }
 
 interface PublicWorkspaceProps {
@@ -59,16 +51,19 @@ interface PublicWorkspaceProps {
   isSignedIn: boolean;
 }
 
+interface SourceFile {
+  path: string;
+  content: string;
+}
+
 type Tab = "preview" | "code";
 
-function buildFileTree(files: PublicFile[]): Record<string, { type: "file" | "folder" }> {
+function buildFileTree(files: SourceFile[]): Record<string, { type: "file" | "folder" }> {
   const tree: Record<string, { type: "file" | "folder" }> = {};
   for (const f of files) {
     const parts = f.path.split("/").filter(Boolean);
-    // folders
     for (let i = 1; i < parts.length; i++) {
-      const folder = "/" + parts.slice(0, i).join("/");
-      tree[folder] = { type: "folder" };
+      tree["/" + parts.slice(0, i).join("/")] = { type: "folder" };
     }
     tree[f.path] = { type: "file" };
   }
@@ -89,13 +84,15 @@ function getLanguageFromFilename(filename: string): string {
 export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const { project, files } = data;
+  const { project } = data;
+
+  // Only show the Code tab + "Use as template" when there's a source bundle.
+  const hasSource = project.hasSource;
 
   const [tab, setTab] = useState<Tab>("preview");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [bootState, setBootState] = useState<"idle" | "mounting" | "installing" | "starting" | "ready" | "error">("idle");
-  const [bootMessage, setBootMessage] = useState<string>("Preparing preview…");
-  const [previews, setPreviews] = useState<PreviewInfo[]>([]);
+  const [sourceFiles, setSourceFiles] = useState<SourceFile[] | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   const [stars, setStars] = useState(project.starCount);
@@ -104,124 +101,41 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
   const [forking, setForking] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const fileTree = useMemo(() => buildFileTree(files), [files]);
+  const fileTree = useMemo(() => buildFileTree(sourceFiles ?? []), [sourceFiles]);
   const textFileMap = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const f of files) {
-      if (f.type === "file") map[f.path] = f.content;
-    }
+    for (const f of sourceFiles ?? []) map[f.path] = f.content;
     return map;
-  }, [files]);
+  }, [sourceFiles]);
 
-  const bootedRef = useRef(false);
-
-  // Boot the WebContainer and run dev server
+  // Lazily pull the source bundle the first time the Code tab is opened.
+  const sourceRequested = useRef(false);
   useEffect(() => {
-    if (bootedRef.current) return;
-    bootedRef.current = true;
-
-    let cancelled = false;
-    const store = getPreviewStore();
-    const unsubscribe = store.subscribe((p) => {
-      if (!cancelled) setPreviews(p);
-    });
-
+    if (tab !== "code" || !hasSource || sourceRequested.current) return;
+    sourceRequested.current = true;
+    setSourceLoading(true);
     (async () => {
       try {
-        setBootState("mounting");
-        setBootMessage("Booting preview sandbox…");
-        const container = await WebContainerManager.getInstance();
-        store.setWebContainer(container);
-
-        if (cancelled) return;
-
-        setBootMessage("Writing project files…");
-        // Wipe any pre-existing files from a prior project in the same tab
-        // (e.g. user navigated from their own /workspace into a public /p view).
-        // Public view is read-only and never writes to IndexedDB, so this is safe.
-        try {
-          const entries = await container.fs.readdir("/", { withFileTypes: true });
-          for (const entry of entries) {
-            const p = `/${entry.name}`;
-            try {
-              await container.fs.rm(p, { recursive: true, force: true });
-            } catch {}
-          }
-        } catch {}
-        // Create folders first
-        const folderSet = new Set<string>();
-        for (const f of files) {
-          const parts = f.path.split("/").filter(Boolean);
-          for (let i = 1; i < parts.length; i++) {
-            folderSet.add("/" + parts.slice(0, i).join("/"));
-          }
-        }
-        for (const folder of folderSet) {
-          try {
-            await container.fs.mkdir(folder, { recursive: true });
-          } catch {}
-        }
-        // Write files
-        for (const f of files) {
-          try {
-            if (f.type === "file") {
-              await container.fs.writeFile(f.path, f.content);
-            } else {
-              const res = await fetch(f.url);
-              const buf = new Uint8Array(await res.arrayBuffer());
-              await container.fs.writeFile(f.path, buf);
-            }
-          } catch (err) {
-            console.warn(`Failed writing ${f.path}`, err);
-          }
-        }
-
-        if (cancelled) return;
-        setBootState("installing");
-        setBootMessage("Installing dependencies (this usually takes ~30s)…");
-
-        // Start the dev server — this does pnpm install automatically
-        setBootState("starting");
-        setBootMessage("Starting dev server…");
-        const result = await DevServerManager.start();
-        if (!result.ok) {
-          throw new Error(result.message);
-        }
-        if (!cancelled) {
-          setBootState("ready");
-          setBootMessage("Preview ready");
-        }
-      } catch (err) {
-        console.error(err);
-        if (!cancelled) {
-          setBootState("error");
-          setBootMessage(err instanceof Error ? err.message : "Failed to load preview");
-        }
+        const res = await fetch(`/api/public/projects/${project.publicSlug}/source`);
+        const body = (await res.json()) as { files?: SourceFile[] };
+        setSourceFiles(body.files ?? []);
+      } catch {
+        setSourceFiles([]);
+      } finally {
+        setSourceLoading(false);
       }
     })();
+  }, [tab, hasSource, project.publicSlug]);
 
-    return () => {
-      cancelled = true;
-      unsubscribe();
-    };
-  }, [files]);
-
-  const activePreview = previews.find((p) => p.ready) ?? previews[0];
-
-  // Auto-select an interesting file for the code tab
+  // Auto-select an interesting file once source loads.
   useEffect(() => {
-    if (selectedFile) return;
-    const preferred = ["/src/App.tsx", "/src/app.tsx", "/app/_layout.tsx", "/src/App.jsx", "/src/main.tsx", "/src/index.ts", "/src/index.tsx", "/package.json"];
+    if (selectedFile || !sourceFiles?.length) return;
+    const preferred = ["/src/App.tsx", "/src/App.jsx", "/src/main.tsx", "/src/index.tsx", "/index.html", "/package.json"];
     for (const p of preferred) {
-      if (textFileMap[p]) {
-        setSelectedFile(p);
-        return;
-      }
+      if (textFileMap[p]) { setSelectedFile(p); return; }
     }
-    // fallback: first text file
-    const firstText = files.find((f) => f.type === "file");
-    if (firstText) setSelectedFile(firstText.path);
-  }, [files, selectedFile, textFileMap]);
+    setSelectedFile(sourceFiles[0].path);
+  }, [sourceFiles, selectedFile, textFileMap]);
 
   const handleStar = useCallback(async () => {
     if (!isSignedIn) {
@@ -230,7 +144,6 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
     }
     if (starring) return;
     setStarring(true);
-    // Optimistic
     const prev = { stars, hasStarred };
     setHasStarred(!hasStarred);
     setStars(hasStarred ? Math.max(stars - 1, 0) : stars + 1);
@@ -274,9 +187,9 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
     }
   }, [isSignedIn, router, project.publicSlug, forking, toast]);
 
-  // Auto-fork flag: ?fork=1 — used when user signs in on a forked flow
+  // Auto-fork after sign-in (?fork=1)
   useEffect(() => {
-    if (!isSignedIn) return;
+    if (!isSignedIn || !hasSource) return;
     const url = new URL(window.location.href);
     if (url.searchParams.get("fork") === "1") {
       url.searchParams.delete("fork");
@@ -298,7 +211,6 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
 
   return (
     <div className="antialiased text-fg bg-bg min-h-screen flex flex-col">
-      {/* Header */}
       <header className="relative z-30 border-b border-border bg-surface/80 backdrop-blur-sm">
         <div className="mx-auto max-w-[1600px] px-4 sm:px-6 py-3">
           <div className="flex items-center gap-3">
@@ -325,7 +237,7 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
               </div>
             </div>
 
-            {/* Tab switcher */}
+            {/* Tab switcher — Code only when a source bundle exists */}
             <div className="inline-flex items-center rounded-xl border border-border bg-bg p-0.5 shadow-sm">
               <button
                 onClick={() => setTab("preview")}
@@ -337,16 +249,18 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
                 <Eye className="h-4 w-4" />
                 Preview
               </button>
-              <button
-                onClick={() => setTab("code")}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
-                  tab === "code" ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
-                )}
-              >
-                <Code2 className="h-4 w-4" />
-                Code
-              </button>
+              {hasSource && (
+                <button
+                  onClick={() => setTab("code")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition",
+                    tab === "code" ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg"
+                  )}
+                >
+                  <Code2 className="h-4 w-4" />
+                  Code
+                </button>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
@@ -374,18 +288,16 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
                 {copied ? <Check className="h-4 w-4 text-accent" /> : <Copy className="h-4 w-4" />}
               </button>
 
-              <button
-                onClick={handleFork}
-                disabled={forking}
-                className="inline-flex items-center gap-1.5 rounded-xl bg-fg px-3.5 py-1.5 text-sm font-medium text-bg shadow-md hover:opacity-90 disabled:opacity-60 transition"
-              >
-                {forking ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                Use as template
-              </button>
+              {hasSource && (
+                <button
+                  onClick={handleFork}
+                  disabled={forking}
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-fg px-3.5 py-1.5 text-sm font-medium text-bg shadow-md hover:opacity-90 disabled:opacity-60 transition"
+                >
+                  {forking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Use as template
+                </button>
+              )}
 
               <SignedOut>
                 <SignInButton>
@@ -406,24 +318,16 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
         </div>
       </header>
 
-      {/* Main content */}
       <main className="flex-1 relative overflow-hidden">
         {tab === "preview" ? (
-          <PreviewPane
-            bootState={bootState}
-            bootMessage={bootMessage}
-            activePreview={activePreview}
-            reloadKey={reloadKey}
-            onReload={() => setReloadKey((k) => k + 1)}
-            htmlSnapshotUrl={project.htmlSnapshotUrl}
-            thumbnailUrl={project.thumbnailUrl}
-          />
+          <PreviewPane deployedUrl={project.deployedUrl} reloadKey={reloadKey} onReload={() => setReloadKey((k) => k + 1)} />
         ) : (
           <CodePane
             files={fileTree}
             selectedFile={selectedFile}
             onFileSelect={setSelectedFile}
             content={selectedFile ? textFileMap[selectedFile] ?? "" : ""}
+            loading={sourceLoading}
           />
         )}
       </main>
@@ -432,67 +336,23 @@ export function PublicWorkspace({ data, isSignedIn }: PublicWorkspaceProps) {
 }
 
 function PreviewPane({
-  bootState,
-  bootMessage,
-  activePreview,
+  deployedUrl,
   reloadKey,
   onReload,
-  htmlSnapshotUrl,
-  thumbnailUrl,
 }: {
-  bootState: "idle" | "mounting" | "installing" | "starting" | "ready" | "error";
-  bootMessage: string;
-  activePreview: PreviewInfo | undefined;
+  deployedUrl: string | null;
   reloadKey: number;
   onReload: () => void;
-  htmlSnapshotUrl: string | null;
-  thumbnailUrl: string | null;
 }) {
-  const isReady = bootState === "ready" && activePreview?.ready;
-  const isBooting = bootState !== "ready" && bootState !== "error" && bootState !== "idle";
-  const isError = bootState === "error";
-
-  const [snapshotHtml, setSnapshotHtml] = useState<string | null>(null);
-  const [internalPath, setInternalPath] = useState("/");
-  const [iframeUrl, setIframeUrl] = useState("");
-
-  // Fetch HTML snapshot for placeholder background
-  useEffect(() => {
-    if (!htmlSnapshotUrl) return;
-    fetch(htmlSnapshotUrl)
-      .then((r) => r.text())
-      .then(setSnapshotHtml)
-      .catch(() => {});
-  }, [htmlSnapshotUrl]);
-
-  // Sync iframe URL when preview becomes ready or path changes
-  useEffect(() => {
-    if (activePreview?.baseUrl) {
-      setIframeUrl(activePreview.baseUrl + (internalPath || "/"));
-    }
-  }, [activePreview, internalPath]);
-
-  const handlePathKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      const raw = (e.target as HTMLInputElement).value;
-      const normalized = raw.startsWith("/") ? raw : "/" + raw;
-      setInternalPath(normalized);
-      if (activePreview?.baseUrl) {
-        setIframeUrl(activePreview.baseUrl + normalized);
-      }
-    }
-  };
-
-  const openInNewTab = () => {
-    if (activePreview?.baseUrl) {
-      const url = activePreview.baseUrl + (internalPath || "/");
-      window.open(`/preview-popup?url=${encodeURIComponent(url)}`, "_blank");
-    }
-  };
-
+  if (!deployedUrl) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center bg-bg text-muted text-sm">
+        This project isn&apos;t deployed.
+      </div>
+    );
+  }
   return (
     <div className="absolute inset-0 flex flex-col bg-bg">
-      {/* Browser-chrome address bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-surface">
         <button
           onClick={onReload}
@@ -501,135 +361,35 @@ function PreviewPane({
         >
           <RefreshCw className="h-3.5 w-3.5" />
         </button>
-
-        {/* URL bar: hides raw webcontainer domain, shows editable path */}
-        <div className="flex-1 mx-1 flex items-center gap-0 rounded-md bg-elevated border border-border px-3 py-1 text-xs">
-          <span className="text-muted select-none shrink-0">localhost</span>
-          <input
-            type="text"
-            value={internalPath}
-            onChange={(e) => setInternalPath(e.target.value)}
-            onKeyDown={handlePathKeyDown}
-            placeholder="/"
-            className="flex-1 bg-transparent text-fg outline-none min-w-0"
-          />
+        <div className="flex-1 mx-1 flex items-center rounded-md bg-elevated border border-border px-3 py-1 text-xs">
+          <span className="text-muted truncate">{deployedUrl}</span>
         </div>
-
-        <button
-          onClick={openInNewTab}
-          disabled={!activePreview}
-          className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-elevated text-muted hover:text-fg disabled:opacity-40 transition"
+        <a
+          href={deployedUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center justify-center h-7 w-7 rounded-md hover:bg-elevated text-muted hover:text-fg transition"
           title="Open in new tab"
         >
           <ExternalLink className="h-3.5 w-3.5" />
-        </button>
+        </a>
       </div>
-
-      <div className="relative flex-1 bg-bg overflow-hidden">
-        {/* Live preview iframe — always mounted once ready so it doesn't remount on tab switch */}
-        {isReady && activePreview && (
-          <iframe
-            key={reloadKey}
-            src={iframeUrl || activePreview.baseUrl}
-            className="absolute inset-0 w-full h-full bg-white"
-            sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts allow-downloads"
-            title="Public project preview"
-          />
-        )}
-
-        {/* Snapshot placeholder + overlay while not yet ready */}
-        {!isReady && (
-          <div className="absolute inset-0">
-            {/* Background: HTML snapshot iframe or thumbnail image */}
-            {snapshotHtml ? (
-              <iframe
-                srcDoc={snapshotHtml}
-                className="w-full h-full border-none pointer-events-none"
-                sandbox="allow-scripts allow-same-origin"
-                title="Preview snapshot"
-              />
-            ) : thumbnailUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={thumbnailUrl}
-                alt=""
-                className="w-full h-full object-cover object-top"
-              />
-            ) : null}
-
-            {/* Blur overlay */}
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] flex flex-col items-center justify-center gap-4">
-              <button
-                disabled
-                className="flex items-center justify-center w-24 h-24 rounded-full bg-white/90 shadow-2xl"
-              >
-                {isBooting ? (
-                  <span className="inline-flex h-10 w-10 rounded-full border-4 border-green-600 border-t-transparent animate-spin" />
-                ) : isError ? (
-                  <span className="text-red-500 text-3xl font-bold">!</span>
-                ) : (
-                  <Play size={40} className="text-green-600 fill-green-600 ml-1" />
-                )}
-              </button>
-              <p className="text-white text-sm font-medium drop-shadow-lg max-w-xs text-center">
-                {isError ? bootMessage : isBooting ? bootMessage : "Loading…"}
-              </p>
-              {isError && (
-                <button
-                  onClick={() => window.location.reload()}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/30 bg-white/10 px-3.5 py-2 text-sm font-medium text-white hover:bg-white/20 transition"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Retry
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+      <div className="relative flex-1 bg-white overflow-hidden">
+        <iframe
+          key={reloadKey}
+          src={deployedUrl}
+          className="absolute inset-0 w-full h-full bg-white"
+          sandbox="allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts allow-downloads"
+          title="Public project preview"
+        />
       </div>
     </div>
   );
 }
 
 export function PublicWorkspaceGuard({ data, isSignedIn }: PublicWorkspaceProps) {
-  const [deviceBlocked, setDeviceBlocked] = useState<string | null>(null);
-
-  useEffect(() => {
-    const result = checkDeviceSupport();
-    if (!result.supported) setDeviceBlocked(result.reason ?? "Your device is not supported.");
-  }, []);
-
-  if (deviceBlocked) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-bg text-fg px-4">
-        <div className="max-w-md text-center space-y-5 p-8 rounded-2xl border border-border bg-surface shadow-sm">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-elevated">
-            <Monitor className="h-7 w-7 text-muted" />
-          </div>
-          <h1 className="text-2xl font-semibold">Desktop required</h1>
-          <p className="text-sm text-muted leading-relaxed">{deviceBlocked}</p>
-          <p className="text-xs text-muted opacity-60">
-            Botflow uses WebContainer technology that requires a desktop browser to run full development environments.
-          </p>
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
-            <Link
-              href="/explore"
-              className="inline-flex items-center rounded-xl bg-fg px-4 py-2 text-sm font-medium text-bg shadow hover:opacity-90 transition"
-            >
-              Browse public projects
-            </Link>
-            <Link
-              href="/"
-              className="inline-flex items-center rounded-xl border border-border bg-elevated px-4 py-2 text-sm font-medium text-fg hover:bg-soft transition"
-            >
-              Back home
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // The public view is fully static (iframe + read-only editor) — no device
+  // gate or WebContainer needed.
   return <PublicWorkspace data={data} isSignedIn={isSignedIn} />;
 }
 
@@ -638,11 +398,13 @@ function CodePane({
   selectedFile,
   onFileSelect,
   content,
+  loading,
 }: {
   files: Record<string, { type: "file" | "folder" }>;
   selectedFile: string | null;
   onFileSelect: (path: string) => void;
   content: string;
+  loading: boolean;
 }) {
   return (
     <div className="absolute inset-0 flex bg-bg">
@@ -651,7 +413,13 @@ function CodePane({
           <div className="text-[11px] uppercase tracking-wide font-medium text-muted">Files</div>
         </div>
         <div className="flex-1 overflow-y-auto modern-scrollbar">
-          <FileTree files={files} selectedFile={selectedFile} onFileSelect={onFileSelect} />
+          {loading ? (
+            <div className="flex items-center gap-2 px-3 py-3 text-xs text-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading source…
+            </div>
+          ) : (
+            <FileTree files={files} selectedFile={selectedFile} onFileSelect={onFileSelect} />
+          )}
         </div>
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -672,7 +440,7 @@ function CodePane({
             />
           ) : (
             <div className="h-full flex items-center justify-center text-muted text-sm">
-              Select a file to view
+              {loading ? "Loading…" : "Select a file to view"}
             </div>
           )}
         </div>

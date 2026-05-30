@@ -13,6 +13,7 @@ import {
 import { materializeFrontendEnv } from '@/lib/sandbox-env';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { countUserCfPagesDeployments } from '@/lib/usage';
+import { reconcilePublicState } from '@/lib/public-bundle';
 
 // SSE endpoint — Vercel Pro plans allow up to 300s. Builds can be slow.
 export const maxDuration = 300;
@@ -56,13 +57,22 @@ function computeHash(b64: string, filename: string): string {
 }
 
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { userId } = await auth();
   if (!userId) return new Response('Unauthorized', { status: 401 });
 
   const { id: projectId } = await params;
+
+  // Public/showcase opt-in for this deploy. Off by default — a project is only
+  // listed publicly when the deploy popover's checkbox is checked.
+  const publishBody = (await req.json().catch(() => ({}))) as {
+    public?: boolean;
+    description?: string;
+  };
+  const makePublic = publishBody.public === true;
+  const publicDescription = typeof publishBody.description === 'string' ? publishBody.description : null;
   const db = getDb();
   const [project] = await db
     .select()
@@ -289,6 +299,17 @@ export async function POST(
           .where(eq(projects.id, projectId));
 
         send('published', JSON.stringify({ url: deploymentUrl, projectName }));
+
+        // Reconcile public/showcase state: tar the source → UploadThing and mark
+        // public when opted in, otherwise delete any bundle and mark private.
+        try {
+          send('status', makePublic ? 'Saving public source bundle…' : 'Updating visibility…');
+          const result = await reconcilePublicState(projectId, { makePublic, description: publicDescription });
+          send('public_listed', JSON.stringify(result));
+        } catch (e) {
+          // Non-fatal — the deploy itself already succeeded.
+          send('public_error', e instanceof Error ? e.message : String(e));
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         send('build_error', `Publish failed: ${msg}`);

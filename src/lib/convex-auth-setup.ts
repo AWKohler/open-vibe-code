@@ -81,7 +81,7 @@ export function inBotflowPreview(): boolean {
 // preview it asks the workspace to reopen the app in a new tab and resume
 // there; everywhere else it starts the real OAuth redirect.
 export async function startOAuthSignIn(
-  signIn: (provider: string) => Promise<unknown>,
+  signIn: (provider: string, params?: Record<string, unknown>) => Promise<unknown>,
   provider: string,
 ): Promise<void> {
   if (inBotflowPreview()) {
@@ -96,7 +96,10 @@ export async function startOAuthSignIn(
     window.open(url.toString(), "_blank", "noopener");
     return;
   }
-  await signIn(provider);
+  // redirectTo tells Convex Auth which origin to return to after OAuth. Passing
+  // the current origin is what makes sign-in land back on THIS domain (dev
+  // preview vs published site) instead of always the single SITE_URL.
+  await signIn(provider, { redirectTo: window.location.origin });
 }
 
 // Call once when the app mounts (e.g. a top-level useEffect). When the preview
@@ -104,7 +107,7 @@ export async function startOAuthSignIn(
 // — this resumes that OAuth flow now (top-level, where it works) and strips the
 // param so a refresh doesn't repeat it. No-op in the preview and when absent.
 export function resumePendingOAuthSignIn(
-  signIn: (provider: string) => Promise<unknown>,
+  signIn: (provider: string, params?: Record<string, unknown>) => Promise<unknown>,
 ): void {
   if (typeof window === "undefined" || inBotflowPreview()) return;
   const params = new URLSearchParams(window.location.search);
@@ -114,7 +117,8 @@ export function resumePendingOAuthSignIn(
   const query = params.toString();
   const clean = window.location.pathname + (query ? "?" + query : "") + window.location.hash;
   window.history.replaceState(null, "", clean);
-  void signIn(provider);
+  // Return to this same origin (the tab the user is in) after OAuth completes.
+  void signIn(provider, { redirectTo: window.location.origin });
 }
 `;
 
@@ -143,8 +147,45 @@ export default {
       content: `import { convexAuth } from "@convex-dev/auth/server";
 import { Password } from "@convex-dev/auth/providers/Password";
 
+// This app is served from more than one origin: the Botflow dev preview
+// (*.vercel.run), the published site (*.pages.dev), and any custom domain.
+// Convex Auth otherwise only allows OAuth/magic-link redirects back to the
+// single SITE_URL origin — which would bounce a production sign-in back to the
+// preview domain. Botflow keeps ALLOWED_SITE_URLS (comma-separated origins) in
+// sync across those domains; this callback lets sign-in return to whichever one
+// the user actually started on, and falls back to SITE_URL otherwise (so it can
+// never become an open redirect).
+function allowedSiteOrigins(): string[] {
+  const raw = process.env.ALLOWED_SITE_URLS ?? process.env.SITE_URL ?? "";
+  const origins: string[] = [];
+  for (const part of raw.split(",")) {
+    try {
+      const origin = new URL(part.trim()).origin;
+      if (origin && !origins.includes(origin)) origins.push(origin);
+    } catch {
+      // ignore malformed entries
+    }
+  }
+  return origins;
+}
+
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [Password],
+  callbacks: {
+    async redirect({ redirectTo }) {
+      // Relative paths are always safe.
+      if (redirectTo.startsWith("/") || redirectTo.startsWith("?")) return redirectTo;
+      let origin: string | null = null;
+      try {
+        origin = new URL(redirectTo).origin;
+      } catch {
+        origin = null;
+      }
+      if (origin && allowedSiteOrigins().includes(origin)) return redirectTo;
+      // Not allow-listed → fall back to the canonical site URL.
+      return process.env.SITE_URL ?? allowedSiteOrigins()[0] ?? redirectTo;
+    },
+  },
 });
 `,
     },
@@ -339,6 +380,12 @@ FRONTEND PATTERN — sign out:
 ADDING OAUTH PROVIDERS (Google):
 ─────────────────────────────────────────────────────────────
 
+  ONLY DO THIS WHEN THE USER EXPLICITLY ASKS FOR GOOGLE / SOCIAL SIGN-IN.
+  Default to the Password provider (optionally Anonymous). Google OAuth
+  requires the user to own a Google Cloud project and complete a console
+  setup — do NOT add it proactively or "to be helpful." If auth is needed
+  and the user hasn't specified a method, use Password.
+
   THIS PLATFORM PROVIDES A DEDICATED TOOL: setupOAuthProvider
   DO NOT use bash or npx convex env set to set OAuth credentials.
   The setupOAuthProvider tool handles credential collection securely
@@ -359,7 +406,10 @@ ADDING OAUTH PROVIDERS (Google):
 
   Step 2 — After setupOAuthProvider returns ok: true, update convex/auth.ts:
            import Google from "@auth/core/providers/google";
-           // add Google to the providers array alongside Password
+           // add Google to the providers array alongside Password.
+           // IMPORTANT: keep the existing callbacks.redirect block intact — it
+           // lets OAuth return to the right domain in both preview and prod.
+           // Only edit the providers array.
 
   Step 3 — Run convexDeploy to push the updated auth config.
 
@@ -515,11 +565,15 @@ export async function setupConvexAuth(
   // @convex-dev/auth reads JWT_PRIVATE_KEY (matches the official `npx
   // @convex-dev/auth` setup script). We also set CONVEX_AUTH_PRIVATE_KEY for
   // forward-compatibility in case a future version renames it.
+  // At setup the only known origin is the dev preview; publish/dev-restart
+  // later expand ALLOWED_SITE_URLS via refreshAuthSiteUrl.
+  const initialOrigin = toOrigin(opts.siteUrl) ?? opts.siteUrl;
   await setEnvVarsViaDeployKey(deployUrl, deployKey, {
     JWT_PRIVATE_KEY: privateKeyPem,
     CONVEX_AUTH_PRIVATE_KEY: privateKeyPem,
     JWKS: jwksJson,
-    SITE_URL: opts.siteUrl,
+    SITE_URL: initialOrigin,
+    ALLOWED_SITE_URLS: initialOrigin,
   });
 
   // Mark the project as having auth configured so the workspace can show
@@ -536,14 +590,61 @@ export async function setupConvexAuth(
   };
 }
 
+/** Normalize any URL or bare hostname to a scheme://host[:port] origin. */
+function toOrigin(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    return new URL(value.includes("://") ? value : `https://${value}`).origin;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Re-set SITE_URL on a deployment whenever the frontend URL changes (e.g.
- * every time the dev server starts). No-ops silently when auth is not yet
- * configured or the project has no deploy key.
+ * Compute the canonical SITE_URL and the full set of allowed redirect origins
+ * for a project's Convex Auth deployment. OAuth/magic-link redirects can return
+ * to any of these origins (see the redirect callback in convex/auth.ts).
+ *
+ * Sources: the live dev-preview domain (passed in), the published *.pages.dev /
+ * managed-domain URL, and any active custom domain. SITE_URL prefers the
+ * published origin (so magic-link emails point at production) and falls back to
+ * the dev origin before publish.
+ */
+function computeAuthUrls(
+  project: {
+    cloudflareDeploymentUrl: string | null;
+    managedDomainHostname: string | null;
+    customDomain: string | null;
+    customDomainStatus: string | null;
+  },
+  devSiteUrl?: string | null,
+): { siteUrl: string | null; allowed: string[] } {
+  const prodOrigin =
+    toOrigin(project.cloudflareDeploymentUrl) ??
+    toOrigin(project.managedDomainHostname) ??
+    (project.customDomainStatus === "active" ? toOrigin(project.customDomain) : null);
+  const customOrigin =
+    project.customDomainStatus === "active" ? toOrigin(project.customDomain) : null;
+  const devOrigin = toOrigin(devSiteUrl);
+
+  const allowed: string[] = [];
+  for (const o of [devOrigin, prodOrigin, customOrigin]) {
+    if (o && !allowed.includes(o)) allowed.push(o);
+  }
+  // Canonical: production if published, otherwise the dev preview.
+  const siteUrl = prodOrigin ?? devOrigin ?? allowed[0] ?? null;
+  return { siteUrl, allowed };
+}
+
+/**
+ * Re-sync SITE_URL + ALLOWED_SITE_URLS on a deployment whenever the set of
+ * frontend origins changes — every dev-server start (pass the live preview
+ * URL) and every publish (omit it; the published URL is read from the DB).
+ * No-ops silently when auth is not yet configured or no deploy key exists.
  */
 export async function refreshAuthSiteUrl(
   projectId: string,
-  newSiteUrl: string,
+  devSiteUrl?: string,
 ): Promise<void> {
   try {
     const db = getDb();
@@ -554,9 +655,16 @@ export async function refreshAuthSiteUrl(
     const deployKey = project.userConvexDeployKey ?? project.convexDeployKey ?? null;
     if (!deployUrl || !deployKey) return;
 
-    await setEnvVarsViaDeployKey(deployUrl, deployKey, { SITE_URL: newSiteUrl });
+    const { siteUrl, allowed } = computeAuthUrls(project, devSiteUrl);
+    if (!siteUrl || allowed.length === 0) return;
+
+    await setEnvVarsViaDeployKey(deployUrl, deployKey, {
+      SITE_URL: siteUrl,
+      ALLOWED_SITE_URLS: allowed.join(","),
+    });
   } catch (err) {
-    // Non-fatal — a stale SITE_URL only breaks magic links, not password auth.
+    // Non-fatal — a stale SITE_URL/ALLOWED_SITE_URLS degrades OAuth redirects
+    // and magic links, but never blocks the dev server or a publish.
     console.warn("[refreshAuthSiteUrl] non-fatal error:", err);
   }
 }

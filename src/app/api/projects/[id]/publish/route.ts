@@ -8,6 +8,7 @@ import { extname, basename } from 'path';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { countUserCfPagesDeployments } from '@/lib/usage';
 import { limitReachedResponse } from '@/lib/plan-response';
+import { refreshAuthSiteUrl } from '@/lib/convex-auth-setup';
 
 function getCfConfig() {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -291,6 +292,10 @@ export async function POST(
         updatedAt: new Date(),
       })
       .where(eq(projects.id, projectId));
+
+    // Expand the Convex Auth redirect allowlist to include the published origin
+    // so OAuth sign-in returns to the live site. No-op when auth isn't set up.
+    void refreshAuthSiteUrl(projectId).catch(() => {});
 
     return NextResponse.json({
       ok: true,

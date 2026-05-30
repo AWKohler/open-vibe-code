@@ -14,6 +14,7 @@ import { materializeFrontendEnv } from '@/lib/sandbox-env';
 import { getUserTierAndLimits } from '@/lib/tier';
 import { countUserCfPagesDeployments } from '@/lib/usage';
 import { reconcilePublicState } from '@/lib/public-bundle';
+import { refreshAuthSiteUrl } from '@/lib/convex-auth-setup';
 
 // SSE endpoint — Vercel Pro plans allow up to 300s. Builds can be slow.
 export const maxDuration = 300;
@@ -330,6 +331,11 @@ export async function POST(
             updatedAt: new Date(),
           })
           .where(eq(projects.id, projectId));
+
+        // Now that the published origin is known, expand the Convex Auth
+        // redirect allowlist so OAuth sign-in returns to the live site (not the
+        // dev preview). No-op when auth isn't configured. Fire-and-forget.
+        void refreshAuthSiteUrl(projectId).catch(() => {});
 
         send('published', JSON.stringify({ url: deploymentUrl, projectName }));
 

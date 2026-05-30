@@ -672,6 +672,9 @@ export function getSandboxedWebTools(params: {
       description:
         "Add a Google OAuth provider to Convex Auth on this project. " +
         "Calling this tool causes a modal to appear in the user's workspace where they paste their Google OAuth Client ID and Secret.\n\n" +
+        "ONLY call this when the user EXPLICITLY asks for Google / social sign-in. " +
+        "It requires them to own a Google Cloud project and complete a console setup, " +
+        "so never add it proactively — default to the Password provider when auth is needed.\n\n" +
         "PREREQUISITES:\n" +
         "  • setupAuth must have been called first.\n\n" +
         "FLOW:\n" +

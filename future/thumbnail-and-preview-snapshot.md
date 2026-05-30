@@ -1,9 +1,11 @@
 # Thumbnails, preview snapshots & the blurred "paused" preview
 
-> **Status:** retained for reference. As of the WebContainer deprecation this
-> system is no longer wired into the active (Vercel sandbox) workspace, but the
-> code is intentionally **kept in the repo** for later revival. See "Files to
-> keep" at the bottom.
+> **Status:** REMOVED from the codebase during the WebContainer deprecation
+> (the capture routes + `snapshot-capture.ts` were deleted; the blur/HTML-display
+> still physically lives inside the dead `components/workspace/**` tree until that
+> tree is removed). This doc is the design reference for reviving it; the actual
+> source is recoverable from git history just before commit `904b03c`
+> ("remove the preview-snapshot/thumbnail capture infrastructure").
 >
 > **Naming note:** the screengrab is done with **Puppeteer** (`puppeteer-core` +
 > `@sparticuz/chromium`), not Playwright — despite how it's sometimes referred
@@ -132,16 +134,18 @@ once ready the overlay is removed to reveal the live iframe.
 `puppeteer-core`, `@sparticuz/chromium`, `uploadthing` (`UTApi`), `canvas`
 (local-dev placeholder only), `html2canvas` (legacy client rasterizer).
 
-## Files to keep (do NOT delete during WebContainer cleanup)
-- `src/lib/snapshot-capture.ts`
-- `src/app/api/screenshot/route.ts`
-- `src/app/api/projects/snapshot/route.ts`
-- `src/app/api/projects/[id]/html-snapshot/route.ts`
-- `src/app/api/projects/[id]/generate-thumbnail-html/route.ts`
-- `src/app/api/projects/[id]/generate-thumbnail/route.ts`
+## Where it lived (recover from git history before `904b03c`)
+- `src/lib/snapshot-capture.ts` — DELETED
+- `src/app/api/screenshot/route.ts` — DELETED
+- `src/app/api/projects/snapshot/route.ts` — DELETED
+- `src/app/api/projects/[id]/html-snapshot/route.ts` — DELETED
+- `src/app/api/projects/[id]/generate-thumbnail-html/route.ts` — DELETED
+- `src/app/api/projects/[id]/generate-thumbnail/route.ts` — DELETED
 - the snapshot/blur rendering blocks in `src/components/workspace/preview.tsx`
-  and `src/components/public-workspace/index.tsx`
+  and `src/components/public-workspace/index.tsx` — still present (dead) until the
+  WebContainer workspace tree is removed
 - the `projects.thumbnail*` / `projects.htmlSnapshot*` columns in `src/db/schema.ts`
+  — KEPT (existing values still render on project cards)
 
 ## To revive for the Vercel-sandbox workspace
 1. Extend `validateScreenshotUrl`'s allowlist to the sandbox preview host

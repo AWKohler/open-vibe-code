@@ -155,9 +155,6 @@ export function Workspace({
   // Toast for notifications
   const { toast } = useToast();
 
-  // Track if we've already captured HTML for this dev server session
-  const htmlCapturedRef = useRef(false);
-
   // Fetch platform and htmlSnapshotUrl from API
   useEffect(() => {
     (async () => {
@@ -1138,71 +1135,8 @@ export function Workspace({
         return;
       }
 
-      if (event.data?.type === "HTML_SNAPSHOT" && event.data?.html) {
-        // Only capture once per dev server session
-        if (htmlCapturedRef.current) {
-          return; // Already captured, silently skip
-        }
-
-        try {
-          console.log("📄 Received HTML snapshot from iframe!");
-          const html = event.data.html;
-          console.log(`📄 HTML size: ${html.length} bytes`);
-
-          // Upload to UploadThing
-          const response = await fetch(
-            `/api/projects/${projectId}/html-snapshot`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ html }),
-            },
-          );
-
-          if (!response.ok) {
-            const error = await response.json();
-            console.error("Failed to save HTML snapshot:", error);
-            return;
-          }
-
-          const result = await response.json();
-          console.log("✅ HTML snapshot saved:", result.htmlSnapshotUrl);
-
-          // Generate thumbnail from HTML
-          console.log("🖼️  Generating thumbnail from HTML...");
-          const thumbnailResponse = await fetch(
-            `/api/projects/${projectId}/generate-thumbnail-html`,
-            {
-              method: "POST",
-            },
-          );
-
-          if (thumbnailResponse.ok) {
-            const thumbnailResult = await thumbnailResponse.json();
-            console.log(
-              "✅ Thumbnail generated:",
-              thumbnailResult.thumbnailUrl,
-            );
-
-            // Show toast notification
-            toast({
-              title: "Thumbnail saved",
-              description: "Project snapshot captured successfully",
-            });
-          } else {
-            console.error("Failed to generate thumbnail");
-            // Still show toast for HTML snapshot
-            toast({
-              title: "Snapshot saved",
-              description: "Thumbnail generation failed",
-            });
-          }
-
-          htmlCapturedRef.current = true;
-        } catch (error) {
-          console.error("Failed to save HTML snapshot:", error);
-        }
-      }
+      // HTML_SNAPSHOT capture (thumbnail/preview-snapshot) was removed with the
+      // WebContainer capture infrastructure. See future/thumbnail-and-preview-snapshot.md.
     };
 
     window.addEventListener("message", handleMessage);
@@ -1211,13 +1145,6 @@ export function Workspace({
       window.removeEventListener("message", handleMessage);
     };
   }, [projectId, toast]);
-
-  // Reset capture flag when dev server stops
-  useEffect(() => {
-    if (previews.length === 0) {
-      htmlCapturedRef.current = false;
-    }
-  }, [previews]);
 
   // Listen for cloud sync events
   useEffect(() => {

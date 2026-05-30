@@ -23,6 +23,7 @@ import {
   type DeployResult,
 } from "@/lib/sandbox-convex-deploy";
 import { setupConvexAuth, refreshAuthSiteUrl } from "@/lib/convex-auth-setup";
+import { makeStripeLookupKey } from "@/lib/stripe-scaffold";
 import { getUserCredentials } from "@/lib/user-credentials";
 import { getOrCreatePersistentSandbox } from "@/lib/vercel-sandbox";
 import {
@@ -615,6 +616,7 @@ export async function POST(req: Request) {
                 description: p.description ?? null,
                 prices: prices.data.map((pr) => ({
                   priceId: pr.id,
+                  lookupKey: pr.lookup_key ?? null,
                   unitAmount: pr.unit_amount,
                   currency: pr.currency,
                   recurring: pr.recurring
@@ -658,13 +660,24 @@ export async function POST(req: Request) {
       const intervalCount =
         typeof args.intervalCount === "number" ? args.intervalCount : undefined;
 
+      // Stable, mode-agnostic handle the app stores instead of a price_… id.
+      const lookupKeyHint =
+        typeof args.lookupKey === "string" ? args.lookupKey : name;
+      const lookupKey = makeStripeLookupKey(binding.projectId, lookupKeyHint);
+
       try {
         const priceData: import("stripe").Stripe.PriceCreateParams = {
           currency,
           unit_amount: unitAmount,
+          lookup_key: lookupKey,
+          transfer_lookup_key: true,
           product_data: {
             name,
-            metadata: { botflow_project_id: binding.projectId },
+            metadata: {
+              botflow_project_id: binding.projectId,
+              botflow_managed: "1",
+              botflow_lookup_key: lookupKey,
+            },
           },
         };
         if (interval) {
@@ -685,6 +698,7 @@ export async function POST(req: Request) {
             mode,
             productId,
             priceId: price.id,
+            lookupKey,
             name,
             unitAmount,
             currency,

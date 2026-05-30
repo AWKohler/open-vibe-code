@@ -268,6 +268,10 @@ const DEMO_LOOKUP_KEY = "botflow_demo";
  * Pass lookupKey (from createStripeProduct) to pick the product — it resolves
  * to the right price in the current Stripe mode. Omit it to use the Demo
  * Product. (priceId is an advanced override for a specific test/live price id.)
+ *
+ * For subscriptions / paid tiers, ALSO pass metadata: { appUserId: <user._id> }
+ * so the webhook (billing.ts) can map the subscription back to this user via
+ * event.data.metadata.appUserId. Subscription events carry no email.
  */
 export const createCheckoutSession = action({
   args: {
@@ -437,19 +441,29 @@ export const stripeWebhook = httpAction(async (ctx, req) => {
 });
 `;
 
-export const BILLING_TS = `// EDITABLE — this is where you implement how Stripe events change your
-// project's database. The webhook receiver (stripeWebhook.ts) calls
-// applyStripeEvent below with a normalized event payload.
+export const BILLING_TS = `// EDITABLE — implement how Stripe events change your app's database here.
+// stripeWebhook.ts verifies each event and calls applyStripeEvent below.
 //
-// Common event types you'll handle:
-//   subscription.activated  — user paid; flip them to a paid tier
-//   subscription.canceled   — user cancelled; revert tier on period end
-//   subscription.updated    — plan change; update the stored plan
-//   payment.succeeded       — one-time payment cleared
-//   payment.failed          — retry / notify
+// The payload is a NORMALIZED Botflow event — NOT a raw Stripe event. Handle
+// these event.type values, with these event.data fields:
 //
-// The event payload's shape mirrors Stripe events but is normalized — see
-// docs.stripe.com/api/events.
+//   subscription.activated  — user just paid / started a plan
+//       data: { subscriptionId, customerId, status, priceId, metadata }
+//   subscription.updated    — plan or status changed
+//       data: { subscriptionId, status, priceId?, metadata }
+//   subscription.canceled   — ended, or set to cancel at period end
+//       data: { subscriptionId, customerId?, cancelAtPeriodEnd?, status?, metadata }
+//   payment.succeeded       — one-time payment / first invoice cleared
+//       data: { sessionId?, paymentIntentId?, amountTotal?, currency?, customerEmail?, metadata }
+//   payment.failed          — a charge failed
+//       data: { paymentIntentId?, metadata }
+//
+// ── LINKING AN EVENT TO ONE OF YOUR USERS ──────────────────────────────────
+// Subscription events do NOT include an email, so do NOT try to match on
+// customer_email. The reliable way to know which user an event belongs to is
+// metadata you set at checkout time: when the UI calls createCheckoutSession,
+// pass  metadata: { appUserId: <the signed-in user's _id> }  and read it back
+// here as event.data.metadata.appUserId.
 
 import { internalMutation } from "./_generated/server";
 import { v } from "convex/values";
@@ -457,22 +471,37 @@ import { v } from "convex/values";
 export const applyStripeEvent = internalMutation({
   args: { event: v.any() },
   handler: async (ctx, { event }) => {
-    // TODO: replace this with real logic that updates your schema.
-    // Example for a "users" table with a 'tier' field:
-    //
-    //   const email = event.data?.customer_email as string | undefined;
-    //   if (!email) return;
-    //   const user = await ctx.db
-    //     .query("users")
-    //     .withIndex("by_email", (q) => q.eq("email", email))
-    //     .unique();
-    //   if (!user) return;
-    //   if (event.type === "subscription.activated") {
-    //     await ctx.db.patch(user._id, { tier: "pro" });
-    //   } else if (event.type === "subscription.canceled") {
-    //     await ctx.db.patch(user._id, { tier: "free" });
-    //   }
-    console.log("[stripeWebhook] received", event.type, event.id);
+    const type = event.type as string;
+    const data = (event.data ?? {}) as Record<string, any>;
+
+    // Who does this belong to? Set metadata.appUserId at checkout (see note).
+    const appUserId = data?.metadata?.appUserId as string | undefined;
+    console.log("[stripeWebhook]", type, event.id, "appUserId:", appUserId);
+    if (!appUserId) return; // can't map the event to a user without it
+
+    // ── Adapt the lines below to YOUR schema. This example assumes a
+    // ── "userProfiles" table indexed by userId ("by_userId") with a "tier".
+    if (type === "subscription.activated" || type === "subscription.updated") {
+      const isActive = data.status === "active" || data.status === "trialing";
+      // const profile = await ctx.db.query("userProfiles")
+      //   .withIndex("by_userId", (q) => q.eq("userId", appUserId as any))
+      //   .unique();
+      // if (profile) {
+      //   await ctx.db.patch(profile._id, {
+      //     tier: isActive ? "pro" : "free",
+      //     stripeCustomerId: data.customerId,
+      //     subscriptionId: data.subscriptionId,
+      //     subscriptionStatus: data.status,
+      //   });
+      // }
+      console.log("[stripeWebhook] would set tier", isActive ? "pro" : "free", appUserId);
+    } else if (type === "subscription.canceled") {
+      // const profile = await ctx.db.query("userProfiles")
+      //   .withIndex("by_userId", (q) => q.eq("userId", appUserId as any))
+      //   .unique();
+      // if (profile) await ctx.db.patch(profile._id, { tier: "free", subscriptionStatus: "canceled" });
+      console.log("[stripeWebhook] would revert tier free", appUserId);
+    }
   },
 });
 `;

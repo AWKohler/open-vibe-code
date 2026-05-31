@@ -20,6 +20,7 @@ import {
 } from '@/db/schema';
 import { getStripe, type StripeMode } from '@/lib/stripe';
 import { mirrorStripeProductsAcrossModes } from '@/lib/stripe-scaffold';
+import { ensureConnectWebhookEndpoint } from '@/lib/stripe-webhook-provisioning';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -151,6 +152,11 @@ export async function GET(req: NextRequest) {
       updatedAt: now,
     })
     .where(eq(projects.id, stateRow.projectId));
+
+  // Make sure the platform's Connect webhook endpoint exists for this mode, so
+  // subscription/payment events from connected accounts are actually delivered
+  // (no reliance on a hand-configured dashboard webhook). Idempotent + cheap.
+  void ensureConnectWebhookEndpoint(mode).catch(() => {});
 
   // If the user already had the OTHER mode connected (e.g. they built in test
   // and just linked live), mirror this project's products into the newly

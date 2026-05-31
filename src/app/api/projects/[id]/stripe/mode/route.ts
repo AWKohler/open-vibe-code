@@ -21,6 +21,7 @@ import { projects, userStripeIdentity } from '@/db/schema';
 import { canUseStripeConnect } from '@/lib/tier';
 import { isConnectOAuthConfigured, isStripeConfigured, type StripeMode } from '@/lib/stripe';
 import { setStripeConvexEnv, mirrorStripeProductsAcrossModes } from '@/lib/stripe-scaffold';
+import { ensureConnectWebhookEndpoint } from '@/lib/stripe-webhook-provisioning';
 import { mintStripeAuthorizeUrl } from '@/lib/stripe-connect';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
@@ -131,6 +132,10 @@ export async function POST(
       console.error('[stripe/mode] setStripeConvexEnv failed (non-fatal):', err);
     });
   }
+
+  // Ensure the platform's Connect webhook endpoint exists for the mode we're
+  // entering (covers users who connected before programmatic provisioning).
+  void ensureConnectWebhookEndpoint(requested).catch(() => {});
 
   // Mirror this project's products from the mode we're leaving into the mode
   // we're entering, so a stable lookup key resolves to a real price in the new

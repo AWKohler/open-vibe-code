@@ -497,3 +497,19 @@ export const stripeWebhookEvents = pgTable('stripe_webhook_events', {
 
 export type StripeWebhookEvent = typeof stripeWebhookEvents.$inferSelect;
 export type NewStripeWebhookEvent = typeof stripeWebhookEvents.$inferInsert;
+
+// Platform-managed Stripe Connect webhook endpoints, provisioned via the Stripe
+// API (one per mode) so delivery never depends on a hand-configured dashboard
+// webhook. Stripe only returns the signing secret at creation time, so we store
+// it here for the inbound webhook receiver to verify against.
+export const stripeWebhookEndpoints = pgTable('stripe_webhook_endpoints', {
+  mode: text('mode').primaryKey(), // 'test' | 'live'
+  endpointId: text('endpoint_id').notNull(),
+  secret: text('secret').notNull(),
+  url: text('url').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export type StripeWebhookEndpoint = typeof stripeWebhookEndpoints.$inferSelect;
+export type NewStripeWebhookEndpoint = typeof stripeWebhookEndpoints.$inferInsert;

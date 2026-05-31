@@ -32,6 +32,7 @@ import {
   userStripeIdentity,
 } from '@/db/schema';
 import { getStripe, type StripeMode } from '@/lib/stripe';
+import { getManagedWebhookSecrets } from '@/lib/stripe-webhook-provisioning';
 import { STRIPE_CONNECT_ENABLED } from '@/lib/feature-flags';
 
 export const runtime = 'nodejs';
@@ -62,11 +63,13 @@ function configuredWebhookSecrets(): Array<{ mode: StripeMode; secret: string }>
   return out;
 }
 
-function verifyAny(
+async function verifyAny(
   rawBody: string,
   signatureHeader: string,
-): { event: Stripe.Event; mode: StripeMode } | null {
-  const secrets = configuredWebhookSecrets();
+): Promise<{ event: Stripe.Event; mode: StripeMode } | null> {
+  // Env-configured secrets first (manual/legacy), then DB-stored secrets from
+  // programmatically-provisioned endpoints. The first that verifies wins.
+  const secrets = [...configuredWebhookSecrets(), ...(await getManagedWebhookSecrets())];
   for (const { mode, secret } of secrets) {
     try {
       // Pick a Stripe client for constructEvent — any will do; this is local
@@ -289,7 +292,7 @@ export async function POST(req: NextRequest) {
   }
 
   const rawBody = await req.text();
-  const verified = verifyAny(rawBody, signatureHeader);
+  const verified = await verifyAny(rawBody, signatureHeader);
   if (!verified) {
     return NextResponse.json({ ok: false, error: 'Signature did not verify' }, { status: 400 });
   }

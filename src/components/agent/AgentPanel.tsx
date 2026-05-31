@@ -34,6 +34,7 @@ import {
   CLAUDE_CODE_TO_BOTFLOW,
   sanitizeToolUseId,
 } from '@/lib/agent/tool-name-map';
+import type { SubagentStep } from '@/lib/agent/claude-code/translator';
 
 type Props = { className?: string; projectId: string; initialPrompt?: string; platform?: ProjectPlatform };
 
@@ -100,6 +101,73 @@ function ToolStep({ toolName, state, content }: { toolName: string; state: strin
       </div>
       {/* Expanded content */}
       {open && <div className="pl-[26px] pb-1.5">{content}</div>}
+    </div>
+  );
+}
+
+// ============================================================================
+// Subagent (Task) nested timeline
+// ============================================================================
+//
+// When Claude Code spins up a Task subagent, the translator routes the
+// subagent's inner work (text, thinking, tool calls) into a single
+// `data-claude-code-subagent` part keyed by the parent Task tool-use id,
+// rather than flattening it into the main thread. Here we render those steps
+// as a collapsible block nested under the Task step so the subagent's actions
+// are clearly attributed to it.
+function SubagentStepRow({ step }: { step: SubagentStep }) {
+  const [open, setOpen] = useState(false);
+  if (step.kind === 'text') {
+    return <div className="text-xs text-fg/80 py-0.5 min-w-0 break-words [overflow-wrap:anywhere]"><Markdown content={step.text} /></div>;
+  }
+  if (step.kind === 'thinking') {
+    return <div className="text-xs italic text-muted py-0.5 whitespace-pre-wrap break-words">{step.text}</div>;
+  }
+  return (
+    <div className="py-0.5">
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-xs text-muted hover:text-fg transition-colors w-full text-left"
+        onClick={() => setOpen(v => !v)}
+      >
+        {step.status === 'running'
+          ? <Loader2 size={9} className="animate-spin shrink-0" />
+          : step.status === 'error'
+            ? <AlertCircle size={9} className="text-red-500 shrink-0" />
+            : <Check size={9} className="shrink-0 text-muted" />}
+        <span className="font-medium truncate">{step.toolName}</span>
+        {open ? <ChevronDown size={10} className="ml-auto shrink-0" /> : <ChevronRight size={10} className="ml-auto shrink-0" />}
+      </button>
+      {open && (
+        <pre className="mt-1 text-[10px] overflow-auto bg-surface p-1.5 rounded border border-border whitespace-pre-wrap break-words max-h-40">
+          {JSON.stringify(step.input, null, 2)}
+          {step.output ? `\n\n— output —\n${step.output}` : ''}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function SubagentCard({ steps, label }: { steps: SubagentStep[]; label?: string }) {
+  const [open, setOpen] = useState(true);
+  const toolCount = steps.reduce((n, s) => (s.kind === 'tool' ? n + 1 : n), 0);
+  if (steps.length === 0) return null;
+  return (
+    <div className="ml-[26px] mt-1 mb-1.5 border-l-2 border-accent/30 pl-3">
+      <button
+        type="button"
+        className="flex items-center gap-1.5 text-xs w-full text-left hover:opacity-80 transition-opacity"
+        onClick={() => setOpen(v => !v)}
+      >
+        <span className="font-medium text-accent/80">Subagent{label ? ` · ${label}` : ''}</span>
+        <span className="text-[10px] text-muted tabular-nums">{toolCount} action{toolCount !== 1 ? 's' : ''}</span>
+        {open ? <ChevronDown size={10} className="ml-auto shrink-0 text-muted" /> : <ChevronRight size={10} className="ml-auto shrink-0 text-muted" />}
+      </button>
+      {open && (
+        <div className="mt-1 space-y-0.5">
+          {steps.map((s, i) => <SubagentStepRow key={i} step={s} />)}
+        </div>
+      )}
     </div>
   );
 }
@@ -1485,7 +1553,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
 
       {/* Messages — v6 parts-based rendering. Segments from prior agents
           stay visible but visually de-emphasized; a divider marks the boundary. */}
-      <div ref={scrollRef} className="flex-1 overflow-auto space-y-3 p-3 modern-scrollbar">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden space-y-3 p-3 modern-scrollbar min-w-0">
         {messages.map((m, idx) => {
           const mySeg = segmentByMessageIdRef.current.get(m.id) ?? currentSegmentId ?? null;
           const prevSeg = idx > 0
@@ -1501,8 +1569,22 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             </div>
           ) : null;
           const olderClass = isOlderSegment ? 'opacity-60' : '';
+          // Subagent timelines arrive as `data-claude-code-subagent` parts
+          // keyed by their parent Task tool-use id. Collect them so we can nest
+          // each one under its Task step (rendered separately, not in the
+          // main part flow).
+          const subagentStepsByParent = new Map<string, SubagentStep[]>();
+          for (const part of m.parts) {
+            if (part.type === 'data-claude-code-subagent') {
+              const d = (part as { data?: { parentToolUseId?: string; steps?: SubagentStep[] } }).data;
+              if (d?.parentToolUseId) subagentStepsByParent.set(d.parentToolUseId, d.steps ?? []);
+            }
+          }
           const filteredParts = m.parts.filter(part => {
             if (isToolUIPart(part) && getToolName(part) === 'endTurn') return false;
+            // Subagent data parts are rendered nested under their Task step, not
+            // inline — drop them from the main timeline flow.
+            if (part.type === 'data-claude-code-subagent') return false;
             // Skip whitespace-only text parts — they would break up consecutive tool groups
             if (part.type === 'text' && !part.text.trim()) return false;
             return true;
@@ -1533,7 +1615,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
             return (
               <Fragment key={m.id}>
                 {dividerEl}
-                <div className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight', m.role === 'user' ? 'bg-elevated' : '', olderClass)}>
+                <div className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight min-w-0 max-w-full overflow-hidden break-words [overflow-wrap:anywhere]', m.role === 'user' ? 'bg-elevated' : '', olderClass)}>
                 {filteredParts.map((part, i) => {
                   if (part.type === 'text') return <Markdown key={i} content={part.text} />;
                   if (part.type === 'reasoning') {
@@ -1595,7 +1677,7 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
           return (
             <Fragment key={m.id}>
               {dividerEl}
-              <div className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight', olderClass)}>
+              <div className={cn('rounded-xl px-2 py-3 text-[1.1rem] tracking tight min-w-0 max-w-full overflow-hidden break-words [overflow-wrap:anywhere]', olderClass)}>
               {/* Content before the first tool call */}
               {preTimeline.map((group, gi) => (
                 <div key={`pre-${gi}`}>{renderContentGroup(group, `pre-${gi}`)}</div>
@@ -1681,6 +1763,30 @@ export function AgentPanel({ className, projectId, initialPrompt, platform = 'we
                                   }}
                                 />
                               </div>
+                            );
+                          }
+
+                          // Task subagent: render the standard step plus the
+                          // subagent's nested inner timeline beneath it.
+                          if (toolName === 'task') {
+                            const tc = part as { toolCallId?: string; input?: { description?: string; subagent_type?: string; prompt?: string } };
+                            const steps = tc.toolCallId ? subagentStepsByParent.get(tc.toolCallId) : undefined;
+                            const desc = tc.input?.description?.trim();
+                            const subType = tc.input?.subagent_type?.trim();
+                            const label = [subType, desc].filter(Boolean).join(': ') || undefined;
+                            return (
+                              <Fragment key={idx}>
+                                <ToolStep
+                                  toolName={label ? `task — ${label}` : 'task'}
+                                  state={part.state}
+                                  content={
+                                    <pre className="text-xs overflow-auto bg-surface p-2 rounded border border-border">
+                                      {JSON.stringify('input' in part ? part.input : part, null, 2)}
+                                    </pre>
+                                  }
+                                />
+                                {steps && <SubagentCard steps={steps} label={label} />}
+                              </Fragment>
                             );
                           }
 

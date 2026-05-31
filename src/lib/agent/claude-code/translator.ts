@@ -48,11 +48,30 @@ interface SDKMessage {
     content?: ContentBlock[];
     id?: string;
   };
+  /** Set on assistant/user messages produced INSIDE a Task subagent. Its value
+   *  is the `tool_use` id of the originating Task call, so we can group a
+   *  subagent's inner work under the parent Task step in the UI instead of
+   *  flattening it into the main thread. `null`/absent on the main thread. */
+  parent_tool_use_id?: string | null;
   // Result message:
   result?: string;
   is_error?: boolean;
   usage?: unknown;
 }
+
+/** One step inside a subagent's inner timeline, surfaced to the UI as part of
+ *  the `data-claude-code-subagent` payload keyed by the parent Task tool id. */
+export type SubagentStep =
+  | { kind: "text"; text: string }
+  | { kind: "thinking"; text: string }
+  | {
+      kind: "tool";
+      toolCallId: string;
+      toolName: string;
+      input: unknown;
+      status: "running" | "done" | "error";
+      output?: string;
+    };
 
 type ContentBlock =
   | { type: "text"; text: string }
@@ -108,6 +127,10 @@ interface State {
   toolNamesById: Map<string, string>;
   /** Raw inputs for each tool-call id so we can include them on tool-input-available. */
   toolInputsById: Map<string, unknown>;
+  /** Accumulated inner steps for each Task subagent, keyed by the parent Task
+   *  tool-use id. Emitted as a single reconciled `data-claude-code-subagent`
+   *  part per subagent so the UI can nest the work under its Task step. */
+  subagents: Map<string, SubagentStep[]>;
 }
 
 export function createTranslator(writer: UIMessageStreamWriter): {
@@ -122,6 +145,7 @@ export function createTranslator(writer: UIMessageStreamWriter): {
     openToolIds: new Set(),
     toolNamesById: new Map(),
     toolInputsById: new Map(),
+    subagents: new Map(),
   };
 
   function emitFinish(reason: "stop" | "error") {
@@ -219,6 +243,73 @@ export function createTranslator(writer: UIMessageStreamWriter): {
     }
   }
 
+  /* ----------------------------- subagents ----------------------------- */
+
+  /** Cap on per-step output/text so a chatty subagent can't bloat the
+   *  persisted message payload. The full output still lives in the sandbox; the
+   *  UI only needs a preview. */
+  const SUBAGENT_TEXT_CAP = 2000;
+
+  function emitSubagent(parentId: string) {
+    emit({
+      type: "data-claude-code-subagent",
+      // Stable id → AI SDK reconciles each snapshot in place rather than
+      // appending a new part per update. One part per subagent.
+      id: parentId,
+      data: {
+        parentToolUseId: parentId,
+        steps: state.subagents.get(parentId) ?? [],
+      },
+    } as unknown as UIMessageChunk);
+  }
+
+  /** Assistant message emitted from inside a Task subagent. We accumulate its
+   *  text / thinking / tool_use blocks into the subagent's step list instead of
+   *  writing them to the main stream (which would attribute the subagent's work
+   *  to the top-level assistant). */
+  function handleSubagentAssistant(parentId: string, message: SDKMessage["message"]) {
+    const steps = state.subagents.get(parentId) ?? [];
+    for (const block of message?.content ?? []) {
+      if (block.type === "text") {
+        const text = (block as { text: string }).text;
+        if (text) steps.push({ kind: "text", text: text.slice(0, SUBAGENT_TEXT_CAP) });
+      } else if (block.type === "thinking") {
+        const text = (block as { thinking: string }).thinking;
+        if (text) steps.push({ kind: "thinking", text: text.slice(0, SUBAGENT_TEXT_CAP) });
+      } else if (block.type === "tool_use") {
+        const tb = block as { id: string; name: string; input: unknown };
+        steps.push({
+          kind: "tool",
+          toolCallId: tb.id,
+          toolName: normalizeToolName(tb.name),
+          input: tb.input ?? {},
+          status: "running",
+        });
+      }
+    }
+    state.subagents.set(parentId, steps);
+    emitSubagent(parentId);
+  }
+
+  /** Tool_result echoed back inside a subagent — match it to its in-flight tool
+   *  step by tool_use_id and attach the output. */
+  function handleSubagentUser(parentId: string, message: SDKMessage["message"]) {
+    const steps = state.subagents.get(parentId);
+    if (!steps) return;
+    for (const block of message?.content ?? []) {
+      if (block.type !== "tool_result") continue;
+      const tr = block as { tool_use_id: string; content: unknown; is_error?: boolean };
+      const step = steps.find(
+        (s) => s.kind === "tool" && s.toolCallId === tr.tool_use_id,
+      );
+      if (step && step.kind === "tool") {
+        step.output = stringifyContent(tr.content).slice(0, SUBAGENT_TEXT_CAP);
+        step.status = tr.is_error ? "error" : "done";
+      }
+    }
+    emitSubagent(parentId);
+  }
+
   function push(event: BridgeEvent) {
     ensureStarted();
     switch (event.type) {
@@ -229,10 +320,19 @@ export function createTranslator(writer: UIMessageStreamWriter): {
         const m = event.message;
         if (!m) return;
         const t = m.type;
+        // Messages tagged with parent_tool_use_id originate inside a Task
+        // subagent — route them to the nested subagent timeline rather than the
+        // main thread.
+        const parentId =
+          typeof m.parent_tool_use_id === "string" && m.parent_tool_use_id
+            ? m.parent_tool_use_id
+            : null;
         if (t === "assistant") {
-          handleAssistant(m.message);
+          if (parentId) handleSubagentAssistant(parentId, m.message);
+          else handleAssistant(m.message);
         } else if (t === "user") {
-          handleUserMessage(m.message);
+          if (parentId) handleSubagentUser(parentId, m.message);
+          else handleUserMessage(m.message);
         } else if (t === "result") {
           // Final result — we'll emit finish on end_turn.
           if (m.is_error && m.result) {

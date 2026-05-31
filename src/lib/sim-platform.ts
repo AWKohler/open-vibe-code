@@ -14,6 +14,9 @@ export interface CreateSessionResult {
   queuePosition: number | null;
   createdAt: number;
   hostId: string | null;
+  // Per-session capability secret for the browser stream WS. Returned only by
+  // the controller's create endpoint; must be appended to the WS URL.
+  streamToken?: string;
 }
 
 export interface UploadBuildInput {
@@ -116,8 +119,13 @@ export async function releaseSession(sessionId: string): Promise<void> {
 /**
  * Build the browser-facing WSS URL for a given session. Used by the
  * swift-preview/start route to hand the client a URL it can hit directly.
+ *
+ * The per-session `streamToken` (from createSession) is appended as a query
+ * param: in secured mode the controller rejects session WS upgrades whose token
+ * doesn't match, so a leaked/guessed sessionId alone can't open a stream.
  */
-export function sessionWsUrl(sessionId: string): string {
+export function sessionWsUrl(sessionId: string, streamToken?: string): string {
   const { ws } = controllerBase();
-  return `${ws}/ws/session/${sessionId}`;
+  const base = `${ws}/ws/session/${sessionId}`;
+  return streamToken ? `${base}?token=${encodeURIComponent(streamToken)}` : base;
 }

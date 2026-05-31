@@ -57,7 +57,7 @@ export async function POST(
 
     return NextResponse.json({
       sessionId,
-      wsUrl: sessionWsUrl(sessionId),
+      wsUrl: sessionWsUrl(sessionId, session.streamToken),
       tarBytes: tarball.length,
     });
   } catch (error) {

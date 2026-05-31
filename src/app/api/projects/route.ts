@@ -3,7 +3,7 @@ import { getDb } from '@/db';
 import { projects } from '@/db/schema';
 import { desc, eq, isNull, and } from 'drizzle-orm';
 import { auth } from '@clerk/nextjs/server';
-import { getUserTierAndLimits } from '@/lib/tier';
+import { getUserTierAndLimits, isBetaUser } from '@/lib/tier';
 import { countUserProjects } from '@/lib/usage';
 import { limitReachedResponse } from '@/lib/plan-response';
 import { normalizeProjectPlatform, normalizeBackendType, type ProjectPlatform, type BackendType } from '@/lib/project-platform';
@@ -67,6 +67,17 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
     const resolvedPlatform = normalizeProjectPlatform(platform);
+    // Swift is a beta-only platform. normalizeProjectPlatform already enforces
+    // the global kill-switch (NEXT_PUBLIC_ALLOW_PERSISTENT_EXP); this adds the
+    // per-user gate. Only runs when swift is actually requested, so it costs
+    // nothing on the common web-project path — and the getUserTierAndLimits call
+    // above has already warmed the beta cache for free users.
+    if (resolvedPlatform === 'swift' && !(await isBetaUser(userId))) {
+      return NextResponse.json(
+        { error: 'Swift projects are currently in private beta.' },
+        { status: 403 },
+      );
+    }
     const resolvedBackendType = normalizeBackendType(backendType);
     // Stamp the sandbox template up-front so the reaper / auto-reseed paths
     // know how to repopulate /vercel/sandbox after a true 404.

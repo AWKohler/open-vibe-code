@@ -26,7 +26,7 @@ import { Webhook } from "svix";
 import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
-import { invalidateTierCache, type Tier } from "@/lib/tier";
+import { invalidateTierCache, invalidateBetaCache, type Tier } from "@/lib/tier";
 import { getEmailForClerkUser } from "@/lib/email";
 import { sendRestoredEmail } from "@/lib/reaper/emails";
 
@@ -41,9 +41,15 @@ type ClerkUserUpdated = {
   };
 };
 
-function planFromMetadata(md: Record<string, unknown> | undefined): Tier {
+// Effective tier from the event's public_metadata. Beta is a FLOOR (free → pro)
+// so a beta user with no paid plan isn't treated as free here — otherwise the
+// reaper would start its idle clock on someone who has effective Pro access.
+// Reads straight off the webhook payload, so no extra Clerk fetch.
+function effectiveTierFromMetadata(md: Record<string, unknown> | undefined): Tier {
   const plan = (md as { plan?: string } | undefined)?.plan;
-  return plan === "pro" ? "pro" : plan === "max" ? "max" : "free";
+  if (plan === "max") return "max";
+  if (plan === "pro") return "pro";
+  return (md as { isBeta?: boolean } | undefined)?.isBeta === true ? "pro" : "free";
 }
 
 export async function POST(req: Request) {
@@ -76,7 +82,7 @@ export async function POST(req: Request) {
   }
 
   if (evt.type === "user.created" || evt.type === "user.updated") {
-    await handlePlanChange(evt.data.id, planFromMetadata(evt.data.public_metadata));
+    await handlePlanChange(evt.data.id, effectiveTierFromMetadata(evt.data.public_metadata));
   }
   // user.deleted: leave projects alone; admin/console flow handles user removal.
 
@@ -84,7 +90,9 @@ export async function POST(req: Request) {
 }
 
 async function handlePlanChange(userId: string, newTier: Tier): Promise<void> {
-  await invalidateTierCache(userId);
+  // Toggling isBeta arrives as a user.updated event too; refresh both caches so
+  // tier (which beta can lift) and the Swift gate pick up the change immediately.
+  await Promise.all([invalidateTierCache(userId), invalidateBetaCache(userId)]);
   const db = getDb();
 
   if (newTier === "free") {

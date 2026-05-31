@@ -11,6 +11,7 @@ import {
   uploadBuild,
 } from "@/lib/sim-platform";
 import { recordSwiftPreviewSession } from "@/lib/swift-preview-store";
+import { swiftRuntimeForbidden } from "@/lib/swift-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,13 @@ export async function POST(
     return NextResponse.json(
       { error: "Project platform must be 'swift'." },
       { status: 400 },
+    );
+  }
+  // Beta-only runtime. Gates legacy swift projects owned by non-beta users.
+  if (await swiftRuntimeForbidden(project.platform, userId)) {
+    return NextResponse.json(
+      { error: "Swift projects are currently in private beta." },
+      { status: 403 },
     );
   }
 

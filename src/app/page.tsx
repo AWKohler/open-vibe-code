@@ -1334,7 +1334,11 @@ interface LandingPendingImage {
 
 export default function LandingV2() {
   const router = useRouter();
-  const { isSignedIn } = useUser();
+  const { isSignedIn, user } = useUser();
+  // Beta flag lives in Clerk publicMetadata, which already rides along on the
+  // client user object — no extra fetch. Gates the Swift platform toggle below;
+  // the projects API enforces the same rule server-side.
+  const isBetaUser = (user?.publicMetadata as { isBeta?: boolean } | undefined)?.isBeta === true;
   const [prompt, setPrompt] = useState('');
   const [platform, setPlatform] = useState<ProjectPlatform>('sandboxed-web');
   const [model, setModel] = useState<ModelId>('fireworks-kimi-k2p6');
@@ -1907,7 +1911,7 @@ export default function LandingV2() {
                             </div>
                           )}
                         </div>
-                        {isSwiftPlatformEnabled() && (
+                        {isSwiftPlatformEnabled() && isBetaUser && (
                           <button
                             type="button"
                             onClick={() => setPlatform(getNextProjectPlatform(platform))}

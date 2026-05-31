@@ -12,6 +12,7 @@ import { auth } from "@clerk/nextjs/server";
 
 import { SYSTEM_PROMPT_MOBILE, SYSTEM_PROMPT_MULTIPLATFORM, SYSTEM_PROMPT_SWIFT, buildSandboxedWebSystemPrompt, buildWebSystemPrompt } from "@/lib/agent/prompts";
 import { isSandboxPlatform } from "@/lib/project-platform";
+import { swiftRuntimeForbidden } from "@/lib/swift-access";
 import { getPersistentTools } from "@/lib/agent/persistent-tools";
 import { getSandboxedWebTools } from "@/lib/agent/sandboxed-web-tools";
 import { MODEL_CONFIGS, resolveModelId, type ModelId } from "@/lib/agent/models";
@@ -565,6 +566,15 @@ export async function POST(req: Request) {
           status: 404,
           headers: { "Content-Type": "application/json" },
         });
+      }
+      // Swift's runtime is beta-only. Gate on the STORED platform so a non-beta
+      // owner of a legacy swift project can't drive the native agent's sandbox
+      // tools against the swift sandbox.
+      if (await swiftRuntimeForbidden(proj.platform, userId)) {
+        return new Response(
+          JSON.stringify({ error: "Swift projects are currently in private beta." }),
+          { status: 403, headers: { "Content-Type": "application/json" } },
+        );
       }
       selectedModel = resolveModelId(proj.model);
       hasBackend = proj.backendType !== "none";

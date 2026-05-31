@@ -101,6 +101,34 @@ export function getLimitsForTier(tier: Tier): TierLimits {
 // Short TTL — Clerk's PricingTable updates the JWT immediately after purchase,
 // so a 60s cache is safe and avoids hammering Clerk's API.
 const TIER_CACHE_TTL = 60;
+const BETA_CACHE_TTL = 60;
+
+/**
+ * One Clerk round-trip that returns BOTH the manually-set plan and beta status.
+ * Sharing this read is the whole reason `getUserTier` never fetches Clerk twice
+ * to resolve tier + beta — they both live in publicMetadata.
+ *
+ * NB: beta status is cached as the string 'yes'/'no' (not 'true'/'false' or
+ * '1'/'0') because @upstash/redis JSON-parses values on read — those literals
+ * would come back as a boolean/number and break the equality checks. The tier
+ * cache relies on the same "non-JSON string" trick.
+ */
+async function fetchClerkUserAttrs(
+  userId: string,
+): Promise<{ plan?: string; isBeta: boolean }> {
+  const client = await clerkClient();
+  const user = await client.users.getUser(userId);
+  const md = (user.publicMetadata ?? {}) as Record<string, unknown>;
+  return { plan: md.plan as string | undefined, isBeta: md.isBeta === true };
+}
+
+/** Resolve effective tier from a plan string + beta flag. Beta is a FLOOR — it
+ *  lifts free → pro but never caps a manually-set max down to pro. */
+function resolveTier(plan: string | undefined, isBeta: boolean): Tier {
+  if (plan === 'max') return 'max';
+  if (plan === 'pro') return 'pro';
+  return isBeta ? 'pro' : 'free';
+}
 
 export async function getUserTier(userId: string): Promise<Tier> {
   // ── Primary: auth().has({ plan }) ────────────────────────────────────────
@@ -111,21 +139,27 @@ export async function getUserTier(userId: string): Promise<Tier> {
 
   try {
     const { has } = await auth();
-    let tier: Tier = 'free';
+    // Paid plans short-circuit with NO Clerk fetch — beta can only raise a free
+    // user to pro, so a confirmed pro/max user never needs a beta lookup.
     if (has({ plan: 'max' })) {
-      tier = 'max';
-    } else if (has({ plan: 'pro' })) {
-      tier = 'pro';
-    } else {
-      // has() returned false for both — check publicMetadata for manually-set plans.
-      const client = await clerkClient();
-      const user = await client.users.getUser(userId);
-      const plan = (user.publicMetadata as Record<string, unknown>)?.plan as string | undefined;
-      if (plan === 'max') tier = 'max';
-      else if (plan === 'pro') tier = 'pro';
+      await redis.setex(cacheKey, TIER_CACHE_TTL, 'max').catch(() => {});
+      return 'max';
     }
-    // Keep Redis in sync (helps the fallback path and webhook invalidation flow)
-    await redis.setex(cacheKey, TIER_CACHE_TTL, tier).catch(() => {});
+    if (has({ plan: 'pro' })) {
+      await redis.setex(cacheKey, TIER_CACHE_TTL, 'pro').catch(() => {});
+      return 'pro';
+    }
+    // has() is false for both — one fetch yields the manual plan AND beta flag.
+    // (This fetch already happened pre-beta to read publicMetadata.plan; reading
+    // isBeta off the same object adds zero round-trips.)
+    const { plan, isBeta } = await fetchClerkUserAttrs(userId);
+    const tier = resolveTier(plan, isBeta);
+    await Promise.all([
+      redis.setex(cacheKey, TIER_CACHE_TTL, tier).catch(() => {}),
+      // Warm the beta cache so a same-request isBetaUser() (e.g. the Swift gate)
+      // is a free cache hit instead of a second Clerk fetch.
+      redis.setex(`beta:${userId}`, BETA_CACHE_TTL, isBeta ? 'yes' : 'no').catch(() => {}),
+    ]);
     return tier;
   } catch {
     // ── Fallback: Redis cache → Clerk backend API ─────────────────────────
@@ -133,11 +167,12 @@ export async function getUserTier(userId: string): Promise<Tier> {
     const cached = await redis.get<string>(cacheKey);
     if (cached === 'free' || cached === 'pro' || cached === 'max') return cached;
 
-    const client = await clerkClient();
-    const user = await client.users.getUser(userId);
-    const plan = (user.publicMetadata as Record<string, unknown>)?.plan as string | undefined;
-    const tier: Tier = plan === 'pro' ? 'pro' : plan === 'max' ? 'max' : 'free';
-    await redis.setex(cacheKey, TIER_CACHE_TTL, tier);
+    const { plan, isBeta } = await fetchClerkUserAttrs(userId);
+    const tier = resolveTier(plan, isBeta);
+    await Promise.all([
+      redis.setex(cacheKey, TIER_CACHE_TTL, tier).catch(() => {}),
+      redis.setex(`beta:${userId}`, BETA_CACHE_TTL, isBeta ? 'yes' : 'no').catch(() => {}),
+    ]);
     return tier;
   }
 }
@@ -151,6 +186,29 @@ export async function getUserTierAndLimits(userId: string): Promise<TierLimits> 
 /** Invalidate the tier cache for a user (call after subscription change webhook) */
 export async function invalidateTierCache(userId: string): Promise<void> {
   await redis.del(`tier:${userId}`);
+}
+
+// ─── Beta access ────────────────────────────────────────────────────────────
+
+/**
+ * Whether the user is a beta tester (publicMetadata.isBeta === true). Beta users
+ * get early features (currently: Swift projects) and an automatic Pro tier floor
+ * via {@link getUserTier}. Cached 60s; warmed for free as a side effect of
+ * getUserTier's metadata fetch, so the common path is a single Clerk round-trip.
+ */
+export async function isBetaUser(userId: string): Promise<boolean> {
+  const cacheKey = `beta:${userId}`;
+  const cached = await redis.get<string>(cacheKey);
+  if (cached === 'yes') return true;
+  if (cached === 'no') return false;
+  const { isBeta } = await fetchClerkUserAttrs(userId);
+  await redis.setex(cacheKey, BETA_CACHE_TTL, isBeta ? 'yes' : 'no').catch(() => {});
+  return isBeta;
+}
+
+/** Invalidate the beta cache for a user (call after a publicMetadata change). */
+export async function invalidateBetaCache(userId: string): Promise<void> {
+  await redis.del(`beta:${userId}`);
 }
 
 // ─── Model → tier requirement ─────────────────────────────────────────────────

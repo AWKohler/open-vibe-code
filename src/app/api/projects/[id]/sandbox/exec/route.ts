@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
 import { getOrCreatePersistentSandbox } from "@/lib/vercel-sandbox";
+import { swiftRuntimeForbidden } from "@/lib/swift-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,13 @@ export async function POST(
 
   if (!project || project.userId !== userId || (project.platform !== "swift" && project.platform !== "sandboxed-web")) {
     return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
+  }
+  // Swift's runtime is beta-only; deny non-beta owners of legacy swift projects.
+  if (await swiftRuntimeForbidden(project.platform, userId)) {
+    return new Response(
+      JSON.stringify({ error: "Swift projects are currently in private beta." }),
+      { status: 403 },
+    );
   }
 
   const body = await req.json() as { cmd: string; args?: string[]; cwd?: string };

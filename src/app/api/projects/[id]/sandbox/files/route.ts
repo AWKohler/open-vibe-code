@@ -10,6 +10,7 @@ import {
   sandboxTreeSignature,
   sandboxWriteFile,
 } from "@/lib/vercel-sandbox";
+import { swiftRuntimeForbidden } from "@/lib/swift-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ async function getAuthorizedProject(projectId: string, userId: string) {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project || project.userId !== userId) return null;
   if (project.platform !== "swift" && project.platform !== "sandboxed-web") return null;
+  // Swift's runtime is beta-only; deny non-beta owners of legacy swift projects.
+  if (await swiftRuntimeForbidden(project.platform, userId)) return null;
   return project;
 }
 

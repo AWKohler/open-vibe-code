@@ -28,6 +28,7 @@ import { getFreshAnthropicAccessToken } from "@/lib/anthropic-oauth";
 import { getOrCreatePersistentSandbox } from "@/lib/vercel-sandbox";
 import { resolveModelId, MODEL_CONFIGS, isAnthropicModel } from "@/lib/agent/models";
 import { isSandboxPlatform } from "@/lib/project-platform";
+import { swiftRuntimeForbidden } from "@/lib/swift-access";
 
 import { isClaudeCodeFlagEnabled } from "@/lib/agent/claude-code/feature-flag";
 import { STRIPE_CONNECT_ENABLED } from "@/lib/feature-flags";
@@ -158,6 +159,12 @@ export async function POST(req: Request) {
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project || project.userId !== userId) {
     return jsonError(404, "Project not found");
+  }
+  // Swift's runtime is beta-only. Gate on the STORED platform (not the request
+  // param) so a non-beta owner of a legacy swift project can't drive the agent's
+  // sandbox tools — and can't mint the tool token the internal tool route trusts.
+  if (await swiftRuntimeForbidden(project.platform, userId)) {
+    return jsonError(403, "Swift projects are currently in private beta.");
   }
 
   const selectedModel = resolveModelId(project.model);

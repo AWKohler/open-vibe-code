@@ -9,6 +9,7 @@ import {
   type SandboxTemplate,
 } from "@/lib/vercel-sandbox";
 import { materializeFrontendEnv } from "@/lib/sandbox-env";
+import { swiftRuntimeForbidden } from "@/lib/swift-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,6 +28,13 @@ export async function POST(
 
   if (!project || project.userId !== userId || (project.platform !== "swift" && project.platform !== "sandboxed-web")) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // Swift's runtime is beta-only; deny non-beta owners of legacy swift projects.
+  if (await swiftRuntimeForbidden(project.platform, userId)) {
+    return NextResponse.json(
+      { error: "Swift projects are currently in private beta." },
+      { status: 403 },
+    );
   }
 
   // Pick the template based on platform + backendType.

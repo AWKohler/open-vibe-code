@@ -9,6 +9,7 @@ import {
   hasSwiftPreviewSession,
   ownsSwiftPreviewSession,
 } from "@/lib/swift-preview-store";
+import { swiftRuntimeForbidden } from "@/lib/swift-access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +29,13 @@ export async function DELETE(
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
   if (!project || project.userId !== userId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  // Beta-only runtime. Gates legacy swift projects owned by non-beta users.
+  if (await swiftRuntimeForbidden(project.platform, userId)) {
+    return NextResponse.json(
+      { error: "Swift projects are currently in private beta." },
+      { status: 403 },
+    );
   }
   // If the store has a positive entry that disagrees, refuse.
   // Otherwise (store wiped on hot-reload, or this session was started in another

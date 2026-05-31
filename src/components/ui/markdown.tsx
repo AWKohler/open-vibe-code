@@ -9,7 +9,7 @@ function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
   let key = 0;
 
   const patterns: [RegExp, (m: RegExpExecArray) => React.ReactNode][] = [
-    [/`([^`]+)`/, (m) => <code key={`${keyPrefix}-code-${key++}`} className="px-1 py-0.5 rounded bg-elevated border border-border text-[0.95em]">{m[1]}</code>],
+    [/`([^`]+)`/, (m) => <code key={`${keyPrefix}-code-${key++}`} className="px-1 py-0.5 rounded bg-elevated border border-border text-[0.95em] [overflow-wrap:anywhere]">{m[1]}</code>],
     [/\*\*([^*]+)\*\*/, (m) => <strong key={`${keyPrefix}-b-${key++}`}>{m[1]}</strong>],
     [/\*([^*]+)\*/, (m) => <em key={`${keyPrefix}-i-${key++}`}>{m[1]}</em>],
     [/\[([^\]]+)\]\(([^)]+)\)/, (m) => <a key={`${keyPrefix}-a-${key++}`} href={m[2]} target="_blank" rel="noreferrer" className="underline text-accent">{m[1]}</a>],
@@ -108,5 +108,10 @@ export function Markdown({ content }: { content: string }) {
     );
   }
 
-  return <div className="space-y-2">{out}</div>;
+  // `overflow-wrap: anywhere` (vs the weaker `break-word`) also shrinks the
+  // element's intrinsic min-content width, so a long unbreakable token — a
+  // UUID, hash, or a bolded id like **xxxx-xxxx** the browser treats as one
+  // word — wraps instead of forcing the bubble wide and triggering a
+  // horizontal scrollbar. min-w-0 lets it shrink inside flex/timeline parents.
+  return <div className="space-y-2 min-w-0 [overflow-wrap:anywhere]">{out}</div>;
 }

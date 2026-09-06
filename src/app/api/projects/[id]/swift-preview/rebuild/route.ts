@@ -11,6 +11,7 @@ import {
 } from "@/lib/swift-preview-store";
 import { canUseSwift, swiftProjectForbidden } from "@/lib/swift-access";
 import { enforce, identifierFor } from "@/lib/rate-limit";
+import { simulatorProvider } from "@/lib/simulator-provider";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -78,6 +79,9 @@ export async function POST(
   }
 
   try {
+    if (simulatorProvider() !== "cloud") {
+      return NextResponse.json({ error: "Cloud simulator builds are disabled. Reconnect using Botflow Companion.", provider: "local" }, { status: 409 });
+    }
     await materializeSwiftBuildConfig(projectId);
     const tarball = await tarSandboxProject(projectId, { excludeConvex: true });
     await uploadBuild(sessionId, tarball);

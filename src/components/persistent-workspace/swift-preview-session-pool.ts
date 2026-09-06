@@ -19,12 +19,17 @@
 // The Stop button bypasses the pool's grace window via `forceEndSession`
 // so user intent to stop is honored immediately.
 
+import type { SimulatorProvider } from "@/lib/simulator-provider";
+import { endLocalSession, startLocalSession } from "./local-simulator-client";
+
 interface PooledSession {
   sessionId: string;
   wsUrl: string;
+  provider?: SimulatorProvider;
 }
 
 export interface SessionOptions {
+  provider?: SimulatorProvider;
   deviceModel?: "iPhone-16-Pro" | "iPad-Pro";
   orientation?: "portrait" | "landscape";
 }
@@ -47,7 +52,16 @@ const pool = new Map<string, PoolEntry>();
 // one session. Orientation is NOT in the key — it's set at creation and then
 // changed live via the `set_orientation` control path (no rebuild).
 function poolKey(projectId: string, opts: SessionOptions): string {
-  return `${projectId}::${opts.deviceModel ?? "iPhone-16-Pro"}`;
+  return `${projectId}::${opts.provider ?? "cloud"}::${opts.deviceModel ?? "iPhone-16-Pro"}`;
+}
+
+function endSession(projectId: string, session: PooledSession): void {
+  if (session.provider === "local") {
+    void endLocalSession(session.sessionId).catch(() => undefined);
+  } else {
+    void fetch(`/api/projects/${projectId}/swift-preview/${session.sessionId}`,
+      { method: "DELETE", keepalive: true }).catch(() => undefined);
+  }
 }
 
 // Grace window between "last consumer released" and "issue DELETE." React
@@ -86,6 +100,7 @@ export function acquireSession(
     promise.then(
       (data) => {
         if (pool.get(key) === entry) entry!.resolved = data;
+        else endSession(projectId, data); // Stop/unmount while provisioning.
       },
       (err: Error) => {
         if (pool.get(key) === entry) {
@@ -124,10 +139,7 @@ export function releaseSession(projectId: string, opts: SessionOptions = {}): vo
     if (current !== entry || current.refcount > 0) return;
     pool.delete(key);
     if (entry.resolved) {
-      void fetch(
-        `/api/projects/${projectId}/swift-preview/${entry.resolved.sessionId}`,
-        { method: "DELETE", keepalive: true },
-      ).catch(() => undefined);
+      endSession(projectId, entry.resolved);
     }
   }, DELETE_GRACE_MS);
 }
@@ -144,10 +156,7 @@ export function forceEndSession(projectId: string, opts: SessionOptions = {}): v
   if (entry.endTimer) clearTimeout(entry.endTimer);
   pool.delete(key);
   if (entry.resolved) {
-    void fetch(
-      `/api/projects/${projectId}/swift-preview/${entry.resolved.sessionId}`,
-      { method: "DELETE", keepalive: true },
-    ).catch(() => undefined);
+    endSession(projectId, entry.resolved);
   }
 }
 
@@ -155,6 +164,7 @@ async function startSession(
   projectId: string,
   opts: SessionOptions,
 ): Promise<PooledSession> {
+  if (opts.provider === "local") return startLocalSession(projectId, opts);
   const res = await fetch(`/api/projects/${projectId}/swift-preview/start`, {
     method: "POST",
     headers: { "content-type": "application/json" },

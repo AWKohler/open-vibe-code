@@ -35,6 +35,9 @@ import {
   saveOrientationPref,
 } from "./swift-preview-prefs";
 import { cn } from "@/lib/utils";
+import type { SimulatorProvider } from "@/lib/simulator-provider";
+import { LocalSimulatorSetup } from "./local-simulator-setup";
+import { rebuildLocalSession } from "./local-simulator-client";
 import { useToast } from "@/components/ui/toast";
 import { BuildIssuesPanel } from "./build-issues-panel";
 import type { SimBuildDiagnostic } from "./swift-stream-client";
@@ -129,7 +132,37 @@ interface LogLine {
 
 const LOG_RING = 400;
 
-export function SwiftSimulatorPreview({
+let localSetupConfirmed = false;
+
+export function SwiftSimulatorPreview(props: SwiftSimulatorPreviewProps) {
+  const [provider, setProvider] = useState<SimulatorProvider | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [localReady, setLocalReady] = useState(localSetupConfirmed);
+  const [retry, setRetry] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(null);
+    void (async () => {
+      try {
+        const response = await fetch("/api/swift-preview/config", { cache: "no-store", signal: controller.signal });
+        const body = await response.json();
+        if (!response.ok || !["cloud", "local"].includes(body.provider)) {
+          throw new Error(body.error || "Could not load preview configuration.");
+        }
+        setProvider(body.provider);
+      } catch (error) {
+        if (!controller.signal.aborted) setError((error as Error).message);
+      }
+    })();
+    return () => controller.abort();
+  }, [retry]);
+  if (error) return <div className="p-5 text-sm text-muted" role="alert">{error} <button className="text-accent underline" onClick={() => setRetry((r) => r + 1)}>Retry</button></div>;
+  if (!provider) return <div className="flex items-center gap-2 p-5 text-sm text-muted"><Loader2 size={16} className="animate-spin" />Checking preview availability…</div>;
+  if (provider === "local" && !localReady) return <LocalSimulatorSetup onReady={() => { localSetupConfirmed = true; setLocalReady(true); }} />;
+  return <ActiveSwiftSimulatorPreview {...props} provider={provider} onLocalSetup={() => { localSetupConfirmed = false; setLocalReady(false); }} />;
+}
+
+function ActiveSwiftSimulatorPreview({
   projectId,
   mode = "full",
   onOpenFile,
@@ -137,7 +170,9 @@ export function SwiftSimulatorPreview({
   onExpand,
   onRestartRequested,
   screenshots,
-}: SwiftSimulatorPreviewProps) {
+  provider,
+  onLocalSetup,
+}: SwiftSimulatorPreviewProps & { provider: SimulatorProvider; onLocalSetup: () => void }) {
   const isPip = mode === "pip";
   const { toast } = useToast();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -312,7 +347,7 @@ export function SwiftSimulatorPreview({
     (async () => {
       try {
         setPill({ kind: "starting", label: "Provisioning…" });
-        const data = await acquireSession(projectId, { deviceModel, orientation });
+        const data = await acquireSession(projectId, { deviceModel, orientation, provider });
         if (cancelled) return;
         setSessionId(data.sessionId);
         setPill({ kind: "starting", label: "Connecting…" });
@@ -388,19 +423,19 @@ export function SwiftSimulatorPreview({
       // Refcounted: the pool may defer the actual DELETE in case a strict-
       // mode remount re-claims within the grace window. Keyed by deviceModel so
       // switching device tears down the old simulator and starts a new one.
-      releaseSession(projectId, { deviceModel });
+      releaseSession(projectId, { deviceModel, provider });
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, deviceModel]);
+  }, [projectId, deviceModel, provider]);
 
   // Stop is special: the user explicitly wants the simulator gone. Bypass
   // the pool grace window so the slot is freed immediately on click. Grab a
   // final screenshot first — it becomes the blurred stopped-state image.
   const handleStop = useCallback(() => {
     captureScreenshot(true);
-    forceEndSession(projectId, { deviceModel });
+    forceEndSession(projectId, { deviceModel, provider });
     onStop?.();
-  }, [projectId, onStop, deviceModel, captureScreenshot]);
+  }, [projectId, onStop, deviceModel, provider, captureScreenshot]);
 
   // Switch device family (iPhone ↔ iPad). The session effect (keyed on
   // deviceModel) tears down the old simulator and starts a new one in the new
@@ -993,6 +1028,10 @@ export function SwiftSimulatorPreview({
     setDiagnostics([]);
     setDiagnosticsFinalized(false);
     try {
+      if (provider === "local") {
+        await rebuildLocalSession(projectId, sessionId);
+        return;
+      }
       const res = await fetch(
         `/api/projects/${projectId}/swift-preview/rebuild?sessionId=${encodeURIComponent(sessionId)}`,
         { method: "POST" },
@@ -1006,7 +1045,7 @@ export function SwiftSimulatorPreview({
       setPill({ kind: "error", message: (e as Error).message });
       setRebuilding(false);
     }
-  }, [projectId, sessionId, rebuilding]);
+  }, [projectId, sessionId, rebuilding, provider]);
 
   // ── Agent start-while-mounted ─────────────────────────────────────────────
   // The workspace shell dispatches `swift-sim-agent-start` when the agent's
@@ -1050,6 +1089,7 @@ export function SwiftSimulatorPreview({
       )}
     >
       {/* Status bar — compact in PIP mode */}
+      {provider === "local" && <div className="flex shrink-0 items-center justify-between px-3 py-1 text-[11px] text-muted"><span>Preview runs on your Mac</span><button onClick={onLocalSetup} className="text-accent hover:underline">Companion setup</button></div>}
       <div
         className={cn(
           "flex-shrink-0 items-center rounded-xl border border-border bg-elevated/60",
@@ -1072,7 +1112,7 @@ export function SwiftSimulatorPreview({
                 "flex items-center rounded-md border border-border bg-elevated text-muted hover:text-fg",
                 isPip ? "h-5 w-5 justify-center" : "gap-1.5 px-2 py-1 text-[11px]",
               )}
-              title={deviceModel === "iPad-Pro" ? "iPad Pro" : "iPhone 17 Pro"}
+              title={deviceModel === "iPad-Pro" ? "iPad Pro" : provider === "local" ? "iPhone" : "iPhone 17 Pro"}
             >
               {deviceModel === "iPad-Pro" ? (
                 <Tablet size={isPip ? 11 : 12} />
@@ -1080,7 +1120,7 @@ export function SwiftSimulatorPreview({
                 <Smartphone size={isPip ? 11 : 12} />
               )}
               {!isPip && (
-                <span>{deviceModel === "iPad-Pro" ? "iPad Pro" : "iPhone 17 Pro"}</span>
+                <span>{deviceModel === "iPad-Pro" ? "iPad Pro" : provider === "local" ? "iPhone" : "iPhone 17 Pro"}</span>
               )}
               {!isPip && <ChevronDown size={12} />}
             </button>
@@ -1092,7 +1132,7 @@ export function SwiftSimulatorPreview({
                 />
                 <div className="absolute right-0 z-[61] mt-1 w-40 overflow-hidden rounded-md border border-border bg-elevated shadow-lg">
                   {([
-                    { id: "iPhone-16-Pro" as DeviceModelUI, label: "iPhone 17 Pro", Icon: Smartphone },
+                    { id: "iPhone-16-Pro" as DeviceModelUI, label: provider === "local" ? "iPhone" : "iPhone 17 Pro", Icon: Smartphone },
                     { id: "iPad-Pro" as DeviceModelUI, label: "iPad Pro", Icon: Tablet },
                   ]).map(({ id, label, Icon }) => (
                     <button
@@ -1150,7 +1190,7 @@ export function SwiftSimulatorPreview({
           {/* Webcam toggle — routes the browser camera into the simulator */}
           <button
             onClick={toggleCamera}
-            disabled={pill.kind !== "live"}
+            disabled={pill.kind !== "live" || provider === "local"}
             className={cn(
               "flex items-center rounded-md border border-border bg-elevated hover:text-fg",
               "disabled:cursor-not-allowed disabled:opacity-40",
@@ -1162,7 +1202,7 @@ export function SwiftSimulatorPreview({
               isPip ? "h-5 w-5 justify-center" : "gap-1.5 px-2 py-1 text-[11px]",
             )}
             title={
-              cameraState === "active"
+              provider === "local" ? "Webcam forwarding is available with cloud previews" : cameraState === "active"
                 ? "Stop sharing your webcam"
                 : cameraState === "denied"
                   ? "Camera blocked — allow access in your browser"

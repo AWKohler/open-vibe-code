@@ -13,6 +13,7 @@ import { recordSwiftPreviewSession } from "@/lib/swift-preview-store";
 import { canUseSwift, swiftProjectForbidden } from "@/lib/swift-access";
 import { enforce, identifierFor } from "@/lib/rate-limit";
 import type { SimDeviceModel, SimOrientation } from "@/lib/sim-platform";
+import { simulatorProvider } from "@/lib/simulator-provider";
 
 const DEVICE_MODELS: readonly SimDeviceModel[] = ["iPhone-16-Pro", "iPad-Pro"];
 const ORIENTATIONS: readonly SimOrientation[] = ["portrait", "landscape"];
@@ -78,6 +79,9 @@ export async function POST(
 
   let sessionId: string | null = null;
   try {
+    if (simulatorProvider() !== "cloud") {
+      return NextResponse.json({ error: "Botflow’s Mac cloud is currently at capacity. Use Botflow Companion for local preview.", provider: "local" }, { status: 409 });
+    }
     const session = await createSession({ awaitBuild: true, deviceModel, orientation });
     sessionId = session.sessionId;
     recordSwiftPreviewSession(sessionId, userId, projectId);

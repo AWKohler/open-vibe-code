@@ -83,5 +83,5 @@ Publish its DMG through the existing `botflow-companion-dist` release channel, o
 set `NEXT_PUBLIC_COMPANION_MAC_URL` to the new release asset. Old Companion builds
 are detected and show an update prompt. A Developer-ID signature alone does not
 replace notarization; the packaging script accepts `NOTARY_PROFILE` for the
-existing `notarytool` keychain profile. This change does not publish a release or
-change the production deployment environment.
+existing `notarytool` keychain profile. Configure `SIMULATOR_PROVIDER` separately
+in the production deployment settings and deploy the web changes to activate it.
